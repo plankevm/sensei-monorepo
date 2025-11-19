@@ -1,0 +1,20 @@
+const my_func = fn () -> struct { x: u256, y: u256 } {
+
+};
+
+const IMPORTANT_NUM: u256 = 3;
+
+const ByteBuffer = struct {
+    ptr: byteptr,
+    len: u256,
+};
+
+init {
+    let x = 3;
+    let mut y = 24;
+}
+
+
+run {
+
+}

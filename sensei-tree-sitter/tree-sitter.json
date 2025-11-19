@@ -1,0 +1,39 @@
+{
+  "$schema": "https://tree-sitter.github.io/tree-sitter/assets/schemas/config.schema.json",
+  "grammars": [
+    {
+      "name": "sensei",
+      "camelcase": "Sensei",
+      "title": "Sensei",
+      "scope": "source.sensei",
+      "file-types": [
+        "sensei"
+      ],
+      "injection-regex": "^sensei$",
+      "class-name": "TreeSitterSensei"
+    }
+  ],
+  "metadata": {
+    "version": "0.1.0",
+    "license": "MIT",
+    "description": "A tree-sitter parser for sensei",
+    "authors": [
+      {
+        "name": "Philogy",
+        "email": "philogy@senseilang.org"
+      }
+    ],
+    "links": {
+      "repository": "https://github.com/senseilang/sensei-tree-sitter"
+    }
+  },
+  "bindings": {
+    "c": true,
+    "go": true,
+    "node": true,
+    "python": true,
+    "rust": true,
+    "swift": true,
+    "zig": false
+  }
+}

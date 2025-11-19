@@ -1,0 +1,121 @@
+================================================================================
+Basic example
+================================================================================
+
+const my_func = fn () struct { x: u256, y: u256 } {
+    x = 18446744073709551616;
+
+};
+
+const IMPORTANT_NUM: u256 = 3;
+
+const ByteBuffer = struct {
+    ptr: byteptr,
+    len: u256,
+};
+
+init {
+    x = 3;
+    y = 24;
+}
+
+
+run {
+
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (const_definition
+    (const_item
+      (identifier)
+      (type_def
+        (fn_def
+          (type_expr
+            (type_def
+              (struct_def
+                (typed_item_def
+                  (identifier)
+                  (type_expr
+                    (name_path
+                      (identifier))))
+                (typed_item_def
+                  (identifier)
+                  (type_expr
+                    (name_path
+                      (identifier)))))))
+          (block
+            (stmt
+              (assign
+                (name_path
+                  (identifier))
+                (literal
+                  (dec_literal)))))))))
+  (const_definition
+    (const_item
+      (identifier)
+      (type_expr
+        (name_path
+          (identifier)))
+      (literal
+        (dec_literal))))
+  (const_definition
+    (const_item
+      (identifier)
+      (expr
+        (type_def
+          (struct_def
+            (typed_item_def
+              (identifier)
+              (type_expr
+                (name_path
+                  (identifier))))
+            (typed_item_def
+              (identifier)
+              (type_expr
+                (name_path
+                  (identifier)))))))))
+  (init_declaration
+    (block
+      (stmt
+        (assign
+          (name_path
+            (identifier))
+          (expr
+            (literal
+              (dec_literal)))))
+      (stmt
+        (assign
+          (name_path
+            (identifier))
+          (expr
+            (literal
+              (dec_literal)))))))
+  (run_declaration
+    (block)))
+
+================================================================================
+Arithmetic
+================================================================================
+const x = {
+    {};
+    3 + y * (x + 0x234)
+
+};
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (const_definition
+    (const_item
+      (identifier)
+      (block
+        (block)
+        (binary_expr
+          (dec_literal)
+          (binary_expr
+            (identifier)
+            (binary_expr
+              (identifier)
+              (hex_literal))))))))

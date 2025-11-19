@@ -1,0 +1,21 @@
+[workspace]
+resolver = "2"
+members = ["crates/*"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+
+[workspace.dependencies]
+# Sub Crates
+neosen-data = {path = "crates/data"}
+neosen-parser = {path = "crates/parser"}
+
+# Shared Dependencies
+bumpalo = {version = "3.19.0", features=["allocator-api2"]}
+allocator-api2 = "0.2"
+hashbrown = {version="0.16.0", features=["allocator-api2"]}
+sir-data = { git = "https://github.com/senseilang/sensei-ir.git" }
+smallvec = "1.15.1"
+inturn = "0.1.2"
