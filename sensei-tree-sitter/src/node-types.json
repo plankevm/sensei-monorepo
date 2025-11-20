@@ -48,6 +48,10 @@
           "named": true
         },
         {
+          "type": "struct_lit",
+          "named": true
+        },
+        {
           "type": "type_def",
           "named": true
         }
@@ -104,6 +108,10 @@
           },
           {
             "type": "member",
+            "named": true
+          },
+          {
+            "type": "struct_lit",
             "named": true
           },
           {
@@ -235,6 +243,10 @@
             "named": true
           },
           {
+            "type": "struct_lit",
+            "named": true
+          },
+          {
             "type": "type_def",
             "named": true
           }
@@ -292,6 +304,10 @@
           },
           {
             "type": "member",
+            "named": true
+          },
+          {
+            "type": "struct_lit",
             "named": true
           },
           {
@@ -369,6 +385,10 @@
             "named": true
           },
           {
+            "type": "struct_lit",
+            "named": true
+          },
+          {
             "type": "type_def",
             "named": true
           }
@@ -423,6 +443,10 @@
         },
         {
           "type": "member",
+          "named": true
+        },
+        {
+          "type": "struct_lit",
           "named": true
         },
         {
@@ -489,6 +513,10 @@
             "named": true
           },
           {
+            "type": "struct_lit",
+            "named": true
+          },
+          {
             "type": "type_def",
             "named": true
           }
@@ -544,6 +572,10 @@
           },
           {
             "type": "member",
+            "named": true
+          },
+          {
+            "type": "struct_lit",
             "named": true
           },
           {
@@ -637,6 +669,10 @@
           "named": true
         },
         {
+          "type": "struct_lit",
+          "named": true
+        },
+        {
           "type": "type_def",
           "named": true
         }
@@ -685,6 +721,10 @@
         },
         {
           "type": "member",
+          "named": true
+        },
+        {
+          "type": "struct_lit",
           "named": true
         },
         {
@@ -754,6 +794,10 @@
           "named": true
         },
         {
+          "type": "struct_lit",
+          "named": true
+        },
+        {
           "type": "type_def",
           "named": true
         }
@@ -809,6 +853,80 @@
       "types": [
         {
           "type": "typed_item_def",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "struct_lit",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "name_path",
+          "named": true
+        },
+        {
+          "type": "struct_lit_field",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "struct_lit_field",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "bin_literal",
+          "named": true
+        },
+        {
+          "type": "binary_expr",
+          "named": true
+        },
+        {
+          "type": "block",
+          "named": true
+        },
+        {
+          "type": "bool_literal",
+          "named": true
+        },
+        {
+          "type": "dec_literal",
+          "named": true
+        },
+        {
+          "type": "fn_call",
+          "named": true
+        },
+        {
+          "type": "hex_literal",
+          "named": true
+        },
+        {
+          "type": "identifier",
+          "named": true
+        },
+        {
+          "type": "member",
+          "named": true
+        },
+        {
+          "type": "struct_lit",
+          "named": true
+        },
+        {
+          "type": "type_def",
           "named": true
         }
       ]

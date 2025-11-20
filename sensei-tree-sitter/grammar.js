@@ -50,6 +50,7 @@ module.exports = grammar({
       $.type_def,
       $._literal,
       $.identifier,
+      $.struct_lit
     ),
     fn_call: $ => seq(
       field("fn", $._expr),
@@ -87,6 +88,8 @@ module.exports = grammar({
       repeat(seq("else", "if", $._expr, $.block)),
       optional(seq("else", $.block))
     ),
+    struct_lit: $ => seq($.name_path, "{", commaSeparated($.struct_lit_field), "}"),
+    struct_lit_field: $ => seq($.identifier, ":", $._expr),
 
     type_def: $ => choice($.fn_def, $.struct_def),
     fn_def: $ => seq("fn", "(", commaSeparated($.typed_item_def), ")", $.type_expr, $.block),
