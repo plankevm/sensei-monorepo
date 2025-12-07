@@ -21,12 +21,12 @@ pub struct FuncApp {
 
 #[derive(Debug, Clone)]
 pub struct Block {
-    pub lets: Vec<Let>,
+    pub lets: Vec<LetBind>,
     pub end_expr: Expr,
 }
 
 #[derive(Debug, Clone)]
-pub struct Let {
+pub struct LetBind {
     pub span: Span,
     pub bind_local: Name,
     pub local_type: Option<Expr>,
@@ -45,13 +45,20 @@ pub struct StructDef {
     pub def_uuid: u32,
     pub fields_span: Span,
     pub fields: Vec<StructField>,
-    pub associated_defs: Vec<Definition>,
+    pub associated_defs: Vec<LetBind>,
 }
 
 #[derive(Debug, Clone)]
-pub struct Definition {
-    pub def_name: Name,
-    pub expr: Expr,
+pub struct StructInitField {
+    pub span: Span,
+    pub name: Name,
+    pub value: Expr,
+}
+
+#[derive(Debug, Clone)]
+pub struct StructInit {
+    pub struct_type: Expr,
+    pub fields: Vec<StructInitField>,
 }
 
 #[derive(Debug, Clone)]
@@ -64,7 +71,6 @@ pub struct IfThenElse {
 
 #[derive(Debug, Clone)]
 pub struct BuiltinInvoke<const ARG_COUNT: usize> {
-    pub span: Span,
     pub args: [Expr; ARG_COUNT],
 }
 
@@ -76,21 +82,32 @@ pub struct MemberAccess {
 
 #[derive(Debug, Clone)]
 pub enum ExprKind {
+    /* Leaf Expressions */
     ConstVoid,
     ConstInt(i32),
     ConstBool(bool),
     Var(Box<str>),
 
-    StructDef(Box<StructDef>),
+    FuncApp(Box<FuncApp>),
     IfThenElse(Box<IfThenElse>),
     Block(Box<Block>),
-    FuncDef(Box<FuncDef>),
-    FuncApp(Box<FuncApp>),
     MemberAccess(Box<MemberAccess>),
+    FuncDef(Box<FuncDef>),
+    StructDef(Box<StructDef>),
+    StructInit(Box<StructInit>),
+
     /* Builtins */
-    IntAdd(Box<BuiltinInvoke<2>>),
+    Add(Box<BuiltinInvoke<2>>),
     Eq(Box<BuiltinInvoke<2>>),
     TypeOf(Box<BuiltinInvoke<1>>),
+    MemoryAllocate(Box<BuiltinInvoke<2>>),
+    PointerStore(Box<BuiltinInvoke<2>>),
+    PointerLoad(Box<BuiltinInvoke<1>>),
+
+    /* Runtime Only IO */
+    RuntimeReturn(Box<BuiltinInvoke<2>>),
+    InputSize,
+    LoadInput(Box<BuiltinInvoke<3>>),
 }
 
 #[derive(Debug, Clone)]
@@ -101,6 +118,5 @@ pub struct Expr {
 
 #[derive(Debug)]
 pub struct Ast {
-    pub definitions: Vec<Definition>,
     pub runtime_main: Expr,
 }

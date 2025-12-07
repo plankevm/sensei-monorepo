@@ -135,7 +135,7 @@ mod tests {
                 Ident("a_3473bob"),
                 Ident("void"),
                 True,
-                Percent,
+                Error,
                 False
             ]
         );
