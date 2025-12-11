@@ -1,4 +1,4 @@
-use sencore::parser::{Parser, lower_sexpr_to_ast};
+use sencore::parser::{lower_sexpr_to_ast, Parser};
 
 fn main() {
     let mut args = std::env::args();
@@ -15,5 +15,5 @@ fn main() {
 
     let ast = lower_sexpr_to_ast(&list).expect("lowering failed");
 
-    println!("ast: {:#?}", ast);
+    println!("{}", ast);
 }

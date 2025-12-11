@@ -264,7 +264,10 @@ fn lower_block(
         .iter()
         .map(|node| lower_let_bind(ctx, node))
         .collect::<Result<Vec<_>, _>>()?;
-    let end_expr = snode_to_expr(ctx, end_node)?;
+    let end_expr = snode_to_expr(ctx, end_node).map_err(|mut err| {
+        err.message = format!("[block expr] {}", err.message);
+        err
+    })?;
 
     Ok(Expr {
         span,
@@ -443,29 +446,6 @@ fn lower_struct_init(
     })
 }
 
-fn lower_builtin_args<const N: usize>(
-    ctx: &mut LoweringCtx,
-    span: Span<usize>,
-    name: &str,
-    args: &[SNode],
-) -> Result<Box<BuiltinInvoke<N>>, ParseError> {
-    let arg_nodes: &[SNode; N] = args.try_into().map_err(|_| ParseError {
-        message: format!(
-            "`{name}` requires exactly {N} argument{}, got {}",
-            if N == 1 { "" } else { "s" },
-            args.len()
-        ),
-        span,
-    })?;
-    let args = arg_nodes
-        .iter()
-        .map(|node| snode_to_expr(ctx, node))
-        .collect::<Result<Vec<_>, _>>()?
-        .try_into()
-        .unwrap();
-    Ok(Box::new(BuiltinInvoke { args }))
-}
-
 fn snode_to_expr(ctx: &mut LoweringCtx, node: &SNode) -> Result<Expr, ParseError> {
     let expr = |kind| {
         Ok(Expr {
@@ -501,67 +481,10 @@ fn snode_to_expr(ctx: &mut LoweringCtx, node: &SNode) -> Result<Expr, ParseError
         "attr" => Ok(lower_attr(ctx, node.span, args)?),
         "struct_def" => Ok(lower_struct(ctx, node.span, args)?),
         "struct_init" => Ok(lower_struct_init(ctx, node.span, args)?),
-        "fix" => {
-            let [inner] = args else {
-                return Err(ParseError {
-                    message: format!("`fix` requires exactly 1 argument, got {}", args.len()),
-                    span: node.span,
-                });
-            };
-            expr(ExprKind::Fix(Box::new(snode_to_expr(ctx, inner)?)))
-        }
-        /* Builtins */
-        "add" => expr(ExprKind::Add(lower_builtin_args(
-            ctx, node.span, form_name, args,
-        )?)),
-        "eq" => expr(ExprKind::Eq(lower_builtin_args(
-            ctx, node.span, form_name, args,
-        )?)),
-        "meta__type_of" => expr(ExprKind::TypeOf(lower_builtin_args(
-            ctx, node.span, form_name, args,
-        )?)),
-        "meta__is_struct" => expr(ExprKind::TypeIsStruct(lower_builtin_args(
-            ctx, node.span, form_name, args,
-        )?)),
-        "meta__struct_get_total_fields" => expr(ExprKind::GetStructFieldCount(lower_builtin_args(
-            ctx, node.span, form_name, args,
-        )?)),
-        "meta__struct_get_field" => expr(ExprKind::GetStructField(lower_builtin_args(
-            ctx, node.span, form_name, args,
-        )?)),
-        "fn" => expr(ExprKind::ArrowType(lower_builtin_args(
-            ctx, node.span, form_name, args,
-        )?)),
-        "mem__malloc" => expr(ExprKind::MemoryAllocate(lower_builtin_args(
-            ctx, node.span, form_name, args,
-        )?)),
-        "mem__ptr_store" => expr(ExprKind::PointerStore(lower_builtin_args(
-            ctx, node.span, form_name, args,
-        )?)),
-        "mem__ptr_load" => expr(ExprKind::PointerLoad(lower_builtin_args(
-            ctx, node.span, form_name, args,
-        )?)),
-        "io__return" => expr(ExprKind::RuntimeReturn(lower_builtin_args(
-            ctx, node.span, form_name, args,
-        )?)),
-        "io__copy_input" => expr(ExprKind::LoadInput(lower_builtin_args(
-            ctx, node.span, form_name, args,
-        )?)),
-        "io__input_size" => expr({
-            if !args.is_empty() {
-                return Err(ParseError {
-                    message: format!("`input_size` takes no arguments, got: {}", args.len()),
-                    span: node.span,
-                });
-            }
-            ExprKind::InputSize
-        }),
-        _ if args.is_empty() => return snode_to_expr(ctx, first),
-        unknown => {
-            return Err(ParseError {
-                message: format!("Unknown form: {}", unknown),
-                span: first.span,
-            });
+        _ => {
+            // Unknown name: treat as implicit function application
+            // (f x y) => ((f x) y)
+            lower_apply(ctx, node.span, list)
         }
     }
 }
@@ -672,18 +595,6 @@ mod tests {
     }
 
     #[test]
-    fn test_lower_builtins() {
-        let ast = parse_and_lower("(add 1 2)").unwrap();
-        assert!(matches!(ast.runtime_main.kind, ExprKind::Add(_)));
-
-        let ast = parse_and_lower("(eq 1 2)").unwrap();
-        assert!(matches!(ast.runtime_main.kind, ExprKind::Eq(_)));
-
-        let ast = parse_and_lower("(type_of x)").unwrap();
-        assert!(matches!(ast.runtime_main.kind, ExprKind::TypeOf(_)));
-    }
-
-    #[test]
     fn test_lower_attr() {
         let ast = parse_and_lower("(attr foo bar my_struct)").unwrap();
         // Should be MemberAccess(MemberAccess(my_struct, foo), bar)
@@ -753,9 +664,6 @@ mod tests {
         assert!(parse_and_lower("(apply)").is_err());
         assert!(parse_and_lower("(attr)").is_err());
         assert!(parse_and_lower("(struct_def)").is_err());
-        assert!(parse_and_lower("(add)").is_err());
-        assert!(parse_and_lower("(eq)").is_err());
-        assert!(parse_and_lower("(type_of)").is_err());
 
         // Non-keywords should still work as Var
         let ast = parse_and_lower("(foo)").unwrap();
