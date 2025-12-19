@@ -8,7 +8,7 @@
             (len i32)
         )
     ))
-    (is_abi_dynamic (func T type (
+    (is_abi_dynamic (func comptime T type (
         if (or (or (eq T i32) (eq T void)) (eq T bool))
             false
         (/*else*/ if (eq T bytes)
@@ -30,17 +30,17 @@
             (error ()) // void/error
         ))
     )))
-    (abi_list_head_size (func T type (block
+    (abi_list_head_size (func comptime S type (block
         (sum_fields (func i i32 (func acc i32 (
-            if (eq i (meta__struct_get_total_fields T))
+            if (eq i (meta__struct_get_total_fields S))
                 acc
                 (sum_fields (add i 1) (add acc (abi_head_size
-                    (meta__struct_get_field T i)
+                    (meta__struct_get_field S i)
                 )))
         ))))
         (sum_fields 0 0)
     )))
-    (abi_head_size (func T type (
+    (abi_head_size (func comptime T type (
         if (or (or (eq T i32) (eq T bool)) (eq T bytes))
             4
         (if (eq T void)
@@ -48,8 +48,7 @@
         (if (meta__is_struct T)
             (if (is_abi_dynamic T)
                 4
-                (abi_list_head_size T)
-            )
+                (abi_list_head_size T))
             (error ())
         ))
     )))
@@ -65,8 +64,8 @@
             (x bytes)
             (y i32)
             (z MyStruct1)
-            (y bool)
-            (y bool)
+            (b1 bool)
+            (b2 bool)
         )
     ))
     (func _ void (block

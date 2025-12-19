@@ -1,7 +1,27 @@
 use crate::ast::*;
+use crate::comptime_value::{Closure, StructType, StructValue, Type, Value, VirtualMemoryPointer};
 use std::fmt::{self, Display, Write};
 
 const INDENT: &str = "  ";
+
+/// Returns true if the type is simple (can be printed inline).
+fn is_simple_type(ty: &Type) -> bool {
+    match ty {
+        Type::Void | Type::Num | Type::Bool | Type::MemoryPointer | Type::Type | Type::Function => {
+            true
+        }
+        Type::Struct(_) => false,
+    }
+}
+
+/// Returns true if the value is simple (can be printed inline).
+fn is_simple_value(value: &Value) -> bool {
+    match value {
+        Value::Void | Value::Num(_) | Value::Bool(_) | Value::MemoryPointer(_) => true,
+        Value::Type(ty) => is_simple_type(ty),
+        Value::Struct(_) | Value::Closure(_) => false,
+    }
+}
 
 /// Returns true if the expression is "simple" (should be printed inline).
 /// Compound expressions like func, if, block, etc. return false.
@@ -11,6 +31,8 @@ fn is_simple(expr: &Expr) -> bool {
         ExprKind::ConstVoid | ExprKind::ConstInt(_) | ExprKind::ConstBool(_) | ExprKind::Var(_) => {
             true
         }
+
+        ExprKind::Value(v) => is_simple_value(v),
 
         // Compound forms are never simple
         ExprKind::FuncDef(_)
@@ -60,6 +82,8 @@ impl<'a, W: Write> PrettyPrinter<'a, W> {
             ExprKind::ConstInt(n) => write!(self.out, "{}", n),
             ExprKind::ConstBool(b) => write!(self.out, "{}", b),
             ExprKind::Var(name) => write!(self.out, "{}", name),
+
+            ExprKind::Value(v) => self.print_value(v),
 
             ExprKind::FuncDef(def) => self.print_func_def(def),
             ExprKind::FuncApp(_) => self.print_func_app(expr),
@@ -277,6 +301,138 @@ impl<'a, W: Write> PrettyPrinter<'a, W> {
         write!(self.out, ")")
     }
 
+    // ========== Value Printing ==========
+
+    fn print_value(&mut self, value: &Value) -> fmt::Result {
+        match value {
+            Value::Void => write!(self.out, "<value ()>"),
+            Value::Num(n) => write!(self.out, "<value {}>", n),
+            Value::Bool(b) => write!(self.out, "<value {}>", b),
+            Value::MemoryPointer(ptr) => self.print_memory_pointer(ptr),
+            Value::Type(ty) => self.print_type_value(ty),
+            Value::Struct(s) => self.print_struct_value(s),
+            Value::Closure(c) => self.print_closure_value(c),
+        }
+    }
+
+    fn print_memory_pointer(&mut self, ptr: &VirtualMemoryPointer) -> fmt::Result {
+        write!(self.out, "<value ptr@{}+{}>", ptr.allocation, ptr.offset)
+    }
+
+    fn print_type_value(&mut self, ty: &Type) -> fmt::Result {
+        match ty {
+            Type::Void => write!(self.out, "<value type:void>"),
+            Type::Num => write!(self.out, "<value type:num>"),
+            Type::Bool => write!(self.out, "<value type:bool>"),
+            Type::MemoryPointer => write!(self.out, "<value type:ptr>"),
+            Type::Type => write!(self.out, "<value type:type>"),
+            Type::Function => write!(self.out, "<value type:fn>"),
+            Type::Struct(st) => self.print_struct_type(st),
+        }
+    }
+
+    fn print_struct_type(&mut self, st: &StructType) -> fmt::Result {
+        write!(self.out, "<value type:(struct")?;
+        self.indented(|this| {
+            // Fields
+            writeln!(this.out)?;
+            this.write_indent()?;
+            write!(this.out, "(fields")?;
+            if !st.fields.is_empty() {
+                this.indented(|this| {
+                    for (name, ty) in &st.fields {
+                        writeln!(this.out)?;
+                        this.write_indent()?;
+                        write!(this.out, "({} ", name)?;
+                        this.print_type_inline(ty)?;
+                        write!(this.out, ")")?;
+                    }
+                    Ok(())
+                })?;
+                writeln!(this.out)?;
+                this.write_indent()?;
+            }
+            write!(this.out, ")")?;
+
+            // Defs
+            writeln!(this.out)?;
+            this.write_indent()?;
+            write!(this.out, "(defs")?;
+            if !st.defs.is_empty() {
+                this.indented(|this| {
+                    for def in &st.defs {
+                        writeln!(this.out)?;
+                        this.write_indent()?;
+                        this.print_value(def)?;
+                    }
+                    Ok(())
+                })?;
+                writeln!(this.out)?;
+                this.write_indent()?;
+            }
+            write!(this.out, ")")
+        })?;
+        writeln!(self.out)?;
+        self.write_indent()?;
+        write!(self.out, ")>")
+    }
+
+    /// Print a type inline (without the <value ...> wrapper, for use inside struct types).
+    fn print_type_inline(&mut self, ty: &Type) -> fmt::Result {
+        match ty {
+            Type::Void => write!(self.out, "void"),
+            Type::Num => write!(self.out, "num"),
+            Type::Bool => write!(self.out, "bool"),
+            Type::MemoryPointer => write!(self.out, "ptr"),
+            Type::Type => write!(self.out, "type"),
+            Type::Function => write!(self.out, "fn"),
+            Type::Struct(_) => write!(self.out, "struct"), // Simplified for inline
+        }
+    }
+
+    fn print_struct_value(&mut self, sv: &StructValue) -> fmt::Result {
+        write!(self.out, "<value (struct")?;
+        self.indented(|this| {
+            writeln!(this.out)?;
+            this.write_indent()?;
+            write!(this.out, "(type ")?;
+            this.print_type_inline(&sv.r#type)?;
+            write!(this.out, ")")?;
+
+            for (i, field_value) in sv.field_values.iter().enumerate() {
+                writeln!(this.out)?;
+                this.write_indent()?;
+                write!(this.out, "(field_{} ", i)?;
+                this.print_value(field_value)?;
+                write!(this.out, ")")?;
+            }
+            Ok(())
+        })?;
+        writeln!(self.out)?;
+        self.write_indent()?;
+        write!(self.out, ")>")
+    }
+
+    fn print_closure_value(&mut self, closure: &Closure) -> fmt::Result {
+        write!(self.out, "<value (closure {} ", closure.binds)?;
+        self.print_type_inline(&closure.r#type)?;
+
+        if is_simple(&closure.body) {
+            write!(self.out, " ")?;
+            self.print_expr(&closure.body)?;
+            write!(self.out, ")>")
+        } else {
+            self.indented(|this| {
+                writeln!(this.out)?;
+                this.write_indent()?;
+                this.print_expr(&closure.body)
+            })?;
+            writeln!(self.out)?;
+            self.write_indent()?;
+            write!(self.out, ")>")
+        }
+    }
+
     pub fn print_ast(&mut self, ast: &Ast) -> fmt::Result {
         self.print_expr(&ast.runtime_main)
     }
@@ -311,6 +467,13 @@ impl Display for Ast {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut printer = PrettyPrinter::new(f);
         printer.print_ast(self)
+    }
+}
+
+impl Display for Value {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut printer = PrettyPrinter::new(f);
+        printer.print_value(self)
     }
 }
 

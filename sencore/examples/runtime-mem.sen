@@ -1,0 +1,5 @@
+(func _ void (block
+    (buf (mem__malloc 4))
+    (_ (mem__write buf (io__input_size ())))
+    (io__return_exit buf 4)
+))

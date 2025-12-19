@@ -1,4 +1,5 @@
-use sencore::errors::format_parse_error;
+use sencore::comptime_value::{Closure, Value};
+use sencore::errors::format_error;
 use sencore::parser::{Parser, lower_sexpr_to_ast};
 
 fn main() {
@@ -16,7 +17,7 @@ fn main() {
             std::process::exit(1);
         }
         Err(e) => {
-            eprintln!("{}", format_parse_error(&source, &e));
+            eprintln!("{}", format_error(&source, &e.message, e.span));
             std::process::exit(1);
         }
     };
@@ -24,12 +25,28 @@ fn main() {
     let ast = match lower_sexpr_to_ast(&list) {
         Ok(ast) => ast,
         Err(e) => {
-            eprintln!("{}", format_parse_error(&source, &e));
+            eprintln!("{}", format_error(&source, &e.message, e.span));
             std::process::exit(1);
         }
     };
 
-    println!("{}", ast);
+    let value = match sencore::interpreter::interpret(&ast.runtime_main) {
+        Ok(value) => value,
+        Err(e) => {
+            eprintln!("{}", format_error(&source, &e.message, e.span));
+            std::process::exit(1);
+        }
+    };
 
-    sencore::interpreter::interpret(&ast.runtime_main);
+    println!("========= Interpreter Output =========");
+    println!("{}", value);
+
+    // match value {
+    //     Value::Closure(closure) => {
+    //         println!("Closure");
+    //         println!("  {} : {:?}", closure.binds, closure.r#type);
+    //         println!("  {}", closure.body);
+    //     }
+    //     value => println!("{:#?}", value),
+    // }
 }

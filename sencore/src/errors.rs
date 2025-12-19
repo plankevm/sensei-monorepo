@@ -1,4 +1,4 @@
-use crate::parser::ParseError;
+use crate::Span;
 use std::fmt::Write;
 
 #[derive(Debug, Clone, Copy)]
@@ -25,15 +25,15 @@ pub fn byte_offset_to_location(source: &str, offset: usize) -> SourceLocation {
 }
 
 
-pub fn format_parse_error(source: &str, error: &ParseError) -> String {
-    let start_loc = byte_offset_to_location(source, error.span.start);
-    let end_loc = byte_offset_to_location(source, error.span.end.saturating_sub(1).max(error.span.start));
+pub fn format_error(source: &str, message: &str, span: Span<usize>) -> String {
+    let start_loc = byte_offset_to_location(source, span.start);
+    let end_loc = byte_offset_to_location(source, span.end.saturating_sub(1).max(span.start));
 
     let lines: Vec<&str> = source.lines().collect();
 
     let mut output = String::new();
 
-    writeln!(output, "error: {}", error.message).unwrap();
+    writeln!(output, "error: {}", message).unwrap();
     writeln!(output, "  --> {}:{}", start_loc.line, start_loc.column).unwrap();
     writeln!(output).unwrap();
 

@@ -85,6 +85,8 @@ pub enum ExprKind {
     ConstBool(bool),
     Var(Box<str>),
 
+    Value(Box<crate::comptime_value::Value>),
+
     MemberAccess(Box<MemberAccess>),
     IfThenElse(Box<IfThenElse>),
     FuncApp(Box<FuncApp>),
