@@ -20,7 +20,7 @@ pub struct InterpretError {
 #[derive(Debug, Clone)]
 struct Scope {
     parent_scope: Option<ScopeId>,
-    binds: HashMap<Box<str>, Option<Value>>,
+    binds: HashMap<Box<str>, Value>,
 }
 
 #[derive(Debug, Clone)]
@@ -41,13 +41,6 @@ impl OverlappingBindNameInScope {
     }
 }
 
-#[derive(Debug, Clone)]
-pub enum Bind<'ctx> {
-    Value(&'ctx Value),
-    Free,
-    Notbound,
-}
-
 impl InterpretContext {
     fn new() -> Self {
         let root_scope = Scope {
@@ -65,7 +58,7 @@ impl InterpretContext {
         ctx.bind("bool", Type::Bool).unwrap();
         ctx.bind("memptr", Type::MemoryPointer).unwrap();
         ctx.bind("type", Type::Type).unwrap();
-        ctx.bind("function", Type::Function).unwrap();
+        ctx.bind("fn", Type::Function).unwrap();
 
         // Builtins
         ctx.bind("meta__struct_get_field", Builtin::MetaGetStructField)
@@ -88,21 +81,17 @@ impl InterpretContext {
 
         ctx
     }
-
-    fn get(&self, name: impl AsRef<str>) -> Bind<'_> {
+    fn get(&self, name: impl AsRef<str>) -> Option<&Value> {
         let name = name.as_ref();
         let mut current = Some(self.current_scope);
         while let Some(scope) = current {
             let scope = &self.scopes[scope.0];
             if let Some(value) = scope.binds.get(name) {
-                return match value {
-                    None => Bind::Free,
-                    Some(value) => Bind::Value(value),
-                };
+                return Some(value);
             }
             current = scope.parent_scope;
         }
-        Bind::Notbound
+        None
     }
 
     fn bind(
@@ -112,16 +101,7 @@ impl InterpretContext {
     ) -> Result<(), OverlappingBindNameInScope> {
         let name = name.as_ref();
         let scope = &mut self.scopes[self.current_scope.0];
-        match scope.binds.insert(name.into(), Some(value.into())) {
-            Some(_) => Err(OverlappingBindNameInScope),
-            None => Ok(()),
-        }
-    }
-
-    fn free(&mut self, name: impl AsRef<str>) -> Result<(), OverlappingBindNameInScope> {
-        let name = name.as_ref();
-        let scope = &mut self.scopes[self.current_scope.0];
-        match scope.binds.insert(name.into(), None) {
+        match scope.binds.insert(name.into(), value.into()) {
             Some(_) => Err(OverlappingBindNameInScope),
             None => Ok(()),
         }
@@ -145,9 +125,8 @@ impl InterpretContext {
     }
 }
 
-fn eval(expr: &ast::Expr, ctx: &mut InterpretContext) -> Result<ast::Expr, InterpretError> {
+fn eval(expr: &ast::Expr, ctx: &mut InterpretContext) -> Result<Value, InterpretError> {
     use ast::ExprKind;
-
     let span = expr.span;
     let v = match &expr.kind {
         ExprKind::ConstVoid => Value::Void,

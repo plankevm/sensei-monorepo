@@ -1,5 +1,7 @@
 use crate::ast::*;
-use crate::comptime_value::{Builtin, Closure, StructType, StructValue, Type, Value, VirtualMemoryPointer};
+use crate::comptime_value::{
+    Builtin, Closure, StructType, StructValue, Type, Value, VirtualMemoryPointer,
+};
 use std::fmt::{self, Display, Write};
 
 const INDENT: &str = "  ";
@@ -17,7 +19,11 @@ fn is_simple_type(ty: &Type) -> bool {
 /// Returns true if the value is simple (can be printed inline).
 fn is_simple_value(value: &Value) -> bool {
     match value {
-        Value::Void | Value::Num(_) | Value::Bool(_) | Value::MemoryPointer(_) | Value::Builtin(_) => true,
+        Value::Void
+        | Value::Num(_)
+        | Value::Bool(_)
+        | Value::MemoryPointer(_)
+        | Value::Builtin(_) => true,
         Value::Type(ty) => is_simple_type(ty),
         Value::Struct(_) | Value::Closure(_) => false,
     }
@@ -94,11 +100,16 @@ impl<'a, W: Write> PrettyPrinter<'a, W> {
     }
 
     fn print_func_def(&mut self, def: &FuncDef) -> fmt::Result {
-        if def.is_comptime {
-            write!(self.out, "(func comptime {} ", def.func_bind.name)?;
+        let comptime_str = if def.is_comptime { " comptime" } else { "" };
+        if let Some(recursive_name) = def.recursive_name.as_ref() {
+            write!(
+                self.out,
+                "(recfuncdef {}{} {} ",
+                recursive_name.name, comptime_str, def.func_bind.name
+            )?;
         } else {
-            write!(self.out, "(func {} ", def.func_bind.name)?;
-        }
+            write!(self.out, "(funcdef{} {} ", comptime_str, def.func_bind.name)?;
+        };
         self.print_expr(&def.bind_type_expr)?;
 
         if is_simple(&def.body) {
@@ -110,6 +121,24 @@ impl<'a, W: Write> PrettyPrinter<'a, W> {
                 writeln!(this.out)?;
                 this.write_indent()?;
                 this.print_expr(&def.body)
+            })?;
+            writeln!(self.out)?;
+            self.write_indent()?;
+            write!(self.out, ")")
+        }
+    }
+
+    fn print_fix(&mut self, fix: &FixBind) -> fmt::Result {
+        write!(self.out, "(fix {} ", fix.name.name)?;
+
+        if is_simple(&fix.expr) {
+            self.print_expr(&fix.expr)?;
+            write!(self.out, ")")
+        } else {
+            self.indented(|this| {
+                writeln!(this.out)?;
+                this.write_indent()?;
+                this.print_expr(&fix.expr)
             })?;
             writeln!(self.out)?;
             self.write_indent()?;
@@ -557,7 +586,8 @@ mod tests {
 
     #[test]
     fn test_struct_def_with_defs() {
-        let ast = parse("(struct_def (fields (x word)) (defs (new function (func self word self))))");
+        let ast =
+            parse("(struct_def (fields (x word)) (defs (new function (func self word self))))");
         let output = pretty_print_ast(&ast);
         assert!(output.contains("(defs"));
         assert!(output.contains("(new function (func self word self))"));

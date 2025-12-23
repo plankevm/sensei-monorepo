@@ -215,7 +215,7 @@ fn lower_apply(
     })
 }
 
-/// (func comptime? <bind:name> <type:expr> <body:expr>)
+/// (funcdef comptime? <bind:name> <type:expr> <body:expr>)
 fn lower_func(
     ctx: &mut LoweringCtx,
     span: Span<usize>,
@@ -244,6 +244,52 @@ fn lower_func(
     Ok(Expr {
         span,
         kind: ExprKind::FuncDef(Box::new(FuncDef {
+            recursive_name: None,
+            is_comptime,
+            func_bind,
+            bind_type_expr,
+            body,
+        })),
+    })
+}
+
+/// (recfuncdef <funcref:name> comptime? <bind:name> <type:expr> <body:expr>)
+fn lower_recursive_func(
+    ctx: &mut LoweringCtx,
+    span: Span<usize>,
+    args: &[SNode],
+) -> Result<Expr, ParseError> {
+    let (funcref, is_comptime, bind, r#type, body) = match args {
+        [funcref, comptime_keyword, bind, r#type, body] => {
+            if !is_comptime_keyword(comptime_keyword) {
+                return Err(ParseError {
+                    message: format!("Expected `comptime` keyword, got: {:?}", comptime_keyword),
+                    span,
+                });
+            }
+            (funcref, true, bind, r#type, body)
+        }
+        [funcref, bind, r#type, body] => (funcref, false, bind, r#type, body),
+        args => {
+            return Err(ParseError {
+                message: format!(
+                    "recursive function definition expects 4 or 5 arguments, got: {}",
+                    args.len()
+                ),
+                span,
+            });
+        }
+    };
+
+    let funcref = expect_name(funcref)?;
+    let func_bind = expect_name(bind)?;
+    let bind_type_expr = snode_to_expr(ctx, r#type)?;
+    let body = snode_to_expr(ctx, body)?;
+
+    Ok(Expr {
+        span,
+        kind: ExprKind::FuncDef(Box::new(FuncDef {
+            recursive_name: Some(funcref),
             is_comptime,
             func_bind,
             bind_type_expr,
@@ -307,6 +353,7 @@ fn lower_block(
         let func_def = Expr {
             span: func_span,
             kind: ExprKind::FuncDef(Box::new(FuncDef {
+                recursive_name: None,
                 is_comptime: let_bind.is_comptime,
                 func_bind: let_bind.bind_local,
                 bind_type_expr: let_bind.bind_type_expr,
@@ -528,19 +575,15 @@ fn snode_to_expr(ctx: &mut LoweringCtx, node: &SNode) -> Result<Expr, ParseError
             // Single non-name element (e.g. number, nested list)
             return snode_to_expr(ctx, first);
         } else {
-            return Err(ParseError {
-                message: format!(
-                    "Expected identifier at start of form, got {}. \
-                     Hint: use `block` for sequential bindings",
-                    first.kind.describe()
-                ),
-                span: first.span,
-            });
+            // Expression in function position: treat as function application
+            // ((fix f ...) x y) => apply the result of (fix f ...) to x, y
+            return lower_apply(ctx, node.span, list);
         }
     };
     match *form_name {
         "apply" => Ok(lower_apply(ctx, node.span, args)?),
-        "func" => Ok(lower_func(ctx, node.span, args)?),
+        "funcdef" => Ok(lower_func(ctx, node.span, args)?),
+        "recfuncdef" => Ok(lower_recursive_func(ctx, node.span, args)?),
         "if" => Ok(lower_if(ctx, node.span, args)?),
         "block" => Ok(lower_block(ctx, node.span, args)?),
         "attr" => Ok(lower_attr(ctx, node.span, args)?),
@@ -733,10 +776,28 @@ mod tests {
     }
 
     #[test]
+    fn test_lower_fix() {
+        let ast = parse_and_lower("(fix factorial (func n i32 42))").unwrap();
+        let ExprKind::Fix(fix_bind) = &ast.runtime_main.kind else {
+            panic!("Expected Fix");
+        };
+        assert_eq!(&*fix_bind.name.name, "factorial");
+        assert!(matches!(fix_bind.expr.kind, ExprKind::FuncDef(_)));
+    }
+
+    #[test]
+    fn test_fix_requires_two_args() {
+        assert!(parse_and_lower("(fix)").is_err());
+        assert!(parse_and_lower("(fix name)").is_err());
+        assert!(parse_and_lower("(fix name expr extra)").is_err());
+    }
+
+    #[test]
     fn test_keyword_without_args_errors() {
         // Keywords without required arguments should error, not become Var
         assert!(parse_and_lower("(block)").is_err());
         assert!(parse_and_lower("(func)").is_err());
+        assert!(parse_and_lower("(fix)").is_err());
         assert!(parse_and_lower("(if)").is_err());
         assert!(parse_and_lower("(apply)").is_err());
         assert!(parse_and_lower("(attr)").is_err());

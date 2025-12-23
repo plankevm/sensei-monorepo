@@ -8,6 +8,7 @@ pub struct Name {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct FuncDef {
+    pub recursive_name: Option<Name>,
     pub is_comptime: bool,
     pub func_bind: Name,
     pub bind_type_expr: Expr,
@@ -27,6 +28,12 @@ pub struct LetBind {
     pub bind_local: Name,
     pub bind_type_expr: Expr,
     pub assigned: Expr,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct FixBind {
+    pub name: Name,
+    pub expr: Expr,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
