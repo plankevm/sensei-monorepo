@@ -20,6 +20,12 @@ pub enum Type {
     Struct(StructType),
 }
 
+impl Type {
+    pub const fn is_struct(&self) -> bool {
+        matches!(self, Self::Struct(_))
+    }
+}
+
 impl From<Type> for Value {
     fn from(value: Type) -> Self {
         Self::Type(Box::new(value))
@@ -33,6 +39,7 @@ pub struct ScopeId(pub usize);
 pub struct Closure {
     pub r#type: Type,
     pub is_comptime: bool,
+    pub recursive_name: Option<Box<str>>,
     pub binds: Box<str>,
     pub body: ast::Expr,
     pub captures: ScopeId,

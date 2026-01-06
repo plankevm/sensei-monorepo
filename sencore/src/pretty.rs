@@ -150,24 +150,6 @@ impl<'a, W: Write> PrettyPrinter<'a, W> {
         }
     }
 
-    fn print_fix(&mut self, fix: &FixBind) -> fmt::Result {
-        write!(self.out, "(fix {} ", fix.name.name)?;
-
-        if is_simple(&fix.expr) {
-            self.print_expr(&fix.expr)?;
-            write!(self.out, ")")
-        } else {
-            self.indented(|this| {
-                writeln!(this.out)?;
-                this.write_indent()?;
-                this.print_expr(&fix.expr)
-            })?;
-            writeln!(self.out)?;
-            self.write_indent()?;
-            write!(self.out, ")")
-        }
-    }
-
     /// Unfold left-nested FuncApp into (e1 e2 ... eN)
     fn print_func_app(&mut self, expr: &Expr) -> fmt::Result {
         let mut args = Vec::new();
@@ -418,7 +400,11 @@ impl<'a, W: Write> PrettyPrinter<'a, W> {
     }
 
     fn print_closure_value(&mut self, closure: &Closure) -> fmt::Result {
-        write!(self.out, "<value (closure {} ", closure.binds)?;
+        write!(
+            self.out,
+            "<value (closure [{}] {} ",
+            closure.captures.0, closure.binds
+        )?;
         self.print_type_inline(&closure.r#type)?;
 
         if is_simple(&closure.body) {

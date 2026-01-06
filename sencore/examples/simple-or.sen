@@ -1,0 +1,6 @@
+(block
+    (comptime or fn (funcdef a bool (funcdef b bool
+        (if a true b)
+    )))
+    (or false true)
+)

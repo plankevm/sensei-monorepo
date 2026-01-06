@@ -1,0 +1,4 @@
+(block
+    (comptime MY_NUM i32 34)
+    (funcdef _ void (MY_NUM))
+)

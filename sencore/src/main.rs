@@ -1,5 +1,5 @@
 use sencore::comptime_value::{Closure, Value};
-use sencore::errors::format_error;
+use sencore::errors::{format_error, format_error_stack};
 use sencore::parser::{Parser, lower_sexpr_to_ast};
 
 fn main() {
@@ -30,12 +30,13 @@ fn main() {
         }
     };
 
+    println!("========= Interpreter Input =========");
     println!("{}", ast);
 
     let value = match sencore::interpreter::interpret(&ast.runtime_main) {
         Ok(value) => value,
         Err(e) => {
-            eprintln!("{}", format_error(&source, &e.message, e.span));
+            eprintln!("\n\n{}", format_error_stack(&source, &e));
             std::process::exit(1);
         }
     };
