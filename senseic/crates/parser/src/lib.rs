@@ -1,7 +1,8 @@
 pub mod ast;
+pub mod diagnostics;
 mod display;
 pub mod lexer;
-mod parser;
+pub mod parser;
 
 pub mod const_print;
 

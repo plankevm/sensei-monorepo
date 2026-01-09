@@ -6,8 +6,7 @@ decl = init | run | const_def | import
 
 import = "import" (import_all | import_select) "from" STRING ";"
 import_all = "*" ("as" IDENT)?
-import_select = "{" import_selection+ "}"
-import_selection = IDENT ("as" IDENT)?
+import_select = "{" IDENT+ "}"
 
 init = "init" block
 run = "run" block

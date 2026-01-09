@@ -106,7 +106,7 @@ impl<'i> DisplayContext<'i> {
         match kind {
             ImportKind::All => write!(f, "*"),
             ImportKind::As(alias) => write!(f, "(as {:?})", self.lookup(*alias)),
-            ImportKind::Selction(items) => {
+            ImportKind::Selection(items) => {
                 write!(f, "(choice")?;
                 for item in items.iter() {
                     write!(f, " {:?}", self.lookup(*item))?;
@@ -551,13 +551,22 @@ impl<'i> DisplayContext<'i> {
             BinaryOp::MulChecked => "*",
             BinaryOp::DivToPos => "/+",
             BinaryOp::DivToNeg => "/-",
-            BinaryOp::DivToZero => "/$",
-            BinaryOp::DivFromZero => "/^",
+            BinaryOp::DivToZero => "/<",
+            BinaryOp::DivFromZero => "/>",
+            BinaryOp::Mod => "%",
             BinaryOp::LessThan => "<",
             BinaryOp::LessThanEquals => "<=",
             BinaryOp::GreaterThan => ">",
             BinaryOp::GreaterThanEquals => ">=",
             BinaryOp::EqualEqual => "==",
+            BinaryOp::NotEquals => "!=",
+            BinaryOp::LogicalAnd => "&&",
+            BinaryOp::LogicalOr => "||",
+            BinaryOp::BitAnd => "&",
+            BinaryOp::BitOr => "|",
+            BinaryOp::BitXor => "^",
+            BinaryOp::ShiftLeft => "<<",
+            BinaryOp::ShiftRight => ">>",
         };
         write!(f, "{}", op_str)
     }

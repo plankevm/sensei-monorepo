@@ -1,4 +1,5 @@
 use logos::{Lexer as LogosLexer, Logos, Skip};
+use neosen_data::Span;
 
 fn lex_skip_line_comment(lex: &mut LogosLexer<Token>) {
     let remainder = lex.remainder();
@@ -84,12 +85,26 @@ pub enum Token {
     Equals,
     #[token("+")]
     Plus,
+    #[token("+%")]
+    PlusPercent,
     #[token("-")]
     Minus,
+    #[token("-%")]
+    MinusPercent,
     #[token("*")]
     Star,
+    #[token("*%")]
+    StarPercent,
     #[token("/")]
     Slash,
+    #[token("/+")]
+    SlashPlus,
+    #[token("/-")]
+    SlashNeg,
+    #[token("/<")]
+    SlashLess,
+    #[token("/>")]
+    SlashGreater,
     #[token("%")]
     Percent,
 
@@ -178,21 +193,26 @@ pub enum Token {
     Error,
 }
 
+pub type SourceSpan = Span<u32>;
+
 #[derive(Debug, Clone)]
 pub struct Lexer<'src>(LogosLexer<'src, Token>);
 
 impl<'src> Lexer<'src> {
     pub fn new(source: &'src str) -> Self {
+        _ = u32::try_from(source.len()).expect("source exceeds max len of 2^32-1");
         Self(Token::lexer(source))
     }
 }
 
 impl<'src> Iterator for Lexer<'src> {
-    type Item = (Token, std::ops::Range<usize>);
+    type Item = (Token, SourceSpan);
 
     fn next(&mut self) -> Option<Self::Item> {
         let tok = self.0.next()?.unwrap_or(Token::Error);
-        Some((tok, self.0.span()))
+        let span = self.0.span();
+
+        Some((tok, Span::new(span.start as u32, span.end as u32)))
     }
 }
 
@@ -200,7 +220,17 @@ impl<'src> Iterator for Lexer<'src> {
 mod tests {
     use super::*;
 
-    fn lex_all(source: &str) -> Vec<(Token, std::ops::Range<usize>)> {
+    trait AsUsizeRange {
+        fn range(self) -> std::ops::Range<usize>;
+    }
+
+    impl AsUsizeRange for SourceSpan {
+        fn range(self) -> std::ops::Range<usize> {
+            self.start as usize..self.end as usize
+        }
+    }
+
+    fn lex_all(source: &str) -> Vec<(Token, SourceSpan)> {
         Lexer::new(source).collect()
     }
 
@@ -457,7 +487,7 @@ mod tests {
         let results = lex_all(source);
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].0, Token::StringLiteral);
-        assert_eq!(&source[results[0].1.clone()], "\"héllo\"");
+        assert_eq!(&source[results[0].1.range()], "\"héllo\"");
     }
 
     #[test]
@@ -466,7 +496,7 @@ mod tests {
         let results = lex_all(source);
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].0, Token::StringLiteral);
-        assert_eq!(&source[results[0].1.clone()], "\"日本語\"");
+        assert_eq!(&source[results[0].1.range()], "\"日本語\"");
     }
 
     #[test]
@@ -475,7 +505,7 @@ mod tests {
         let results = lex_all(source);
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].0, Token::StringLiteral);
-        assert_eq!(&source[results[0].1.clone()], "\"🦀\"");
+        assert_eq!(&source[results[0].1.range()], "\"🦀\"");
     }
 
     #[test]
@@ -581,8 +611,8 @@ mod tests {
         let source = "  foo  bar  ";
         let results = lex_all(source);
         assert_eq!(results.len(), 2);
-        assert_eq!(&source[results[0].1.clone()], "foo");
-        assert_eq!(&source[results[1].1.clone()], "bar");
+        assert_eq!(&source[results[0].1.range()], "foo");
+        assert_eq!(&source[results[1].1.range()], "bar");
     }
 
     #[test]
@@ -590,7 +620,7 @@ mod tests {
         let source = r#"  "hello world"  "#;
         let results = lex_all(source);
         assert_eq!(results.len(), 1);
-        assert_eq!(&source[results[0].1.clone()], "\"hello world\"");
+        assert_eq!(&source[results[0].1.range()], "\"hello world\"");
     }
 
     #[test]
@@ -598,9 +628,9 @@ mod tests {
         let source = "  123  0xFF  0b101  ";
         let results = lex_all(source);
         assert_eq!(results.len(), 3);
-        assert_eq!(&source[results[0].1.clone()], "123");
-        assert_eq!(&source[results[1].1.clone()], "0xFF");
-        assert_eq!(&source[results[2].1.clone()], "0b101");
+        assert_eq!(&source[results[0].1.range()], "123");
+        assert_eq!(&source[results[1].1.range()], "0xFF");
+        assert_eq!(&source[results[2].1.range()], "0b101");
     }
 
     #[test]
@@ -608,10 +638,10 @@ mod tests {
         let source = "  ->  ==  <=  <<  ";
         let results = lex_all(source);
         assert_eq!(results.len(), 4);
-        assert_eq!(&source[results[0].1.clone()], "->");
-        assert_eq!(&source[results[1].1.clone()], "==");
-        assert_eq!(&source[results[2].1.clone()], "<=");
-        assert_eq!(&source[results[3].1.clone()], "<<");
+        assert_eq!(&source[results[0].1.range()], "->");
+        assert_eq!(&source[results[1].1.range()], "==");
+        assert_eq!(&source[results[2].1.range()], "<=");
+        assert_eq!(&source[results[3].1.range()], "<<");
     }
 
     #[test]

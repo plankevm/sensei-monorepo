@@ -1,16 +1,14 @@
-use crate::const_print::const_assert_eq;
+use crate::{const_print::const_assert_eq, lexer::SourceSpan};
 use allocator_api2::vec::Vec;
 use bumpalo::Bump;
 use inturn::Interner;
-use neosen_data::{Span, X32, bigint::FrozenBigUint};
+use neosen_data::{X32, bigint::FrozenBigUint};
 use std::convert::Infallible;
 
 pub struct InternedString;
 pub type IStr = X32<InternedString>;
 pub type StringInterner = Interner<IStr>;
 pub type AstBox<'ast, T> = &'ast mut T;
-
-pub type SourceSpan = Span<u32>;
 
 #[derive(Debug)]
 pub struct Ast<'ast> {
@@ -36,7 +34,7 @@ pub struct Import<'ast> {
 pub enum ImportKind<'ast> {
     All,
     As(IStr),
-    Selction(AstBox<'ast, [IStr]>),
+    Selection(AstBox<'ast, [IStr]>),
 }
 
 #[derive(Debug)]
@@ -219,7 +217,7 @@ pub struct IfBranch<'ast> {
     pub body: Block<'ast>,
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum BinaryOp {
     // Arithmetic
     AddWrap,
@@ -232,15 +230,81 @@ pub enum BinaryOp {
     DivToNeg,
     DivToZero,
     DivFromZero,
-    // Logical
+    Mod,
+    // Comparison
     LessThan,
     LessThanEquals,
     GreaterThan,
     GreaterThanEquals,
     EqualEqual,
+    NotEquals,
+    // Logical
+    LogicalAnd,
+    LogicalOr,
+    // Bitwise
+    BitAnd,
+    BitOr,
+    BitXor,
+    ShiftLeft,
+    ShiftRight,
 }
 
 #[derive(Debug)]
 pub enum AssignOp {
     Assign,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_binary_op_all_variants_exist() {
+        let ops = [
+            // Arithmetic
+            BinaryOp::AddWrap,
+            BinaryOp::AddChecked,
+            BinaryOp::SubWrap,
+            BinaryOp::SubChecked,
+            BinaryOp::MulWrap,
+            BinaryOp::MulChecked,
+            BinaryOp::DivToPos,
+            BinaryOp::DivToNeg,
+            BinaryOp::DivToZero,
+            BinaryOp::DivFromZero,
+            BinaryOp::Mod,
+            // Comparison
+            BinaryOp::LessThan,
+            BinaryOp::LessThanEquals,
+            BinaryOp::GreaterThan,
+            BinaryOp::GreaterThanEquals,
+            BinaryOp::EqualEqual,
+            BinaryOp::NotEquals,
+            // Logical
+            BinaryOp::LogicalAnd,
+            BinaryOp::LogicalOr,
+            // Bitwise
+            BinaryOp::BitAnd,
+            BinaryOp::BitOr,
+            BinaryOp::BitXor,
+            BinaryOp::ShiftLeft,
+            BinaryOp::ShiftRight,
+        ];
+        assert_eq!(ops.len(), 24);
+    }
+
+    #[test]
+    fn test_binary_op_equality() {
+        assert_eq!(BinaryOp::AddWrap, BinaryOp::AddWrap);
+        assert_ne!(BinaryOp::AddWrap, BinaryOp::SubWrap);
+        assert_eq!(BinaryOp::LogicalAnd, BinaryOp::LogicalAnd);
+        assert_ne!(BinaryOp::LogicalAnd, BinaryOp::LogicalOr);
+    }
+
+    #[test]
+    fn test_binary_op_copy() {
+        let op = BinaryOp::BitXor;
+        let op2 = op;
+        assert_eq!(op, op2);
+    }
 }
