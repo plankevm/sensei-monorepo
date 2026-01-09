@@ -340,12 +340,12 @@ impl<'i> DisplayContext<'i> {
 
     fn fmt_expr(&mut self, f: &mut fmt::Formatter<'_>, expr: &Expr<'_>) -> fmt::Result {
         match expr {
-            Expr::TypeExpr(type_expr) => {
-                write!(f, "(type-expr")?;
+            Expr::TypeDef(type_def) => {
+                write!(f, "(type-def")?;
                 writeln!(f)?;
                 self.with_indent(1, |ctx| {
                     ctx.write_indent(f)?;
-                    ctx.fmt_type_expr(f, type_expr)
+                    ctx.fmt_type_def(f, type_def)
                 })?;
                 writeln!(f)?;
                 self.write_indent(f)?;
@@ -582,89 +582,103 @@ impl<'i> DisplayContext<'i> {
     fn fmt_type_expr(&mut self, f: &mut fmt::Formatter<'_>, ty: &TypeExpr<'_>) -> fmt::Result {
         match ty {
             TypeExpr::NamePath(name_path) => self.fmt_name_path(f, name_path),
-            TypeExpr::FnDef(fn_def) => {
-                writeln!(f, "(fn-def")?;
-                self.with_indent(1, |ctx| {
-                    ctx.write_indent(f)?;
-                    if fn_def.params.is_empty() {
-                        writeln!(f, "(params)")?;
-                    } else {
-                        writeln!(f, "(params")?;
-                        ctx.with_indent(1, |ctx| {
-                            for param in fn_def.params.iter() {
-                                ctx.write_indent(f)?;
-                                write!(f, "(param {:?}", ctx.lookup(param.name))?;
-                                writeln!(f)?;
-                                ctx.with_indent(1, |ctx| {
-                                    ctx.write_indent(f)?;
-                                    ctx.fmt_type_expr(f, &param.r#type)
-                                })?;
-                                writeln!(f)?;
-                                ctx.write_indent(f)?;
-                                writeln!(f, ")")?;
-                            }
-                            Ok(())
-                        })?;
+            TypeExpr::StructDef(struct_def) => self.fmt_struct_def(f, struct_def),
+        }
+    }
+
+    fn fmt_type_def(&mut self, f: &mut fmt::Formatter<'_>, ty: &TypeDef<'_>) -> fmt::Result {
+        match ty {
+            TypeDef::FnDef(fn_def) => self.fmt_fn_def(f, fn_def),
+            TypeDef::StructDef(struct_def) => self.fmt_struct_def(f, struct_def),
+        }
+    }
+
+    fn fmt_fn_def(&mut self, f: &mut fmt::Formatter<'_>, fn_def: &FnDef<'_>) -> fmt::Result {
+        writeln!(f, "(fn-def")?;
+        self.with_indent(1, |ctx| {
+            ctx.write_indent(f)?;
+            if fn_def.params.is_empty() {
+                writeln!(f, "(params)")?;
+            } else {
+                writeln!(f, "(params")?;
+                ctx.with_indent(1, |ctx| {
+                    for param in fn_def.params.iter() {
                         ctx.write_indent(f)?;
-                        writeln!(f, ")")?;
-                    }
-                    if let Some(result_ty) = &fn_def.result {
-                        ctx.write_indent(f)?;
-                        writeln!(f, "(result")?;
+                        write!(f, "(param {:?}", ctx.lookup(param.name))?;
+                        writeln!(f)?;
                         ctx.with_indent(1, |ctx| {
                             ctx.write_indent(f)?;
-                            ctx.fmt_type_expr(f, result_ty)
+                            ctx.fmt_type_expr(f, &param.r#type)
                         })?;
                         writeln!(f)?;
                         ctx.write_indent(f)?;
                         writeln!(f, ")")?;
                     }
-                    ctx.write_indent(f)?;
-                    writeln!(f, "(body")?;
-                    ctx.with_indent(1, |ctx| {
-                        ctx.write_indent(f)?;
-                        ctx.fmt_block(f, &fn_def.body)
-                    })?;
-                    writeln!(f)?;
-                    ctx.write_indent(f)?;
-                    writeln!(f, ")")?;
                     Ok(())
                 })?;
-                self.write_indent(f)?;
-                write!(f, ")")
+                ctx.write_indent(f)?;
+                writeln!(f, ")")?;
             }
-            TypeExpr::StructDef(struct_def) => {
-                writeln!(f, "(struct-def")?;
-                self.with_indent(1, |ctx| {
+            if let Some(result_ty) = &fn_def.result {
+                ctx.write_indent(f)?;
+                writeln!(f, "(result")?;
+                ctx.with_indent(1, |ctx| {
                     ctx.write_indent(f)?;
-                    if struct_def.fields.is_empty() {
-                        writeln!(f, "(fields)")?;
-                    } else {
-                        writeln!(f, "(fields")?;
+                    ctx.fmt_type_expr(f, result_ty)
+                })?;
+                writeln!(f)?;
+                ctx.write_indent(f)?;
+                writeln!(f, ")")?;
+            }
+            ctx.write_indent(f)?;
+            writeln!(f, "(body")?;
+            ctx.with_indent(1, |ctx| {
+                ctx.write_indent(f)?;
+                ctx.fmt_block(f, &fn_def.body)
+            })?;
+            writeln!(f)?;
+            ctx.write_indent(f)?;
+            writeln!(f, ")")?;
+            Ok(())
+        })?;
+        self.write_indent(f)?;
+        write!(f, ")")
+    }
+
+    fn fmt_struct_def(
+        &mut self,
+        f: &mut fmt::Formatter<'_>,
+        struct_def: &StructDef<'_>,
+    ) -> fmt::Result {
+        writeln!(f, "(struct-def")?;
+        self.with_indent(1, |ctx| {
+            ctx.write_indent(f)?;
+            if struct_def.fields.is_empty() {
+                writeln!(f, "(fields)")?;
+            } else {
+                writeln!(f, "(fields")?;
+                ctx.with_indent(1, |ctx| {
+                    for field in struct_def.fields.iter() {
+                        ctx.write_indent(f)?;
+                        write!(f, "(field {:?}", ctx.lookup(field.name))?;
+                        writeln!(f)?;
                         ctx.with_indent(1, |ctx| {
-                            for field in struct_def.fields.iter() {
-                                ctx.write_indent(f)?;
-                                write!(f, "(field {:?}", ctx.lookup(field.name))?;
-                                writeln!(f)?;
-                                ctx.with_indent(1, |ctx| {
-                                    ctx.write_indent(f)?;
-                                    ctx.fmt_type_expr(f, &field.r#type)
-                                })?;
-                                writeln!(f)?;
-                                ctx.write_indent(f)?;
-                                writeln!(f, ")")?;
-                            }
-                            Ok(())
+                            ctx.write_indent(f)?;
+                            ctx.fmt_type_expr(f, &field.r#type)
                         })?;
+                        writeln!(f)?;
                         ctx.write_indent(f)?;
                         writeln!(f, ")")?;
                     }
                     Ok(())
                 })?;
-                self.write_indent(f)?;
-                write!(f, ")")
+                ctx.write_indent(f)?;
+                writeln!(f, ")")?;
             }
-        }
+            Ok(())
+        })?;
+        self.write_indent(f)?;
+        write!(f, ")")
     }
 
     fn fmt_name_path(&self, f: &mut fmt::Formatter<'_>, name_path: &NamePath) -> fmt::Result {

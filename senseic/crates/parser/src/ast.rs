@@ -91,6 +91,11 @@ pub struct IntLiteral<'ast> {
 #[derive(Debug)]
 pub enum TypeExpr<'ast> {
     NamePath(NamePath<'ast>),
+    StructDef(StructDef<'ast>),
+}
+
+#[derive(Debug)]
+pub enum TypeDef<'ast> {
     FnDef(AstBox<'ast, FnDef<'ast>>),
     StructDef(StructDef<'ast>),
 }
@@ -173,7 +178,7 @@ pub struct Member<'ast> {
 
 #[derive(Debug)]
 pub enum Expr<'ast> {
-    TypeExpr(TypeExpr<'ast>),
+    TypeDef(TypeDef<'ast>),
     Block(Block<'ast>),
     Binary(BinaryExpr<'ast>),
     IntLiteral(IntLiteral<'ast>),

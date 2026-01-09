@@ -1,0 +1,353 @@
+{
+  "name": "Sensei Parser Implementation",
+  "description": "Implementation of recursive descent parser with full error recovery for the Sensei language",
+  "tasks": [
+    {
+      "id": "ast-01",
+      "category": "ast-updates",
+      "name": "Add Spans to AST Nodes",
+      "description": "Add SourceSpan field to: Declaration variants, Import, Block, ConstDef, Statement variants, LetStmt, AssignStmt, TypeExpr variants, FnDef, ParamDef, FieldDef, StructDef, FieldInit, StructLiteral, NamePath, Expr variants (or Expr itself), BinaryExpr, FnCall, Conditional, IfBranch, Member, IntLiteral. Update size assertions. When adding spans to parallel enum variants turn the enum into <Name>Kind enum and create a <Name> struct with kind & span fields.",
+      "dependencies": [],
+      "completed": false
+    },
+    {
+      "id": "ast-02",
+      "category": "ast-updates",
+      "name": "Add Missing BinaryOp Variants",
+      "description": "Add to BinaryOp enum: NotEquals, LogicalAnd, LogicalOr, BitAnd, BitOr, BitXor, ShiftLeft, ShiftRight, Mod.",
+      "dependencies": [],
+      "completed": true
+    },
+    {
+      "id": "ast-03",
+      "category": "ast-updates",
+      "name": "Add Support For Implicit Unit Return Type",
+      "description": "Ensure function definition can represent an empty return type (denoted by a missing `-> <type>`). Use an Option for this.",
+      "dependencies": [],
+      "completed": true
+    },
+    {
+      "id": "ast-04",
+      "category": "ast-updates",
+      "name": "Separate TypeExpr and TypeDef",
+      "description": "Per grammar: type_expr = name_path | struct_def (for type annotations), type_def = fn_def | struct_def (as expression values). Remove FnDef variant from TypeExpr enum. Create new TypeDef enum with FnDef and StructDef variants. Update Expr to use TypeDef instead of TypeExpr. TypeExpr is used in let/const/param/field type annotations; TypeDef appears as expression values.",
+      "dependencies": [],
+      "completed": true
+    },
+    {
+      "id": "infra-01",
+      "category": "infrastructure",
+      "name": "Diagnostics Context",
+      "description": "Create DiagnosticsContext (or similar) that accumulates multiple parse errors. Errors should include spans, messages, and optional notes. Result<T, E> in parsing functions communicates sub-context outcomes for recovery decisions, not global failure.",
+      "dependencies": [],
+      "completed": true
+    },
+    {
+      "id": "infra-02",
+      "category": "infrastructure",
+      "name": "Parser Primitives",
+      "description": "Implement core parser methods: bump(), eat(), expect(), check(), check_noexpect(). Add prev_token field for span tracking. Add expected_tokens tracking for error messages. Integrate StringInterner (owned by Parser, using inturn crate).",
+      "dependencies": ["infra-01"],
+      "completed": true
+    },
+    {
+      "id": "infra-03",
+      "category": "infrastructure",
+      "name": "Span Tracking",
+      "description": "Implement parse_spanned() wrapper and span combination utilities (lo.to(hi)). Integrate with AST span fields from ast-01.",
+      "dependencies": ["infra-02", "ast-01"],
+      "completed": false
+    },
+    {
+      "id": "infra-04",
+      "category": "infrastructure",
+      "name": "Error Recovery Utilities",
+      "description": "Implement Recovered enum, expected_one_of_not_found(), and recovery strategies for common cases (EOF, mismatched delimiters). Integrate with DiagnosticsContext.",
+      "dependencies": ["infra-01", "infra-02"],
+      "completed": false
+    },
+    {
+      "id": "infra-05",
+      "category": "infrastructure",
+      "name": "Sequence Parsing",
+      "description": "Implement parse_comma_separated() helper for parsing comma-delimited lists with optional trailing comma. Handle recovery on unexpected tokens, return partial results where possible.",
+      "dependencies": ["infra-02", "infra-04"],
+      "completed": false
+    },
+    {
+      "id": "atom-01",
+      "category": "expression-atoms",
+      "name": "Identifier Expression",
+      "description": "Parse single identifier as expression (Expr::Ident). Intern the string via StringInterner. Return Spanned<IStr> for span tracking.",
+      "dependencies": ["infra-02"],
+      "completed": false
+    },
+    {
+      "id": "atom-02",
+      "category": "expression-atoms",
+      "name": "Boolean Literals",
+      "description": "Parse 'true' and 'false' tokens into Expr::BoolLiteral(bool). Track span.",
+      "dependencies": ["infra-02"],
+      "completed": false
+    },
+    {
+      "id": "atom-03",
+      "category": "expression-atoms",
+      "name": "Integer Literals",
+      "description": "Parse DecLiteral, HexLiteral, BinLiteral into Expr::IntLiteral. Handle sign prefix (positive field), underscores in source, convert to FrozenBigUint via arena allocation.",
+      "dependencies": ["infra-02"],
+      "completed": false
+    },
+    {
+      "id": "atom-04",
+      "category": "expression-atoms",
+      "name": "Parenthesized Expression",
+      "description": "Parse '(' expr ')' grouping. Internally calls parse_expr() (forward reference to expr-09). Handle recovery on missing closing paren.",
+      "dependencies": ["infra-02"],
+      "completed": false
+    },
+    {
+      "id": "type-01",
+      "category": "type-expressions",
+      "name": "NamePath Parsing",
+      "description": "Parse dot-separated identifier path (e.g., 'foo.bar.baz') into NamePath. Used in type expressions, struct literals, and assignment targets.",
+      "dependencies": ["atom-01"],
+      "completed": false
+    },
+    {
+      "id": "type-02",
+      "category": "type-expressions",
+      "name": "StructDef Parsing",
+      "description": "Parse 'struct { field: Type, ... }' into StructDef with FieldDef list. Uses comma_separated helper. Field types use parse_type_expr() (forward reference to type-04, mutually recursive). Initially implement with name_path-only field types, then use full type_expr.",
+      "dependencies": ["infra-05", "type-01"],
+      "completed": false
+    },
+    {
+      "id": "type-03",
+      "category": "type-definitions",
+      "name": "FnDef Parsing",
+      "description": "Parse 'fn (params) -> ReturnType { body }' into FnDef. Includes ParamDef list parsing. Return type is optional; when '->' is omitted, represent as None. Note: requires block parsing. FnDef is part of type_def (expression values), not type_expr (type annotations).",
+      "dependencies": ["infra-05", "type-04", "expr-02", "ast-03"],
+      "completed": false
+    },
+    {
+      "id": "type-04",
+      "category": "type-expressions",
+      "name": "TypeExpr Dispatch",
+      "description": "Implement parse_type_expr() that dispatches to NamePath or StructDef based on leading token. Used for type annotations in let/const/params/fields. Per grammar: type_expr = name_path | struct_def.",
+      "dependencies": ["type-01", "type-02", "ast-04"],
+      "completed": false
+    },
+    {
+      "id": "type-05",
+      "category": "type-definitions",
+      "name": "TypeDef Dispatch",
+      "description": "Implement parse_type_def() that dispatches to FnDef or StructDef based on leading token ('fn' or 'struct'). Per grammar: type_def = fn_def | struct_def. TypeDef appears as expression values, not type annotations.",
+      "dependencies": ["type-02", "type-03", "ast-04"],
+      "completed": false
+    },
+    {
+      "id": "expr-01",
+      "category": "expressions",
+      "name": "Primary Expression Dispatch",
+      "description": "Implement parse_primary_expr() that dispatches to atoms (ident, literals, paren) based on token. This is the base case for expression parsing.",
+      "dependencies": ["atom-01", "atom-02", "atom-03", "atom-04"],
+      "completed": false
+    },
+    {
+      "id": "expr-02",
+      "category": "expressions",
+      "name": "Block Expression",
+      "description": "Parse '{ stmt* expr? }' into Block. Call parse_stmt() in a loop (can be stubbed initially). Handle statement list and optional trailing expression (expr without semicolon at end).",
+      "dependencies": ["infra-02", "stmt-08"],
+      "completed": false
+    },
+    {
+      "id": "expr-03",
+      "category": "expressions",
+      "name": "Member Access",
+      "description": "Parse postfix 'expr.ident' into Expr::Member. Part of postfix expression loop.",
+      "dependencies": ["expr-01"],
+      "completed": false
+    },
+    {
+      "id": "expr-04",
+      "category": "expressions",
+      "name": "Function Call",
+      "description": "Parse postfix 'expr(args)' into Expr::FnCall. Handle comma-separated argument list with recovery.",
+      "dependencies": ["infra-05", "expr-01"],
+      "completed": false
+    },
+    {
+      "id": "expr-05",
+      "category": "expressions",
+      "name": "Postfix Expression Loop",
+      "description": "Implement parse_postfix_expr() that handles member access and function calls in a loop, building left-associative chains.",
+      "dependencies": ["expr-03", "expr-04"],
+      "completed": false
+    },
+    {
+      "id": "expr-06",
+      "category": "expressions",
+      "name": "Binary Expression",
+      "description": "Implement precedence climbing for binary operators. Precedence (lowest to highest): || < && < | < ^ < & < (== !=) < (< <= > >=) < (<< >>) < (+ - +% -%) < (* *% / /+ /- /< /> %). All left-associative. Token mapping: + → AddChecked, +% → AddWrap, - → SubChecked, -% → SubWrap, * → MulChecked, *% → MulWrap, /+ → DivToPos, /- → DivToNeg, /< → DivToZero, /> → DivFromZero, % → Mod, == → EqualEqual, != → NotEquals, && → LogicalAnd, || → LogicalOr, & → BitAnd, | → BitOr, ^ → BitXor, << → ShiftLeft, >> → ShiftRight.",
+      "dependencies": ["expr-05", "ast-02"],
+      "completed": false
+    },
+    {
+      "id": "expr-07",
+      "category": "expressions",
+      "name": "Struct Literal",
+      "description": "Parse 'NamePath { field: expr, ... }' into Expr::StructLiteral. Disambiguate from block: if token sequence is ident/name_path followed by '{', it's a struct literal; bare '{' is a block.",
+      "dependencies": ["type-01", "infra-05", "expr-01"],
+      "completed": false
+    },
+    {
+      "id": "expr-08",
+      "category": "expressions",
+      "name": "Conditional Expression",
+      "description": "Parse 'if cond { } else if cond { } else { }' as expression. Requires else branch (uses Infallible for ElseMissing type param). Report error if else missing but continue recovery.",
+      "dependencies": ["expr-02", "expr-06"],
+      "completed": false
+    },
+    {
+      "id": "expr-09",
+      "category": "expressions",
+      "name": "Expression Dispatch",
+      "description": "Implement top-level parse_expr() (includes blocks) and parse_expr_no_block() (excludes blocks, used in statements). Coordinate precedence climbing with postfix and primary. Include type_def (fn/struct) as valid expression forms.",
+      "dependencies": ["expr-02", "expr-06", "expr-07", "expr-08", "type-05"],
+      "completed": false
+    },
+    {
+      "id": "stmt-08",
+      "category": "statements",
+      "name": "Statement Dispatch (Stub)",
+      "description": "Implement initial parse_stmt() stub that can be extended as statement variants are implemented. Start with minimal dispatch, add cases incrementally.",
+      "dependencies": ["infra-02"],
+      "completed": false
+    },
+    {
+      "id": "stmt-01",
+      "category": "statements",
+      "name": "Let Statement",
+      "description": "Parse 'let mut? ident (: Type)? = expr;' into Statement::Let. Mutable flag, optional type annotation. Add case to stmt dispatch.",
+      "dependencies": ["atom-01", "type-04", "expr-09", "stmt-08"],
+      "completed": false
+    },
+    {
+      "id": "stmt-02",
+      "category": "statements",
+      "name": "Return Statement",
+      "description": "Parse 'return expr;' into Statement::Return. Add case to stmt dispatch.",
+      "dependencies": ["expr-09", "stmt-08"],
+      "completed": false
+    },
+    {
+      "id": "stmt-03",
+      "category": "statements",
+      "name": "Assign Statement",
+      "description": "Parse 'name_path = expr;' into Statement::Assign. Uses NamePath as target, AssignOp::Assign. Add case to stmt dispatch.",
+      "dependencies": ["type-01", "expr-09", "stmt-08"],
+      "completed": false
+    },
+    {
+      "id": "stmt-04",
+      "category": "statements",
+      "name": "Block Statement",
+      "description": "Parse block as statement. Semicolon after closing brace is optional per grammar. Add case to stmt dispatch.",
+      "dependencies": ["expr-02", "stmt-08"],
+      "completed": false
+    },
+    {
+      "id": "stmt-05",
+      "category": "statements",
+      "name": "Conditional Statement",
+      "description": "Parse 'if cond { } else if cond { } else? { }' as statement. Else branch optional (uses () for ElseMissing type param). Add case to stmt dispatch.",
+      "dependencies": ["expr-02", "expr-06", "stmt-08"],
+      "completed": false
+    },
+    {
+      "id": "stmt-06",
+      "category": "statements",
+      "name": "Expression Statement",
+      "description": "Parse 'expr_no_block;' as statement. Requires semicolon terminator. Add case to stmt dispatch.",
+      "dependencies": ["expr-09", "stmt-08"],
+      "completed": false
+    },
+    {
+      "id": "stmt-07",
+      "category": "statements",
+      "name": "ConstDef Statement",
+      "description": "Parse 'const ident (: Type)? = expr;' as statement (const_item in grammar). Used inside blocks. Add case to stmt dispatch.",
+      "dependencies": ["atom-01", "type-04", "expr-09", "stmt-08"],
+      "completed": false
+    },
+    {
+      "id": "decl-01",
+      "category": "declarations",
+      "name": "Import Declaration",
+      "description": "Parse import statements: 'import * from \"path\";' (All), 'import * as Name from \"path\";' (As), 'import { a, b } from \"path\";' (Selection). String path stored in arena.",
+      "dependencies": ["atom-01", "infra-05"],
+      "completed": false
+    },
+    {
+      "id": "decl-02",
+      "category": "declarations",
+      "name": "Init Declaration",
+      "description": "Parse 'init { ... }' into Declaration::Init with Block body.",
+      "dependencies": ["expr-02"],
+      "completed": false
+    },
+    {
+      "id": "decl-03",
+      "category": "declarations",
+      "name": "Run Declaration",
+      "description": "Parse 'run { ... }' into Declaration::Run with Block body.",
+      "dependencies": ["expr-02"],
+      "completed": false
+    },
+    {
+      "id": "decl-04",
+      "category": "declarations",
+      "name": "ConstDef Declaration",
+      "description": "Parse 'export? const ident (: Type)? = expr;' into Declaration::ConstDef or Declaration::PublicConstDef based on export keyword.",
+      "dependencies": ["stmt-07"],
+      "completed": false
+    },
+    {
+      "id": "decl-05",
+      "category": "declarations",
+      "name": "Declaration Dispatch",
+      "description": "Implement parse_next_decl() that dispatches based on leading token: import, init, run, export (→ PublicConstDef), const (→ ConstDef). Return None at EOF.",
+      "dependencies": ["decl-01", "decl-02", "decl-03", "decl-04"],
+      "completed": false
+    },
+    {
+      "id": "test-01",
+      "category": "testing",
+      "name": "Parser Unit Tests",
+      "description": "Add unit tests for each parser component. Test happy paths and error recovery cases. Use insta for snapshot testing if appropriate.",
+      "dependencies": ["decl-05"],
+      "completed": false
+    },
+    {
+      "id": "test-02",
+      "category": "testing",
+      "name": "Integration Tests",
+      "description": "Add integration tests parsing complete Sensei programs. Test real-world code patterns and error accumulation.",
+      "dependencies": ["decl-05"],
+      "completed": false
+    }
+  ],
+  "categories": {
+    "ast-updates": "AST structure modifications (do first)",
+    "infrastructure": "Core parser utilities, diagnostics, and helpers",
+    "expression-atoms": "Simple/atomic expression types",
+    "type-expressions": "Type annotation parsing (name_path, struct_def)",
+    "type-definitions": "Type definition parsing as expression values (fn_def, struct_def)",
+    "expressions": "Compound expression parsing",
+    "statements": "Statement parsing",
+    "declarations": "Top-level declaration parsing",
+    "testing": "Parser test suites"
+  }
+}
