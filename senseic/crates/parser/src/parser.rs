@@ -304,6 +304,21 @@ impl<'src, 'ast> Parser<'src, 'ast> {
         self.bump();
         Ok(Spanned::new(span, IntLiteral { positive, num }))
     }
+
+    pub fn parse_name_path(&mut self) -> Result<NamePath<'ast>, ParseError> {
+        let mut segments = std::vec::Vec::new();
+
+        let first = self.parse_ident()?;
+        segments.push(first.inner);
+
+        while self.eat(Token::Dot) {
+            let segment = self.parse_ident()?;
+            segments.push(segment.inner);
+        }
+
+        let path = self.arena.alloc_slice_copy(&segments);
+        Ok(NamePath(path))
+    }
 }
 
 fn strip_sign(s: &str) -> (bool, &str) {
@@ -650,6 +665,74 @@ mod tests {
         let mut parser = new_parser("abc", &arena);
 
         let result = parser.parse_int_literal();
+        assert!(result.is_err());
+        assert!(parser.has_errors());
+    }
+
+    #[test]
+    fn test_parse_name_path_single() {
+        let arena = Bump::new();
+        let mut parser = new_parser("foo", &arena);
+
+        let result = parser.parse_name_path().unwrap();
+        assert_eq!(result.0.len(), 1);
+        assert_eq!(parser.interner.resolve(result.0[0]), "foo");
+        assert!(parser.at_eof());
+    }
+
+    #[test]
+    fn test_parse_name_path_two_segments() {
+        let arena = Bump::new();
+        let mut parser = new_parser("foo.bar", &arena);
+
+        let result = parser.parse_name_path().unwrap();
+        assert_eq!(result.0.len(), 2);
+        assert_eq!(parser.interner.resolve(result.0[0]), "foo");
+        assert_eq!(parser.interner.resolve(result.0[1]), "bar");
+        assert!(parser.at_eof());
+    }
+
+    #[test]
+    fn test_parse_name_path_three_segments() {
+        let arena = Bump::new();
+        let mut parser = new_parser("foo.bar.baz", &arena);
+
+        let result = parser.parse_name_path().unwrap();
+        assert_eq!(result.0.len(), 3);
+        assert_eq!(parser.interner.resolve(result.0[0]), "foo");
+        assert_eq!(parser.interner.resolve(result.0[1]), "bar");
+        assert_eq!(parser.interner.resolve(result.0[2]), "baz");
+        assert!(parser.at_eof());
+    }
+
+    #[test]
+    fn test_parse_name_path_stops_at_non_ident() {
+        let arena = Bump::new();
+        let mut parser = new_parser("foo.bar + baz", &arena);
+
+        let result = parser.parse_name_path().unwrap();
+        assert_eq!(result.0.len(), 2);
+        assert_eq!(parser.interner.resolve(result.0[0]), "foo");
+        assert_eq!(parser.interner.resolve(result.0[1]), "bar");
+        assert_eq!(parser.token, Some(Token::Plus));
+    }
+
+    #[test]
+    fn test_parse_name_path_fails_on_non_ident() {
+        let arena = Bump::new();
+        let mut parser = new_parser("123", &arena);
+
+        let result = parser.parse_name_path();
+        assert!(result.is_err());
+        assert!(parser.has_errors());
+    }
+
+    #[test]
+    fn test_parse_name_path_trailing_dot_with_following_token() {
+        let arena = Bump::new();
+        let mut parser = new_parser("foo.bar.+", &arena);
+
+        let result = parser.parse_name_path();
         assert!(result.is_err());
         assert!(parser.has_errors());
     }

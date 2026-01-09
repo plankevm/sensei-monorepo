@@ -96,7 +96,7 @@
       "name": "NamePath Parsing",
       "description": "Parse dot-separated identifier path (e.g., 'foo.bar.baz') into NamePath. Used in struct literals and assignment targets.",
       "dependencies": ["atom-01"],
-      "completed": false
+      "completed": true
     },
     {
       "id": "type-02",
