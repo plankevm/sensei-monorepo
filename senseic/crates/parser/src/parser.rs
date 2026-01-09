@@ -247,6 +247,20 @@ impl<'src, 'ast> Parser<'src, 'ast> {
 
         todo!()
     }
+
+    pub fn parse_ident(&mut self) -> Result<Ident, ParseError> {
+        if self.check_noexpect(Token::Identifier) {
+            let span = self.token_span;
+            let text = self.current_slice();
+            let istr = self.intern(text);
+            self.bump();
+            Ok(Ident::new(span, istr))
+        } else {
+            self.push_expected(ExpectedToken::Ident);
+            self.expected_one_of_not_found(&[])?;
+            unreachable!()
+        }
+    }
 }
 
 fn format_expected_list(expected: &[ExpectedToken]) -> String {
@@ -416,5 +430,50 @@ mod tests {
         parser.bump();
         assert_eq!(parser.prev_span(), Span::new(0, 2));
         assert_eq!(parser.current_span(), Span::new(3, 7));
+    }
+
+    #[test]
+    fn test_parse_ident_simple() {
+        let arena = Bump::new();
+        let mut parser = new_parser("foo", &arena);
+
+        let ident = parser.parse_ident().unwrap();
+        assert_eq!(ident.span, Span::new(0, 3));
+        assert_eq!(parser.interner.resolve(ident.inner), "foo");
+        assert!(parser.at_eof());
+    }
+
+    #[test]
+    fn test_parse_ident_advances_token() {
+        let arena = Bump::new();
+        let mut parser = new_parser("foo bar", &arena);
+
+        let ident1 = parser.parse_ident().unwrap();
+        assert_eq!(parser.interner.resolve(ident1.inner), "foo");
+        assert!(!parser.at_eof());
+
+        let ident2 = parser.parse_ident().unwrap();
+        assert_eq!(parser.interner.resolve(ident2.inner), "bar");
+        assert!(parser.at_eof());
+    }
+
+    #[test]
+    fn test_parse_ident_fails_on_keyword() {
+        let arena = Bump::new();
+        let mut parser = new_parser("if", &arena);
+
+        let result = parser.parse_ident();
+        assert!(result.is_err());
+        assert!(parser.has_errors());
+    }
+
+    #[test]
+    fn test_parse_ident_fails_on_literal() {
+        let arena = Bump::new();
+        let mut parser = new_parser("123", &arena);
+
+        let result = parser.parse_ident();
+        assert!(result.is_err());
+        assert!(parser.has_errors());
     }
 }
