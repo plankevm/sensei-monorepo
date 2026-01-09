@@ -339,6 +339,18 @@ impl<'src, 'ast> Parser<'src, 'ast> {
             unreachable!()
         }
     }
+
+    pub fn parse_member_expr(&mut self) -> Result<Expr<'ast>, ParseError> {
+        let mut expr = self.parse_primary_expr()?;
+
+        while self.eat(Token::Dot) {
+            let ident = self.parse_ident()?;
+            let member = Member { expr: self.arena.alloc(expr), ident: ident.inner };
+            expr = Expr::Member(member);
+        }
+
+        Ok(expr)
+    }
 }
 
 fn strip_sign(s: &str) -> (bool, &str) {
@@ -864,5 +876,58 @@ mod tests {
         let result = parser.parse_primary_expr();
         assert!(result.is_err());
         assert!(parser.has_errors());
+    }
+
+    #[test]
+    fn test_parse_member_simple() {
+        let arena = Bump::new();
+        let mut parser = new_parser("foo.bar", &arena);
+
+        let result = parser.parse_member_expr().unwrap();
+        assert!(matches!(result, Expr::Member(_)));
+        if let Expr::Member(member) = result {
+            assert!(matches!(*member.expr, Expr::Ident(_)));
+            assert_eq!(parser.interner.resolve(member.ident), "bar");
+        }
+        assert!(parser.at_eof());
+    }
+
+    #[test]
+    fn test_parse_member_chained() {
+        let arena = Bump::new();
+        let mut parser = new_parser("a.b.c", &arena);
+
+        let result = parser.parse_member_expr().unwrap();
+        // Should be ((a.b).c)
+        assert!(matches!(result, Expr::Member(_)));
+        if let Expr::Member(outer) = result {
+            assert_eq!(parser.interner.resolve(outer.ident), "c");
+            assert!(matches!(*outer.expr, Expr::Member(_)));
+            if let Expr::Member(ref inner) = *outer.expr {
+                assert_eq!(parser.interner.resolve(inner.ident), "b");
+                assert!(matches!(*inner.expr, Expr::Ident(_)));
+            }
+        }
+        assert!(parser.at_eof());
+    }
+
+    #[test]
+    fn test_parse_member_no_member_access() {
+        let arena = Bump::new();
+        let mut parser = new_parser("foo", &arena);
+
+        let result = parser.parse_member_expr().unwrap();
+        assert!(matches!(result, Expr::Ident(_)));
+        assert!(parser.at_eof());
+    }
+
+    #[test]
+    fn test_parse_member_stops_at_non_ident() {
+        let arena = Bump::new();
+        let mut parser = new_parser("foo.bar + baz", &arena);
+
+        let result = parser.parse_member_expr().unwrap();
+        assert!(matches!(result, Expr::Member(_)));
+        assert_eq!(parser.token, Some(Token::Plus));
     }
 }

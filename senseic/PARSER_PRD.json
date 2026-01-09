@@ -144,7 +144,7 @@
       "name": "Member Access",
       "description": "Parse postfix 'expr.ident' into Expr::Member. Part of postfix expression loop.",
       "dependencies": ["expr-01"],
-      "completed": false
+      "completed": true
     },
     {
       "id": "expr-04",
