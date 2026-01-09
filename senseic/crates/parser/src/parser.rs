@@ -6,7 +6,7 @@ use crate::{
     diagnostics::DiagnosticsContext,
     lexer::{Lexer, SourceSpan, Token},
 };
-use neosen_data::Span;
+use neosen_data::{Span, bigint::FrozenBigUint};
 
 #[derive(Debug, Clone)]
 pub struct ParseError;
@@ -276,6 +276,38 @@ impl<'src, 'ast> Parser<'src, 'ast> {
         self.bump();
         Ok(Spanned::new(span, value))
     }
+
+    pub fn parse_int_literal(&mut self) -> Result<Spanned<IntLiteral<'ast>>, ParseError> {
+        let span = self.token_span;
+        let text = self.current_slice();
+
+        let (positive, num) = if self.check_noexpect(Token::DecLiteral) {
+            let (positive, digits) = strip_sign(text);
+            let num = FrozenBigUint::from_radix10_in(digits, self.arena);
+            (positive, num)
+        } else if self.check_noexpect(Token::HexLiteral) {
+            let (positive, digits) = strip_sign(text);
+            let digits = &digits[2..]; // strip "0x"
+            let num = FrozenBigUint::from_radix16_in(digits, self.arena);
+            (positive, num)
+        } else if self.check_noexpect(Token::BinLiteral) {
+            let (positive, digits) = strip_sign(text);
+            let digits = &digits[2..]; // strip "0b"
+            let num = FrozenBigUint::from_radix2_in(digits, self.arena);
+            (positive, num)
+        } else {
+            self.push_expected(ExpectedToken::Literal);
+            self.expected_one_of_not_found(&[])?;
+            unreachable!()
+        };
+
+        self.bump();
+        Ok(Spanned::new(span, IntLiteral { positive, num }))
+    }
+}
+
+fn strip_sign(s: &str) -> (bool, &str) {
+    if let Some(rest) = s.strip_prefix('-') { (false, rest) } else { (true, s) }
 }
 
 fn format_expected_list(expected: &[ExpectedToken]) -> String {
@@ -535,5 +567,90 @@ mod tests {
         let second = parser.parse_bool_literal().unwrap();
         assert!(!second.inner);
         assert!(parser.at_eof());
+    }
+
+    #[test]
+    fn test_parse_int_literal_decimal() {
+        let arena = Bump::new();
+        let mut parser = new_parser("12345", &arena);
+
+        let result = parser.parse_int_literal().unwrap();
+        assert!(result.inner.positive);
+        assert_eq!(format!("{:x}", result.inner.num), "3039");
+        assert_eq!(result.span, Span::new(0, 5));
+        assert!(parser.at_eof());
+    }
+
+    #[test]
+    fn test_parse_int_literal_decimal_negative() {
+        let arena = Bump::new();
+        let mut parser = new_parser("-42", &arena);
+
+        let result = parser.parse_int_literal().unwrap();
+        assert!(!result.inner.positive);
+        assert_eq!(format!("{:x}", result.inner.num), "2a");
+        assert_eq!(result.span, Span::new(0, 3));
+    }
+
+    #[test]
+    fn test_parse_int_literal_decimal_with_underscores() {
+        let arena = Bump::new();
+        let mut parser = new_parser("1_000_000", &arena);
+
+        let result = parser.parse_int_literal().unwrap();
+        assert!(result.inner.positive);
+        assert_eq!(format!("{:x}", result.inner.num), "f4240");
+    }
+
+    #[test]
+    fn test_parse_int_literal_hex() {
+        let arena = Bump::new();
+        let mut parser = new_parser("0xDEAD", &arena);
+
+        let result = parser.parse_int_literal().unwrap();
+        assert!(result.inner.positive);
+        assert_eq!(format!("{:x}", result.inner.num), "dead");
+        assert_eq!(result.span, Span::new(0, 6));
+    }
+
+    #[test]
+    fn test_parse_int_literal_hex_negative() {
+        let arena = Bump::new();
+        let mut parser = new_parser("-0xBEEF", &arena);
+
+        let result = parser.parse_int_literal().unwrap();
+        assert!(!result.inner.positive);
+        assert_eq!(format!("{:x}", result.inner.num), "beef");
+    }
+
+    #[test]
+    fn test_parse_int_literal_binary() {
+        let arena = Bump::new();
+        let mut parser = new_parser("0b1010", &arena);
+
+        let result = parser.parse_int_literal().unwrap();
+        assert!(result.inner.positive);
+        assert_eq!(format!("{:x}", result.inner.num), "a");
+        assert_eq!(result.span, Span::new(0, 6));
+    }
+
+    #[test]
+    fn test_parse_int_literal_binary_negative() {
+        let arena = Bump::new();
+        let mut parser = new_parser("-0b1111", &arena);
+
+        let result = parser.parse_int_literal().unwrap();
+        assert!(!result.inner.positive);
+        assert_eq!(format!("{:x}", result.inner.num), "f");
+    }
+
+    #[test]
+    fn test_parse_int_literal_fails_on_identifier() {
+        let arena = Bump::new();
+        let mut parser = new_parser("abc", &arena);
+
+        let result = parser.parse_int_literal();
+        assert!(result.is_err());
+        assert!(parser.has_errors());
     }
 }

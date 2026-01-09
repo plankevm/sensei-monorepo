@@ -88,7 +88,7 @@
       "name": "Integer Literals",
       "description": "Parse DecLiteral, HexLiteral, BinLiteral into Expr::IntLiteral. Handle sign prefix (positive field), underscores in source, convert to FrozenBigUint via arena allocation.",
       "dependencies": ["infra-02"],
-      "completed": false
+      "completed": true
     },
     {
       "id": "type-01",
