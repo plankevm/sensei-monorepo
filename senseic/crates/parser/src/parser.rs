@@ -208,6 +208,66 @@ impl<'src, 'ast> Parser<'src, 'ast> {
         if self.token.is_none() { Ok(Recovered::Yes) } else { Err(ParseError) }
     }
 
+    pub fn skip_until(&mut self, stop_tokens: &[Token]) -> Recovered {
+        while !self.at_eof() {
+            if let Some(tok) = self.token
+                && stop_tokens.contains(&tok)
+            {
+                return Recovered::Yes;
+            }
+            self.bump();
+        }
+        Recovered::Yes
+    }
+
+    pub fn skip_until_before(&mut self, stop_tokens: &[Token]) -> Recovered {
+        while !self.at_eof() {
+            if let Some(tok) = self.token
+                && stop_tokens.contains(&tok)
+            {
+                return Recovered::Yes;
+            }
+            self.bump();
+        }
+        Recovered::Yes
+    }
+
+    pub fn recover_closing_delimiter(
+        &mut self,
+        close: Token,
+        open_span: SourceSpan,
+    ) -> Result<Recovered, ParseError> {
+        if self.eat(close) {
+            return Ok(Recovered::No);
+        }
+
+        if self.at_eof() {
+            let msg = format!("unclosed delimiter: expected {}", token_description(close));
+            self.diagnostics.report_with_span_note(
+                self.token_span,
+                &msg,
+                open_span,
+                "opening delimiter here",
+            );
+            return Ok(Recovered::Yes);
+        }
+
+        self.expected_one_of_not_found(&[close])
+    }
+
+    pub fn is_at_recovery_point(&self) -> bool {
+        matches!(
+            self.token,
+            Some(
+                Token::RightCurly
+                    | Token::RightRound
+                    | Token::RightSquare
+                    | Token::Semicolon
+                    | Token::Comma
+            )
+        ) || self.at_eof()
+    }
+
     pub fn at_eof(&self) -> bool {
         self.token.is_none()
     }

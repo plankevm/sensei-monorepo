@@ -56,7 +56,7 @@
       "name": "Error Recovery Utilities",
       "description": "Implement Recovered enum, expected_one_of_not_found(), and recovery strategies for common cases (EOF, mismatched delimiters). Integrate with DiagnosticsContext.",
       "dependencies": ["infra-01", "infra-02"],
-      "completed": false
+      "completed": true
     },
     {
       "id": "infra-05",
