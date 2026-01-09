@@ -128,7 +128,7 @@
       "name": "Primary Expression Dispatch",
       "description": "Implement parse_primary_expr() that dispatches to atoms (ident, literals) based on token. This is the base case for expression parsing.",
       "dependencies": ["atom-01", "atom-02", "atom-03"],
-      "completed": false
+      "completed": true
     },
     {
       "id": "expr-02",

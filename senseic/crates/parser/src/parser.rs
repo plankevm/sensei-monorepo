@@ -319,6 +319,26 @@ impl<'src, 'ast> Parser<'src, 'ast> {
         let path = self.arena.alloc_slice_copy(&segments);
         Ok(NamePath(path))
     }
+
+    pub fn parse_primary_expr(&mut self) -> Result<Expr<'ast>, ParseError> {
+        if self.check_noexpect(Token::Identifier) {
+            let ident = self.parse_ident()?;
+            Ok(Expr::Ident(ident.inner))
+        } else if self.check_noexpect(Token::True) || self.check_noexpect(Token::False) {
+            let bool_lit = self.parse_bool_literal()?;
+            Ok(Expr::BoolLiteral(bool_lit.inner))
+        } else if self.check_noexpect(Token::DecLiteral)
+            || self.check_noexpect(Token::HexLiteral)
+            || self.check_noexpect(Token::BinLiteral)
+        {
+            let int_lit = self.parse_int_literal()?;
+            Ok(Expr::IntLiteral(int_lit.inner))
+        } else {
+            self.push_expected(ExpectedToken::Expr);
+            self.expected_one_of_not_found(&[])?;
+            unreachable!()
+        }
+    }
 }
 
 fn strip_sign(s: &str) -> (bool, &str) {
@@ -733,6 +753,115 @@ mod tests {
         let mut parser = new_parser("foo.bar.+", &arena);
 
         let result = parser.parse_name_path();
+        assert!(result.is_err());
+        assert!(parser.has_errors());
+    }
+
+    #[test]
+    fn test_parse_primary_expr_ident() {
+        let arena = Bump::new();
+        let mut parser = new_parser("foo", &arena);
+
+        let result = parser.parse_primary_expr().unwrap();
+        assert!(matches!(result, Expr::Ident(_)));
+        if let Expr::Ident(istr) = result {
+            assert_eq!(parser.interner.resolve(istr), "foo");
+        }
+        assert!(parser.at_eof());
+    }
+
+    #[test]
+    fn test_parse_primary_expr_bool_true() {
+        let arena = Bump::new();
+        let mut parser = new_parser("true", &arena);
+
+        let result = parser.parse_primary_expr().unwrap();
+        assert!(matches!(result, Expr::BoolLiteral(true)));
+        assert!(parser.at_eof());
+    }
+
+    #[test]
+    fn test_parse_primary_expr_bool_false() {
+        let arena = Bump::new();
+        let mut parser = new_parser("false", &arena);
+
+        let result = parser.parse_primary_expr().unwrap();
+        assert!(matches!(result, Expr::BoolLiteral(false)));
+        assert!(parser.at_eof());
+    }
+
+    #[test]
+    fn test_parse_primary_expr_int_decimal() {
+        let arena = Bump::new();
+        let mut parser = new_parser("42", &arena);
+
+        let result = parser.parse_primary_expr().unwrap();
+        assert!(matches!(result, Expr::IntLiteral(_)));
+        if let Expr::IntLiteral(lit) = result {
+            assert!(lit.positive);
+            assert_eq!(format!("{:x}", lit.num), "2a");
+        }
+        assert!(parser.at_eof());
+    }
+
+    #[test]
+    fn test_parse_primary_expr_int_hex() {
+        let arena = Bump::new();
+        let mut parser = new_parser("0xDEAD", &arena);
+
+        let result = parser.parse_primary_expr().unwrap();
+        assert!(matches!(result, Expr::IntLiteral(_)));
+        if let Expr::IntLiteral(lit) = result {
+            assert!(lit.positive);
+            assert_eq!(format!("{:x}", lit.num), "dead");
+        }
+        assert!(parser.at_eof());
+    }
+
+    #[test]
+    fn test_parse_primary_expr_int_binary() {
+        let arena = Bump::new();
+        let mut parser = new_parser("0b1010", &arena);
+
+        let result = parser.parse_primary_expr().unwrap();
+        assert!(matches!(result, Expr::IntLiteral(_)));
+        if let Expr::IntLiteral(lit) = result {
+            assert!(lit.positive);
+            assert_eq!(format!("{:x}", lit.num), "a");
+        }
+        assert!(parser.at_eof());
+    }
+
+    #[test]
+    fn test_parse_primary_expr_negative_int() {
+        let arena = Bump::new();
+        let mut parser = new_parser("-123", &arena);
+
+        let result = parser.parse_primary_expr().unwrap();
+        assert!(matches!(result, Expr::IntLiteral(_)));
+        if let Expr::IntLiteral(lit) = result {
+            assert!(!lit.positive);
+            assert_eq!(format!("{:x}", lit.num), "7b");
+        }
+        assert!(parser.at_eof());
+    }
+
+    #[test]
+    fn test_parse_primary_expr_fails_on_keyword() {
+        let arena = Bump::new();
+        let mut parser = new_parser("if", &arena);
+
+        let result = parser.parse_primary_expr();
+        assert!(result.is_err());
+        assert!(parser.has_errors());
+    }
+
+    #[test]
+    fn test_parse_primary_expr_fails_on_operator() {
+        let arena = Bump::new();
+        let mut parser = new_parser("+", &arena);
+
+        let result = parser.parse_primary_expr();
         assert!(result.is_err());
         assert!(parser.has_errors());
     }
