@@ -608,15 +608,17 @@ impl<'i> DisplayContext<'i> {
                         ctx.write_indent(f)?;
                         writeln!(f, ")")?;
                     }
-                    ctx.write_indent(f)?;
-                    writeln!(f, "(result")?;
-                    ctx.with_indent(1, |ctx| {
+                    if let Some(result_ty) = &fn_def.result {
                         ctx.write_indent(f)?;
-                        ctx.fmt_type_expr(f, &fn_def.result)
-                    })?;
-                    writeln!(f)?;
-                    ctx.write_indent(f)?;
-                    writeln!(f, ")")?;
+                        writeln!(f, "(result")?;
+                        ctx.with_indent(1, |ctx| {
+                            ctx.write_indent(f)?;
+                            ctx.fmt_type_expr(f, result_ty)
+                        })?;
+                        writeln!(f)?;
+                        ctx.write_indent(f)?;
+                        writeln!(f, ")")?;
+                    }
                     ctx.write_indent(f)?;
                     writeln!(f, "(body")?;
                     ctx.with_indent(1, |ctx| {

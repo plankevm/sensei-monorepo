@@ -98,7 +98,7 @@ pub enum TypeExpr<'ast> {
 #[derive(Debug)]
 pub struct FnDef<'ast> {
     pub params: AstBox<'ast, [ParamDef<'ast>]>,
-    pub result: TypeExpr<'ast>,
+    pub result: Option<TypeExpr<'ast>>,
     pub body: Block<'ast>,
 }
 
