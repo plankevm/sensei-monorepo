@@ -106,7 +106,7 @@ impl<'i> DisplayContext<'i> {
                 writeln!(f, "(type")?;
                 ctx.with_indent(1, |ctx| {
                     ctx.write_indent(f)?;
-                    ctx.fmt_type_expr(f, ty)
+                    ctx.fmt_expr(f, ty)
                 })?;
                 writeln!(f)?;
                 ctx.write_indent(f)?;
@@ -170,7 +170,7 @@ impl<'i> DisplayContext<'i> {
                         writeln!(f, "(type")?;
                         ctx.with_indent(1, |ctx| {
                             ctx.write_indent(f)?;
-                            ctx.fmt_type_expr(f, ty)
+                            ctx.fmt_expr(f, ty)
                         })?;
                         writeln!(f)?;
                         ctx.write_indent(f)?;
@@ -566,13 +566,6 @@ impl<'i> DisplayContext<'i> {
         write!(f, "0x{:x}", int_lit.num)
     }
 
-    fn fmt_type_expr(&mut self, f: &mut fmt::Formatter<'_>, ty: &TypeExpr<'_>) -> fmt::Result {
-        match ty {
-            TypeExpr::NamePath(name_path) => self.fmt_name_path(f, name_path),
-            TypeExpr::StructDef(struct_def) => self.fmt_struct_def(f, struct_def),
-        }
-    }
-
     fn fmt_type_def(&mut self, f: &mut fmt::Formatter<'_>, ty: &TypeDef<'_>) -> fmt::Result {
         match ty {
             TypeDef::FnDef(fn_def) => self.fmt_fn_def(f, fn_def),
@@ -595,7 +588,7 @@ impl<'i> DisplayContext<'i> {
                         writeln!(f)?;
                         ctx.with_indent(1, |ctx| {
                             ctx.write_indent(f)?;
-                            ctx.fmt_type_expr(f, &param.r#type)
+                            ctx.fmt_expr(f, &param.r#type)
                         })?;
                         writeln!(f)?;
                         ctx.write_indent(f)?;
@@ -611,7 +604,7 @@ impl<'i> DisplayContext<'i> {
                 writeln!(f, "(result")?;
                 ctx.with_indent(1, |ctx| {
                     ctx.write_indent(f)?;
-                    ctx.fmt_type_expr(f, result_ty)
+                    ctx.fmt_expr(f, result_ty)
                 })?;
                 writeln!(f)?;
                 ctx.write_indent(f)?;
@@ -651,7 +644,7 @@ impl<'i> DisplayContext<'i> {
                         writeln!(f)?;
                         ctx.with_indent(1, |ctx| {
                             ctx.write_indent(f)?;
-                            ctx.fmt_type_expr(f, &field.r#type)
+                            ctx.fmt_expr(f, &field.r#type)
                         })?;
                         writeln!(f)?;
                         ctx.write_indent(f)?;

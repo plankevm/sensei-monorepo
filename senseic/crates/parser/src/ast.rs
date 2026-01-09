@@ -31,7 +31,7 @@ pub struct Block<'ast> {
 #[derive(Debug)]
 pub struct ConstDef<'ast> {
     pub ident: IStr,
-    pub r#type: Option<TypeExpr<'ast>>,
+    pub r#type: Option<Expr<'ast>>,
     pub expr: Expr<'ast>,
 }
 
@@ -57,7 +57,7 @@ pub struct WhileStmt<'ast> {
 pub struct LetStmt<'ast> {
     pub mutable: bool,
     pub ident: IStr,
-    pub r#type: Option<TypeExpr<'ast>>,
+    pub r#type: Option<Expr<'ast>>,
     pub value: Expr<'ast>,
 }
 
@@ -75,12 +75,6 @@ pub struct IntLiteral<'ast> {
 }
 
 #[derive(Debug)]
-pub enum TypeExpr<'ast> {
-    NamePath(NamePath<'ast>),
-    StructDef(StructDef<'ast>),
-}
-
-#[derive(Debug)]
 pub enum TypeDef<'ast> {
     FnDef(AstBox<'ast, FnDef<'ast>>),
     StructDef(StructDef<'ast>),
@@ -89,7 +83,7 @@ pub enum TypeDef<'ast> {
 #[derive(Debug)]
 pub struct FnDef<'ast> {
     pub params: AstBox<'ast, [ParamDef<'ast>]>,
-    pub result: Option<TypeExpr<'ast>>,
+    pub result: Option<Expr<'ast>>,
     pub body: Block<'ast>,
 }
 
@@ -97,13 +91,13 @@ pub struct FnDef<'ast> {
 pub struct ParamDef<'ast> {
     pub comptime: bool,
     pub name: IStr,
-    pub r#type: TypeExpr<'ast>,
+    pub r#type: Expr<'ast>,
 }
 
 #[derive(Debug)]
 pub struct FieldDef<'ast> {
     pub name: IStr,
-    pub r#type: TypeExpr<'ast>,
+    pub r#type: Expr<'ast>,
 }
 
 #[derive(Debug)]
@@ -128,12 +122,11 @@ pub struct NamePath<'ast>(pub AstBox<'ast, [IStr]>);
 
 const _AST_SIZE: () = const {
     const_assert_eq(std::mem::size_of::<Expr<'_>>(), 32);
-    const_assert_eq(std::mem::size_of::<LetStmt<'_>>(), 64);
+    const_assert_eq(std::mem::size_of::<LetStmt<'_>>(), 72);
     const_assert_eq(std::mem::size_of::<AssignStmt<'_>>(), 48);
-    const_assert_eq(std::mem::size_of::<ConstDef<'_>>(), 64);
+    const_assert_eq(std::mem::size_of::<ConstDef<'_>>(), 72);
 
     const_assert_eq(std::mem::size_of::<Statement<'_>>(), 40);
-    const_assert_eq(std::mem::size_of::<TypeExpr<'_>>(), 24);
     const_assert_eq(std::mem::size_of::<Block<'_>>(), 24);
     const_assert_eq(std::mem::size_of::<IntLiteral<'_>>(), 24);
     const_assert_eq(std::mem::size_of::<IStr>(), 4);

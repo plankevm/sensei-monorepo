@@ -1,14 +1,9 @@
-import * from "./my-file.sen";
-import {A, B, C} from "./my-file.sen";
-import * as Name from "./my-file.sen";
-
-
 const my_func = fn () -> struct { x: u256, y: u256 } {
     let x = 18446744073709551616;
 
 };
 
-export const IMPORTANT_NUM: u256 = 3;
+const IMPORTANT_NUM: u256 = 3;
 
 const ByteBuffer = struct {
     ptr: byteptr,

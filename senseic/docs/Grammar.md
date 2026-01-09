@@ -42,7 +42,7 @@ fn_def = "fn" "(" param_def_list? ")" ("->" expr)? block
 param_def_list = comma_separated{"comptime"? IDENT ":" expr}
 
 struct_def = "struct" "{" comma_separated{IDENT ":" expr}? "}"
-struct_lit = name_path "{" comma_separated{IDENT ":" expr} "}"
+struct_lit = name_path "{" comma_separated{IDENT ":" expr}? "}"
 
 comma_separated{p} = (p ("," p)* ","?)
 name_path = IDENT ("." IDENT)*

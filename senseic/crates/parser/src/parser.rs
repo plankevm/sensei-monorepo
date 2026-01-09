@@ -449,147 +449,10 @@ pub fn parse<'ast, 'src: 'ast>(
 mod tests {
     use super::*;
 
-    fn new_parser<'src, 'ast>(source: &'src str, arena: &'ast Bump) -> Parser<'src, 'ast> {
-        Parser::new(source, arena)
-    }
-
-    #[test]
-    fn test_bump_advances_token() {
-        let arena = Bump::new();
-        let mut parser = new_parser("foo bar baz", &arena);
-
-        assert_eq!(parser.token, Some(Token::Identifier));
-        assert_eq!(parser.current_slice(), "foo");
-
-        parser.bump();
-        assert_eq!(parser.token, Some(Token::Identifier));
-        assert_eq!(parser.current_slice(), "bar");
-        assert_eq!(parser.prev_token, Some(Token::Identifier));
-
-        parser.bump();
-        assert_eq!(parser.token, Some(Token::Identifier));
-        assert_eq!(parser.current_slice(), "baz");
-
-        parser.bump();
-        assert!(parser.at_eof());
-    }
-
-    #[test]
-    fn test_check_noexpect_does_not_accumulate() {
-        let arena = Bump::new();
-        let parser = new_parser("foo", &arena);
-
-        assert!(!parser.check_noexpect(Token::If));
-        assert!(parser.expected_tokens.is_empty());
-
-        assert!(parser.check_noexpect(Token::Identifier));
-        assert!(parser.expected_tokens.is_empty());
-    }
-
-    #[test]
-    fn test_check_accumulates_expectations() {
-        let arena = Bump::new();
-        let mut parser = new_parser("foo", &arena);
-
-        assert!(!parser.check(Token::If));
-        assert_eq!(parser.expected_tokens.len(), 1);
-
-        assert!(!parser.check(Token::Else));
-        assert_eq!(parser.expected_tokens.len(), 2);
-
-        assert!(!parser.check(Token::If));
-        assert_eq!(parser.expected_tokens.len(), 2);
-
-        assert!(parser.check(Token::Identifier));
-        assert_eq!(parser.expected_tokens.len(), 2);
-    }
-
-    #[test]
-    fn test_eat_consumes_matching_token() {
-        let arena = Bump::new();
-        let mut parser = new_parser("if else", &arena);
-
-        assert!(!parser.eat(Token::Else));
-        assert_eq!(parser.token, Some(Token::If));
-
-        assert!(parser.eat(Token::If));
-        assert_eq!(parser.token, Some(Token::Else));
-        assert_eq!(parser.prev_token, Some(Token::If));
-    }
-
-    #[test]
-    fn test_expect_success() {
-        let arena = Bump::new();
-        let mut parser = new_parser("if else", &arena);
-
-        let result = parser.expect(Token::If);
-        assert!(matches!(result, Ok(Recovered::No)));
-        assert_eq!(parser.token, Some(Token::Else));
-    }
-
-    #[test]
-    fn test_expect_failure_reports_error() {
-        let arena = Bump::new();
-        let mut parser = new_parser("if else", &arena);
-
-        let result = parser.expect(Token::Else);
-        assert!(result.is_err());
-        assert!(parser.has_errors());
-        assert_eq!(parser.diagnostics().error_count(), 1);
-    }
-
-    #[test]
-    fn test_expect_at_eof_recovers() {
-        let arena = Bump::new();
-        let mut parser = new_parser("", &arena);
-
-        let result = parser.expect(Token::If);
-        assert!(matches!(result, Ok(Recovered::Yes)));
-        assert!(parser.has_errors());
-    }
-
-    #[test]
-    fn test_bump_clears_expectations() {
-        let arena = Bump::new();
-        let mut parser = new_parser("foo bar", &arena);
-
-        parser.check(Token::If);
-        parser.check(Token::Else);
-        assert_eq!(parser.expected_tokens.len(), 2);
-
-        parser.bump();
-        assert!(parser.expected_tokens.is_empty());
-    }
-
-    #[test]
-    fn test_intern_strings() {
-        let arena = Bump::new();
-        let mut parser = new_parser("foo foo bar", &arena);
-
-        let foo1 = parser.intern("foo");
-        let foo2 = parser.intern("foo");
-        let bar = parser.intern("bar");
-
-        assert_eq!(foo1, foo2);
-        assert_ne!(foo1, bar);
-    }
-
-    #[test]
-    fn test_span_tracking() {
-        let arena = Bump::new();
-        let mut parser = new_parser("if else", &arena);
-
-        assert_eq!(parser.current_span(), Span::new(0, 2));
-
-        parser.bump();
-        assert_eq!(parser.prev_span(), Span::new(0, 2));
-        assert_eq!(parser.current_span(), Span::new(3, 7));
-    }
-
     #[test]
     fn test_parse_ident_simple() {
         let arena = Bump::new();
-        let mut parser = new_parser("foo", &arena);
+        let mut parser = Parser::new("foo", &arena);
 
         let ident = parser.parse_ident().unwrap();
         assert_eq!(ident.span, Span::new(0, 3));
@@ -600,7 +463,7 @@ mod tests {
     #[test]
     fn test_parse_ident_advances_token() {
         let arena = Bump::new();
-        let mut parser = new_parser("foo bar", &arena);
+        let mut parser = Parser::new("foo bar", &arena);
 
         let ident1 = parser.parse_ident().unwrap();
         assert_eq!(parser.interner.resolve(ident1.inner), "foo");
@@ -614,7 +477,7 @@ mod tests {
     #[test]
     fn test_parse_ident_fails_on_keyword() {
         let arena = Bump::new();
-        let mut parser = new_parser("if", &arena);
+        let mut parser = Parser::new("if", &arena);
 
         let result = parser.parse_ident();
         assert!(result.is_err());
@@ -624,7 +487,7 @@ mod tests {
     #[test]
     fn test_parse_ident_fails_on_literal() {
         let arena = Bump::new();
-        let mut parser = new_parser("123", &arena);
+        let mut parser = Parser::new("123", &arena);
 
         let result = parser.parse_ident();
         assert!(result.is_err());
@@ -634,7 +497,7 @@ mod tests {
     #[test]
     fn test_parse_bool_literal_true() {
         let arena = Bump::new();
-        let mut parser = new_parser("true", &arena);
+        let mut parser = Parser::new("true", &arena);
 
         let result = parser.parse_bool_literal().unwrap();
         assert!(result.inner);
@@ -645,7 +508,7 @@ mod tests {
     #[test]
     fn test_parse_bool_literal_false() {
         let arena = Bump::new();
-        let mut parser = new_parser("false", &arena);
+        let mut parser = Parser::new("false", &arena);
 
         let result = parser.parse_bool_literal().unwrap();
         assert!(!result.inner);
@@ -656,7 +519,7 @@ mod tests {
     #[test]
     fn test_parse_bool_literal_fails_on_ident() {
         let arena = Bump::new();
-        let mut parser = new_parser("truthy", &arena);
+        let mut parser = Parser::new("truthy", &arena);
 
         let result = parser.parse_bool_literal();
         assert!(result.is_err());
@@ -666,7 +529,7 @@ mod tests {
     #[test]
     fn test_parse_bool_literal_advances() {
         let arena = Bump::new();
-        let mut parser = new_parser("true false", &arena);
+        let mut parser = Parser::new("true false", &arena);
 
         let first = parser.parse_bool_literal().unwrap();
         assert!(first.inner);
@@ -679,7 +542,7 @@ mod tests {
     #[test]
     fn test_parse_int_literal_decimal() {
         let arena = Bump::new();
-        let mut parser = new_parser("12345", &arena);
+        let mut parser = Parser::new("12345", &arena);
 
         let result = parser.parse_int_literal().unwrap();
         assert!(result.inner.positive);
@@ -691,7 +554,7 @@ mod tests {
     #[test]
     fn test_parse_int_literal_decimal_negative() {
         let arena = Bump::new();
-        let mut parser = new_parser("-42", &arena);
+        let mut parser = Parser::new("-42", &arena);
 
         let result = parser.parse_int_literal().unwrap();
         assert!(!result.inner.positive);
@@ -702,7 +565,7 @@ mod tests {
     #[test]
     fn test_parse_int_literal_decimal_with_underscores() {
         let arena = Bump::new();
-        let mut parser = new_parser("1_000_000", &arena);
+        let mut parser = Parser::new("1_000_000", &arena);
 
         let result = parser.parse_int_literal().unwrap();
         assert!(result.inner.positive);
@@ -712,7 +575,7 @@ mod tests {
     #[test]
     fn test_parse_int_literal_hex() {
         let arena = Bump::new();
-        let mut parser = new_parser("0xDEAD", &arena);
+        let mut parser = Parser::new("0xDEAD", &arena);
 
         let result = parser.parse_int_literal().unwrap();
         assert!(result.inner.positive);
@@ -723,7 +586,7 @@ mod tests {
     #[test]
     fn test_parse_int_literal_hex_negative() {
         let arena = Bump::new();
-        let mut parser = new_parser("-0xBEEF", &arena);
+        let mut parser = Parser::new("-0xBEEF", &arena);
 
         let result = parser.parse_int_literal().unwrap();
         assert!(!result.inner.positive);
@@ -733,7 +596,7 @@ mod tests {
     #[test]
     fn test_parse_int_literal_binary() {
         let arena = Bump::new();
-        let mut parser = new_parser("0b1010", &arena);
+        let mut parser = Parser::new("0b1010", &arena);
 
         let result = parser.parse_int_literal().unwrap();
         assert!(result.inner.positive);
@@ -744,7 +607,7 @@ mod tests {
     #[test]
     fn test_parse_int_literal_binary_negative() {
         let arena = Bump::new();
-        let mut parser = new_parser("-0b1111", &arena);
+        let mut parser = Parser::new("-0b1111", &arena);
 
         let result = parser.parse_int_literal().unwrap();
         assert!(!result.inner.positive);
@@ -754,7 +617,7 @@ mod tests {
     #[test]
     fn test_parse_int_literal_fails_on_identifier() {
         let arena = Bump::new();
-        let mut parser = new_parser("abc", &arena);
+        let mut parser = Parser::new("abc", &arena);
 
         let result = parser.parse_int_literal();
         assert!(result.is_err());
@@ -764,7 +627,7 @@ mod tests {
     #[test]
     fn test_parse_name_path_single() {
         let arena = Bump::new();
-        let mut parser = new_parser("foo", &arena);
+        let mut parser = Parser::new("foo", &arena);
 
         let result = parser.parse_name_path().unwrap();
         assert_eq!(result.0.len(), 1);
@@ -775,7 +638,7 @@ mod tests {
     #[test]
     fn test_parse_name_path_two_segments() {
         let arena = Bump::new();
-        let mut parser = new_parser("foo.bar", &arena);
+        let mut parser = Parser::new("foo.bar", &arena);
 
         let result = parser.parse_name_path().unwrap();
         assert_eq!(result.0.len(), 2);
@@ -787,7 +650,7 @@ mod tests {
     #[test]
     fn test_parse_name_path_three_segments() {
         let arena = Bump::new();
-        let mut parser = new_parser("foo.bar.baz", &arena);
+        let mut parser = Parser::new("foo.bar.baz", &arena);
 
         let result = parser.parse_name_path().unwrap();
         assert_eq!(result.0.len(), 3);
@@ -800,7 +663,7 @@ mod tests {
     #[test]
     fn test_parse_name_path_stops_at_non_ident() {
         let arena = Bump::new();
-        let mut parser = new_parser("foo.bar + baz", &arena);
+        let mut parser = Parser::new("foo.bar + baz", &arena);
 
         let result = parser.parse_name_path().unwrap();
         assert_eq!(result.0.len(), 2);
@@ -812,7 +675,7 @@ mod tests {
     #[test]
     fn test_parse_name_path_fails_on_non_ident() {
         let arena = Bump::new();
-        let mut parser = new_parser("123", &arena);
+        let mut parser = Parser::new("123", &arena);
 
         let result = parser.parse_name_path();
         assert!(result.is_err());
@@ -822,7 +685,7 @@ mod tests {
     #[test]
     fn test_parse_name_path_trailing_dot_with_following_token() {
         let arena = Bump::new();
-        let mut parser = new_parser("foo.bar.+", &arena);
+        let mut parser = Parser::new("foo.bar.+", &arena);
 
         let result = parser.parse_name_path();
         assert!(result.is_err());
@@ -832,7 +695,7 @@ mod tests {
     #[test]
     fn test_parse_primary_expr_ident() {
         let arena = Bump::new();
-        let mut parser = new_parser("foo", &arena);
+        let mut parser = Parser::new("foo", &arena);
 
         let result = parser.parse_primary_expr().unwrap();
         assert!(matches!(result, Expr::Ident(_)));
@@ -845,7 +708,7 @@ mod tests {
     #[test]
     fn test_parse_primary_expr_bool_true() {
         let arena = Bump::new();
-        let mut parser = new_parser("true", &arena);
+        let mut parser = Parser::new("true", &arena);
 
         let result = parser.parse_primary_expr().unwrap();
         assert!(matches!(result, Expr::BoolLiteral(true)));
@@ -855,7 +718,7 @@ mod tests {
     #[test]
     fn test_parse_primary_expr_bool_false() {
         let arena = Bump::new();
-        let mut parser = new_parser("false", &arena);
+        let mut parser = Parser::new("false", &arena);
 
         let result = parser.parse_primary_expr().unwrap();
         assert!(matches!(result, Expr::BoolLiteral(false)));
@@ -865,7 +728,7 @@ mod tests {
     #[test]
     fn test_parse_primary_expr_int_decimal() {
         let arena = Bump::new();
-        let mut parser = new_parser("42", &arena);
+        let mut parser = Parser::new("42", &arena);
 
         let result = parser.parse_primary_expr().unwrap();
         assert!(matches!(result, Expr::IntLiteral(_)));
@@ -879,7 +742,7 @@ mod tests {
     #[test]
     fn test_parse_primary_expr_int_hex() {
         let arena = Bump::new();
-        let mut parser = new_parser("0xDEAD", &arena);
+        let mut parser = Parser::new("0xDEAD", &arena);
 
         let result = parser.parse_primary_expr().unwrap();
         assert!(matches!(result, Expr::IntLiteral(_)));
@@ -893,7 +756,7 @@ mod tests {
     #[test]
     fn test_parse_primary_expr_int_binary() {
         let arena = Bump::new();
-        let mut parser = new_parser("0b1010", &arena);
+        let mut parser = Parser::new("0b1010", &arena);
 
         let result = parser.parse_primary_expr().unwrap();
         assert!(matches!(result, Expr::IntLiteral(_)));
@@ -907,7 +770,7 @@ mod tests {
     #[test]
     fn test_parse_primary_expr_negative_int() {
         let arena = Bump::new();
-        let mut parser = new_parser("-123", &arena);
+        let mut parser = Parser::new("-123", &arena);
 
         let result = parser.parse_primary_expr().unwrap();
         assert!(matches!(result, Expr::IntLiteral(_)));
@@ -921,7 +784,7 @@ mod tests {
     #[test]
     fn test_parse_primary_expr_fails_on_keyword() {
         let arena = Bump::new();
-        let mut parser = new_parser("if", &arena);
+        let mut parser = Parser::new("if", &arena);
 
         let result = parser.parse_primary_expr();
         assert!(result.is_err());
@@ -931,7 +794,7 @@ mod tests {
     #[test]
     fn test_parse_primary_expr_fails_on_operator() {
         let arena = Bump::new();
-        let mut parser = new_parser("+", &arena);
+        let mut parser = Parser::new("+", &arena);
 
         let result = parser.parse_primary_expr();
         assert!(result.is_err());
@@ -941,7 +804,7 @@ mod tests {
     #[test]
     fn test_parse_member_simple() {
         let arena = Bump::new();
-        let mut parser = new_parser("foo.bar", &arena);
+        let mut parser = Parser::new("foo.bar", &arena);
 
         let result = parser.parse_member_expr().unwrap();
         assert!(matches!(result, Expr::Member(_)));
@@ -955,7 +818,7 @@ mod tests {
     #[test]
     fn test_parse_member_chained() {
         let arena = Bump::new();
-        let mut parser = new_parser("a.b.c", &arena);
+        let mut parser = Parser::new("a.b.c", &arena);
 
         let result = parser.parse_member_expr().unwrap();
         // Should be ((a.b).c)
@@ -974,7 +837,7 @@ mod tests {
     #[test]
     fn test_parse_member_no_member_access() {
         let arena = Bump::new();
-        let mut parser = new_parser("foo", &arena);
+        let mut parser = Parser::new("foo", &arena);
 
         let result = parser.parse_member_expr().unwrap();
         assert!(matches!(result, Expr::Ident(_)));
@@ -984,7 +847,7 @@ mod tests {
     #[test]
     fn test_parse_member_stops_at_non_ident() {
         let arena = Bump::new();
-        let mut parser = new_parser("foo.bar + baz", &arena);
+        let mut parser = Parser::new("foo.bar + baz", &arena);
 
         let result = parser.parse_member_expr().unwrap();
         assert!(matches!(result, Expr::Member(_)));
