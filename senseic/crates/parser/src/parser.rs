@@ -411,6 +411,140 @@ impl<'src, 'ast> Parser<'src, 'ast> {
 
         Ok(expr)
     }
+
+    /// Parses a comma-separated sequence of elements delimited by `open` and `close` tokens.
+    ///
+    /// - `open`: The opening delimiter token (e.g., `(`, `{`, `[`)
+    /// - `close`: The closing delimiter token (e.g., `)`, `}`, `]`)
+    /// - `parse_element`: A function to parse each element
+    ///
+    /// Returns a vector of parsed elements. Handles:
+    /// - Empty sequences
+    /// - Trailing commas
+    /// - Recovery on EOF (returns partial results)
+    pub fn parse_comma_separated<T>(
+        &mut self,
+        open: Token,
+        close: Token,
+        mut parse_element: impl FnMut(&mut Self) -> Result<T, ParseError>,
+    ) -> Result<(std::vec::Vec<T>, Recovered), ParseError> {
+        let open_span = self.current_span();
+        self.expect(open)?;
+
+        let mut items = std::vec::Vec::new();
+
+        // Check for empty sequence
+        if self.check_noexpect(close) {
+            self.bump();
+            return Ok((items, Recovered::No));
+        }
+
+        // Parse first element
+        items.push(parse_element(self)?);
+
+        loop {
+            // Check for closing delimiter
+            if self.check_noexpect(close) {
+                self.bump();
+                return Ok((items, Recovered::No));
+            }
+
+            // Handle EOF
+            if self.at_eof() {
+                let msg = format!("unclosed delimiter: expected {}", token_description(close));
+                self.diagnostics.report_with_span_note(
+                    self.token_span,
+                    &msg,
+                    open_span,
+                    "opening delimiter here",
+                );
+                return Ok((items, Recovered::Yes));
+            }
+
+            // Expect comma
+            match self.expect(Token::Comma) {
+                Ok(Recovered::Yes) => {
+                    // Hit EOF while expecting comma
+                    return Ok((items, Recovered::Yes));
+                }
+                Ok(Recovered::No) => {}
+                Err(e) => return Err(e),
+            }
+
+            // Check for trailing comma (close after comma)
+            if self.check_noexpect(close) {
+                self.bump();
+                return Ok((items, Recovered::No));
+            }
+
+            // Handle EOF after comma
+            if self.at_eof() {
+                let msg = format!("unclosed delimiter: expected {}", token_description(close));
+                self.diagnostics.report_with_span_note(
+                    self.token_span,
+                    &msg,
+                    open_span,
+                    "opening delimiter here",
+                );
+                return Ok((items, Recovered::Yes));
+            }
+
+            // Parse next element
+            items.push(parse_element(self)?);
+        }
+    }
+
+    /// Parses a comma-separated sequence without delimiters, stopping at `stop` token.
+    ///
+    /// Used when delimiters are handled externally. The sequence can be empty.
+    /// Does NOT consume the `stop` token.
+    pub fn parse_comma_separated_until<T>(
+        &mut self,
+        stop: Token,
+        mut parse_element: impl FnMut(&mut Self) -> Result<T, ParseError>,
+    ) -> Result<(std::vec::Vec<T>, Recovered), ParseError> {
+        let mut items = std::vec::Vec::new();
+
+        // Check for empty sequence (stop token is next)
+        if self.check_noexpect(stop) {
+            return Ok((items, Recovered::No));
+        }
+
+        // Parse first element
+        items.push(parse_element(self)?);
+
+        loop {
+            // Check for stop token
+            if self.check_noexpect(stop) {
+                return Ok((items, Recovered::No));
+            }
+
+            // Handle EOF
+            if self.at_eof() {
+                return Ok((items, Recovered::Yes));
+            }
+
+            // Expect comma
+            match self.expect(Token::Comma) {
+                Ok(Recovered::Yes) => return Ok((items, Recovered::Yes)),
+                Ok(Recovered::No) => {}
+                Err(e) => return Err(e),
+            }
+
+            // Check for trailing comma (stop after comma)
+            if self.check_noexpect(stop) {
+                return Ok((items, Recovered::No));
+            }
+
+            // Handle EOF after comma
+            if self.at_eof() {
+                return Ok((items, Recovered::Yes));
+            }
+
+            // Parse next element
+            items.push(parse_element(self)?);
+        }
+    }
 }
 
 fn strip_sign(s: &str) -> (bool, &str) {

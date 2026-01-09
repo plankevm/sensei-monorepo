@@ -64,7 +64,7 @@
       "name": "Sequence Parsing",
       "description": "Implement parse_comma_separated() helper for parsing comma-delimited lists with optional trailing comma. Handle recovery on unexpected tokens, return partial results where possible.",
       "dependencies": ["infra-02", "infra-04"],
-      "completed": false
+      "completed": true
     },
     {
       "id": "atom-01",
