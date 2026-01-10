@@ -859,7 +859,7 @@ impl<'src, 'ast> Parser<'src, 'ast> {
         } else if self.check_noexpect(Token::If) {
             todo!("stmt-05: conditional statement")
         } else if self.check_noexpect(Token::LeftCurly) {
-            todo!("stmt-04: block statement")
+            self.parse_block_stmt()
         } else if self.check_noexpect(Token::Inline) || self.check_noexpect(Token::While) {
             todo!("stmt-07: while statement")
         } else if self.check_noexpect(Token::Identifier) {
@@ -873,6 +873,12 @@ impl<'src, 'ast> Parser<'src, 'ast> {
             self.push_expected(ExpectedToken::Expr);
             Err(self.unexpected_token())
         }
+    }
+
+    pub fn parse_block_stmt(&mut self) -> Result<Statement<'ast>, ParseError> {
+        let block = self.parse_block()?;
+        self.eat(Token::Semicolon);
+        Ok(Statement::Block(block))
     }
 
     pub fn parse_comma_separated_until<T>(
@@ -2230,5 +2236,57 @@ mod tests {
         let result = parser.parse_stmt().unwrap();
         assert!(matches!(result, Statement::Assign(_)));
         assert!(parser.diagnostics.has_errors());
+    }
+
+    #[test]
+    fn test_parse_block_stmt_empty() {
+        let arena = Bump::new();
+        let mut parser = Parser::new("{}", &arena);
+
+        let result = parser.parse_stmt().unwrap();
+        assert!(matches!(result, Statement::Block(_)));
+        if let Statement::Block(block) = result {
+            assert_eq!(block.statements.len(), 0);
+            assert!(block.last_expr.is_none());
+        }
+        assert!(parser.at_eof());
+        assert!(!parser.diagnostics.has_errors());
+    }
+
+    #[test]
+    fn test_parse_block_stmt_with_trailing_expr() {
+        let arena = Bump::new();
+        let mut parser = Parser::new("{ foo }", &arena);
+
+        let result = parser.parse_stmt().unwrap();
+        assert!(matches!(result, Statement::Block(_)));
+        if let Statement::Block(block) = result {
+            assert_eq!(block.statements.len(), 0);
+            assert!(block.last_expr.is_some());
+        }
+        assert!(parser.at_eof());
+        assert!(!parser.diagnostics.has_errors());
+    }
+
+    #[test]
+    fn test_parse_block_stmt_optional_semicolon_present() {
+        let arena = Bump::new();
+        let mut parser = Parser::new("{}; foo", &arena);
+
+        let result = parser.parse_stmt().unwrap();
+        assert!(matches!(result, Statement::Block(_)));
+        assert_eq!(parser.token, Some(Token::Identifier));
+        assert!(!parser.diagnostics.has_errors());
+    }
+
+    #[test]
+    fn test_parse_block_stmt_optional_semicolon_absent() {
+        let arena = Bump::new();
+        let mut parser = Parser::new("{} foo", &arena);
+
+        let result = parser.parse_stmt().unwrap();
+        assert!(matches!(result, Statement::Block(_)));
+        assert_eq!(parser.token, Some(Token::Identifier));
+        assert!(!parser.diagnostics.has_errors());
     }
 }

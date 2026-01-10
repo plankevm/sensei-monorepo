@@ -232,7 +232,7 @@
       "name": "Block Statement",
       "description": "Parse block as statement. Semicolon after closing brace is optional per grammar. Add case to stmt dispatch.",
       "dependencies": ["expr-02", "stmt-08"],
-      "completed": false
+      "completed": true
     },
     {
       "id": "stmt-05",
