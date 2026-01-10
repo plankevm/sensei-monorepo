@@ -303,7 +303,18 @@ impl<'src, 'ast> Parser<'src, 'ast> {
             return Ok(None);
         }
 
-        todo!()
+        if self.check_noexpect(Token::Init) {
+            self.parse_init_decl().map(Some)
+        } else if self.check_noexpect(Token::Run) {
+            self.parse_run_decl().map(Some)
+        } else if self.check_noexpect(Token::Const) {
+            self.parse_const_def().map(Some)
+        } else {
+            self.push_expected(ExpectedToken::Token(Token::Init));
+            self.push_expected(ExpectedToken::Token(Token::Run));
+            self.push_expected(ExpectedToken::Token(Token::Const));
+            Err(self.unexpected_token())
+        }
     }
 
     pub fn parse_init_decl(&mut self) -> Result<Declaration<'ast>, ParseError> {
@@ -2710,5 +2721,61 @@ mod tests {
         }
         assert!(parser.at_eof());
         assert!(!parser.diagnostics.has_errors());
+    }
+
+    #[test]
+    fn test_parse_next_decl_eof() {
+        let arena = Bump::new();
+        let mut parser = Parser::new("", &arena);
+
+        let result = parser.parse_next_decl().unwrap();
+        assert!(result.is_none());
+        assert!(!parser.diagnostics.has_errors());
+    }
+
+    #[test]
+    fn test_parse_next_decl_init() {
+        let arena = Bump::new();
+        let mut parser = Parser::new("init { foo }", &arena);
+
+        let result = parser.parse_next_decl().unwrap();
+        assert!(result.is_some());
+        assert!(matches!(result.unwrap(), Declaration::Init(_)));
+        assert!(parser.at_eof());
+        assert!(!parser.diagnostics.has_errors());
+    }
+
+    #[test]
+    fn test_parse_next_decl_run() {
+        let arena = Bump::new();
+        let mut parser = Parser::new("run { bar }", &arena);
+
+        let result = parser.parse_next_decl().unwrap();
+        assert!(result.is_some());
+        assert!(matches!(result.unwrap(), Declaration::Run(_)));
+        assert!(parser.at_eof());
+        assert!(!parser.diagnostics.has_errors());
+    }
+
+    #[test]
+    fn test_parse_next_decl_const() {
+        let arena = Bump::new();
+        let mut parser = Parser::new("const X = 42;", &arena);
+
+        let result = parser.parse_next_decl().unwrap();
+        assert!(result.is_some());
+        assert!(matches!(result.unwrap(), Declaration::ConstDef(_)));
+        assert!(parser.at_eof());
+        assert!(!parser.diagnostics.has_errors());
+    }
+
+    #[test]
+    fn test_parse_next_decl_invalid_token() {
+        let arena = Bump::new();
+        let mut parser = Parser::new("foo", &arena);
+
+        let result = parser.parse_next_decl();
+        assert!(result.is_err());
+        assert!(parser.diagnostics.has_errors());
     }
 }

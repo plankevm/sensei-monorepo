@@ -288,7 +288,7 @@
       "name": "Declaration Dispatch",
       "description": "Implement parse_next_decl() that dispatches based on leading token: init, run, const. Return None at EOF.",
       "dependencies": ["decl-02", "decl-03", "decl-04"],
-      "completed": false
+      "completed": true
     },
     {
       "id": "test-01",
