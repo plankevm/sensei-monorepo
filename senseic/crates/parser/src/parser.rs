@@ -621,6 +621,22 @@ impl<'src, 'ast> Parser<'src, 'ast> {
         Ok(Statement::Return(expr))
     }
 
+    pub fn parse_let_stmt(&mut self) -> Result<Statement<'ast>, ParseError> {
+        self.expect(Token::Let)?;
+
+        let mutable = self.eat(Token::Mut);
+        let ident = self.parse_ident()?.inner;
+
+        let r#type = if self.eat(Token::Colon) { Some(self.parse_expr()?) } else { None };
+
+        self.expect(Token::Equals)?;
+        let value = self.parse_expr()?;
+        self.expect(Token::Semicolon)?;
+
+        let let_stmt = LetStmt { mutable, ident, r#type, value };
+        Ok(Statement::Let(self.arena.alloc(let_stmt)))
+    }
+
     pub fn parse_cond_expr(&mut self) -> Result<Expr<'ast>, ParseError> {
         self.expect(Token::If)?;
 
@@ -774,7 +790,7 @@ impl<'src, 'ast> Parser<'src, 'ast> {
 
     pub fn parse_stmt(&mut self) -> Result<Statement<'ast>, ParseError> {
         if self.check_noexpect(Token::Let) {
-            todo!("stmt-01: let statement")
+            self.parse_let_stmt()
         } else if self.check_noexpect(Token::Return) {
             self.parse_return_stmt()
         } else if self.check_noexpect(Token::If) {
@@ -2020,5 +2036,76 @@ mod tests {
         let result = parser.parse_stmt();
         assert!(result.is_err());
         assert!(parser.diagnostics.has_errors());
+    }
+
+    #[test]
+    fn test_parse_let_stmt_simple() {
+        let arena = Bump::new();
+        let mut parser = Parser::new("let x = 42;", &arena);
+
+        let result = parser.parse_stmt().unwrap();
+        assert!(matches!(result, Statement::Let(_)));
+        if let Statement::Let(let_stmt) = result {
+            assert!(!let_stmt.mutable);
+            assert_eq!(parser.interner.resolve(let_stmt.ident), "x");
+            assert!(let_stmt.r#type.is_none());
+            assert!(matches!(let_stmt.value, Expr::IntLiteral(_)));
+        }
+        assert!(parser.at_eof());
+        assert!(!parser.diagnostics.has_errors());
+    }
+
+    #[test]
+    fn test_parse_let_stmt_mutable() {
+        let arena = Bump::new();
+        let mut parser = Parser::new("let mut y = foo;", &arena);
+
+        let result = parser.parse_stmt().unwrap();
+        assert!(matches!(result, Statement::Let(_)));
+        if let Statement::Let(let_stmt) = result {
+            assert!(let_stmt.mutable);
+            assert_eq!(parser.interner.resolve(let_stmt.ident), "y");
+            assert!(let_stmt.r#type.is_none());
+            assert!(matches!(let_stmt.value, Expr::Ident(_)));
+        }
+        assert!(parser.at_eof());
+        assert!(!parser.diagnostics.has_errors());
+    }
+
+    #[test]
+    fn test_parse_let_stmt_with_type_annotation() {
+        let arena = Bump::new();
+        let mut parser = Parser::new("let x: u32 = 42;", &arena);
+
+        let result = parser.parse_stmt().unwrap();
+        assert!(matches!(result, Statement::Let(_)));
+        if let Statement::Let(let_stmt) = result {
+            assert!(!let_stmt.mutable);
+            assert_eq!(parser.interner.resolve(let_stmt.ident), "x");
+            assert!(let_stmt.r#type.is_some());
+            if let Some(Expr::Ident(type_istr)) = let_stmt.r#type {
+                assert_eq!(parser.interner.resolve(type_istr), "u32");
+            } else {
+                panic!("expected Ident as type");
+            }
+        }
+        assert!(parser.at_eof());
+        assert!(!parser.diagnostics.has_errors());
+    }
+
+    #[test]
+    fn test_parse_let_stmt_mutable_with_type() {
+        let arena = Bump::new();
+        let mut parser = Parser::new("let mut count: u64 = 0;", &arena);
+
+        let result = parser.parse_stmt().unwrap();
+        assert!(matches!(result, Statement::Let(_)));
+        if let Statement::Let(let_stmt) = result {
+            assert!(let_stmt.mutable);
+            assert_eq!(parser.interner.resolve(let_stmt.ident), "count");
+            assert!(let_stmt.r#type.is_some());
+        }
+        assert!(parser.at_eof());
+        assert!(!parser.diagnostics.has_errors());
     }
 }

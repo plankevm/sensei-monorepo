@@ -208,7 +208,7 @@
       "name": "Let Statement",
       "description": "Parse 'let mut? ident (: expr)? = expr;' into Statement::Let. Mutable flag, optional type annotation parsed as expr. Add case to stmt dispatch.",
       "dependencies": ["atom-01", "expr-09", "stmt-08"],
-      "completed": false
+      "completed": true
     },
     {
       "id": "stmt-02",
