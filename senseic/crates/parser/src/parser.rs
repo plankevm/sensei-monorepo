@@ -584,6 +584,12 @@ impl<'src, 'ast> Parser<'src, 'ast> {
         Ok(Block { statements, last_expr })
     }
 
+    pub fn parse_comptime_block(&mut self) -> Result<Expr<'ast>, ParseError> {
+        self.expect(Token::Comptime)?;
+        let block = self.parse_block()?;
+        Ok(Expr::Comptime(block))
+    }
+
     fn is_stmt_start(&self) -> bool {
         matches!(
             self.token,
@@ -1442,6 +1448,58 @@ mod tests {
         let mut parser = Parser::new("SomeType", &arena);
 
         let result = parser.parse_type_def();
+        assert!(result.is_err());
+        assert!(parser.diagnostics.has_errors());
+    }
+
+    #[test]
+    fn test_parse_comptime_block_empty() {
+        let arena = Bump::new();
+        let mut parser = Parser::new("comptime {}", &arena);
+
+        let result = parser.parse_comptime_block().unwrap();
+        assert!(matches!(result, Expr::Comptime(_)));
+        if let Expr::Comptime(block) = result {
+            assert_eq!(block.statements.len(), 0);
+            assert!(block.last_expr.is_none());
+        }
+        assert!(parser.at_eof());
+    }
+
+    #[test]
+    fn test_parse_comptime_block_with_trailing_expr() {
+        let arena = Bump::new();
+        let mut parser = Parser::new("comptime { foo }", &arena);
+
+        let result = parser.parse_comptime_block().unwrap();
+        assert!(matches!(result, Expr::Comptime(_)));
+        if let Expr::Comptime(block) = result {
+            assert_eq!(block.statements.len(), 0);
+            assert!(block.last_expr.is_some());
+        }
+        assert!(parser.at_eof());
+    }
+
+    #[test]
+    fn test_parse_comptime_block_with_expr_stmt() {
+        let arena = Bump::new();
+        let mut parser = Parser::new("comptime { foo; }", &arena);
+
+        let result = parser.parse_comptime_block().unwrap();
+        assert!(matches!(result, Expr::Comptime(_)));
+        if let Expr::Comptime(block) = result {
+            assert_eq!(block.statements.len(), 1);
+            assert!(block.last_expr.is_none());
+        }
+        assert!(parser.at_eof());
+    }
+
+    #[test]
+    fn test_parse_comptime_block_fails_without_block() {
+        let arena = Bump::new();
+        let mut parser = Parser::new("comptime foo", &arena);
+
+        let result = parser.parse_comptime_block();
         assert!(result.is_err());
         assert!(parser.diagnostics.has_errors());
     }

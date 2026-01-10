@@ -184,7 +184,7 @@
       "name": "Comptime Block Expression",
       "description": "Parse 'comptime block' into Expr::Comptime. Used for compile-time evaluation of blocks.",
       "dependencies": ["expr-02"],
-      "completed": false
+      "completed": true
     },
     {
       "id": "expr-09",
