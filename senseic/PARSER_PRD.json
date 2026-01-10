@@ -104,7 +104,7 @@
       "name": "StructDef Parsing",
       "description": "Parse 'struct { field: expr, ... }' into StructDef with FieldDef list. Uses comma_separated helper. Field types are parsed as expressions per grammar.",
       "dependencies": ["infra-05", "type-01"],
-      "completed": false
+      "completed": true
     },
     {
       "id": "type-03",

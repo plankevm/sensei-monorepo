@@ -105,7 +105,7 @@ fn token_description(token: Token) -> &'static str {
     }
 }
 
-const EOF_SPAN: SourceSpan = Span { start: u32::MAX, end: u32::MAX };
+const EOF_SPAN: SourceSpan = Span::new(u32::MAX, 0);
 
 pub struct Parser<'src, 'ast> {
     #[allow(dead_code)]
@@ -115,7 +115,7 @@ pub struct Parser<'src, 'ast> {
     diagnostics: DiagnosticsContext<'ast>,
 
     token: Option<Token>,
-    token_span: SourceSpan,
+    current_span: SourceSpan,
     prev_token: Option<Token>,
     prev_span: SourceSpan,
 
@@ -134,7 +134,7 @@ impl<'src, 'ast> Parser<'src, 'ast> {
             interner: StringInterner::with_hasher(std::hash::RandomState::new()),
             diagnostics: DiagnosticsContext::new(arena),
             token,
-            token_span,
+            current_span: token_span,
             prev_token: None,
             prev_span: Span::new(0, 0),
             expected_tokens: std::vec::Vec::new(),
@@ -144,12 +144,12 @@ impl<'src, 'ast> Parser<'src, 'ast> {
 
     pub fn bump(&mut self) {
         self.prev_token = self.token;
-        self.prev_span = self.token_span;
+        self.prev_span = self.current_span;
 
         let (next_token, next_span) =
             self.tokens.next().map_or((None, EOF_SPAN), |(t, s)| (Some(t), s));
         self.token = next_token;
-        self.token_span = next_span;
+        self.current_span = next_span;
 
         self.expected_tokens.clear();
     }
@@ -189,6 +189,19 @@ impl<'src, 'ast> Parser<'src, 'ast> {
         }
     }
 
+    fn unexpected_token(&mut self) -> ParseError {
+        let _ = self.expected_one_of_not_found(&[]);
+        ParseError
+    }
+
+    fn check_with(&mut self, tok: Token, expected: ExpectedToken) -> bool {
+        let is_present = self.check_noexpect(tok);
+        if !is_present {
+            self.push_expected(expected);
+        }
+        is_present
+    }
+
     fn expected_one_of_not_found(&mut self, expected: &[Token]) -> Result<Recovered, ParseError> {
         let mut all_expected: std::vec::Vec<ExpectedToken> = expected
             .iter()
@@ -203,7 +216,7 @@ impl<'src, 'ast> Parser<'src, 'ast> {
         let found_str = self.token.map(token_description).unwrap_or("end of file");
 
         let msg = format!("expected {}, found {}", expected_str, found_str);
-        self.diagnostics.report(self.token_span, msg);
+        self.diagnostics.report(self.current_span, msg);
 
         if self.token.is_none() { Ok(Recovered::Yes) } else { Err(ParseError) }
     }
@@ -213,6 +226,7 @@ impl<'src, 'ast> Parser<'src, 'ast> {
             if let Some(tok) = self.token
                 && stop_tokens.contains(&tok)
             {
+                self.bump();
                 return Recovered::Yes;
             }
             self.bump();
@@ -244,7 +258,7 @@ impl<'src, 'ast> Parser<'src, 'ast> {
         if self.at_eof() {
             let msg = format!("unclosed delimiter: expected {}", token_description(close));
             self.diagnostics.report_with_span_note(
-                self.token_span,
+                self.current_span,
                 &msg,
                 open_span,
                 "opening delimiter here",
@@ -272,32 +286,12 @@ impl<'src, 'ast> Parser<'src, 'ast> {
         self.token.is_none()
     }
 
-    pub fn current_span(&self) -> SourceSpan {
-        self.token_span
-    }
-
-    pub fn prev_span(&self) -> SourceSpan {
-        self.prev_span
-    }
-
-    pub fn intern(&mut self, s: &str) -> IStr {
-        self.interner.intern(s)
-    }
-
     pub fn slice(&self, span: SourceSpan) -> &'src str {
         &self.source[span.start as usize..span.end as usize]
     }
 
     pub fn current_slice(&self) -> &'src str {
-        self.slice(self.token_span)
-    }
-
-    pub fn diagnostics(&self) -> &DiagnosticsContext<'ast> {
-        &self.diagnostics
-    }
-
-    pub fn has_errors(&self) -> bool {
-        self.diagnostics.has_errors()
+        self.slice(self.current_span)
     }
 
     fn parse_next_decl(&mut self) -> Result<Option<Declaration<'ast>>, ParseError> {
@@ -309,16 +303,14 @@ impl<'src, 'ast> Parser<'src, 'ast> {
     }
 
     pub fn parse_ident(&mut self) -> Result<Ident, ParseError> {
-        if self.check_noexpect(Token::Identifier) {
-            let span = self.token_span;
+        if self.check_with(Token::Identifier, ExpectedToken::Ident) {
+            let span = self.current_span;
             let text = self.current_slice();
-            let istr = self.intern(text);
+            let istr = self.interner.intern(text);
             self.bump();
             Ok(Ident::new(span, istr))
         } else {
-            self.push_expected(ExpectedToken::Ident);
-            self.expected_one_of_not_found(&[])?;
-            unreachable!()
+            Err(self.unexpected_token())
         }
     }
 
@@ -329,16 +321,15 @@ impl<'src, 'ast> Parser<'src, 'ast> {
             false
         } else {
             self.push_expected(ExpectedToken::Literal);
-            self.expected_one_of_not_found(&[])?;
-            unreachable!()
+            return Err(self.unexpected_token());
         };
-        let span = self.token_span;
+        let span = self.current_span;
         self.bump();
         Ok(Spanned::new(span, value))
     }
 
     pub fn parse_int_literal(&mut self) -> Result<Spanned<IntLiteral<'ast>>, ParseError> {
-        let span = self.token_span;
+        let span = self.current_span;
         let text = self.current_slice();
 
         let (positive, num) = if self.check_noexpect(Token::DecLiteral) {
@@ -347,18 +338,17 @@ impl<'src, 'ast> Parser<'src, 'ast> {
             (positive, num)
         } else if self.check_noexpect(Token::HexLiteral) {
             let (positive, digits) = strip_sign(text);
-            let digits = &digits[2..]; // strip "0x"
+            let digits = &digits[2..];
             let num = FrozenBigUint::from_radix16_in(digits, self.arena);
             (positive, num)
         } else if self.check_noexpect(Token::BinLiteral) {
             let (positive, digits) = strip_sign(text);
-            let digits = &digits[2..]; // strip "0b"
+            let digits = &digits[2..];
             let num = FrozenBigUint::from_radix2_in(digits, self.arena);
             (positive, num)
         } else {
             self.push_expected(ExpectedToken::Literal);
-            self.expected_one_of_not_found(&[])?;
-            unreachable!()
+            return Err(self.unexpected_token());
         };
 
         self.bump();
@@ -395,8 +385,7 @@ impl<'src, 'ast> Parser<'src, 'ast> {
             Ok(Expr::IntLiteral(int_lit.inner))
         } else {
             self.push_expected(ExpectedToken::Expr);
-            self.expected_one_of_not_found(&[])?;
-            unreachable!()
+            Err(self.unexpected_token())
         }
     }
 
@@ -412,48 +401,46 @@ impl<'src, 'ast> Parser<'src, 'ast> {
         Ok(expr)
     }
 
-    /// Parses a comma-separated sequence of elements delimited by `open` and `close` tokens.
-    ///
-    /// - `open`: The opening delimiter token (e.g., `(`, `{`, `[`)
-    /// - `close`: The closing delimiter token (e.g., `)`, `}`, `]`)
-    /// - `parse_element`: A function to parse each element
-    ///
-    /// Returns a vector of parsed elements. Handles:
-    /// - Empty sequences
-    /// - Trailing commas
-    /// - Recovery on EOF (returns partial results)
+    pub fn parse_fn_call(&mut self, fn_expr: Expr<'ast>) -> Result<Expr<'ast>, ParseError> {
+        let (args, _recovered) =
+            self.parse_comma_separated(Token::LeftRound, Token::RightRound, |p| {
+                p.parse_primary_expr()
+            })?;
+
+        let param_exprs = self.arena.alloc_slice_fill_iter(args);
+        let call = FnCall { fn_expr: self.arena.alloc(fn_expr), param_exprs };
+
+        Ok(Expr::FnCall(call))
+    }
+
     pub fn parse_comma_separated<T>(
         &mut self,
         open: Token,
         close: Token,
         mut parse_element: impl FnMut(&mut Self) -> Result<T, ParseError>,
     ) -> Result<(std::vec::Vec<T>, Recovered), ParseError> {
-        let open_span = self.current_span();
+        let open_span = self.current_span;
         self.expect(open)?;
 
         let mut items = std::vec::Vec::new();
 
-        // Check for empty sequence
         if self.check_noexpect(close) {
             self.bump();
             return Ok((items, Recovered::No));
         }
 
-        // Parse first element
         items.push(parse_element(self)?);
 
         loop {
-            // Check for closing delimiter
             if self.check_noexpect(close) {
                 self.bump();
                 return Ok((items, Recovered::No));
             }
 
-            // Handle EOF
             if self.at_eof() {
                 let msg = format!("unclosed delimiter: expected {}", token_description(close));
                 self.diagnostics.report_with_span_note(
-                    self.token_span,
+                    self.current_span,
                     &msg,
                     open_span,
                     "opening delimiter here",
@@ -461,27 +448,21 @@ impl<'src, 'ast> Parser<'src, 'ast> {
                 return Ok((items, Recovered::Yes));
             }
 
-            // Expect comma
             match self.expect(Token::Comma) {
-                Ok(Recovered::Yes) => {
-                    // Hit EOF while expecting comma
-                    return Ok((items, Recovered::Yes));
-                }
+                Ok(Recovered::Yes) => return Ok((items, Recovered::Yes)),
                 Ok(Recovered::No) => {}
                 Err(e) => return Err(e),
             }
 
-            // Check for trailing comma (close after comma)
             if self.check_noexpect(close) {
                 self.bump();
                 return Ok((items, Recovered::No));
             }
 
-            // Handle EOF after comma
             if self.at_eof() {
                 let msg = format!("unclosed delimiter: expected {}", token_description(close));
                 self.diagnostics.report_with_span_note(
-                    self.token_span,
+                    self.current_span,
                     &msg,
                     open_span,
                     "opening delimiter here",
@@ -489,15 +470,29 @@ impl<'src, 'ast> Parser<'src, 'ast> {
                 return Ok((items, Recovered::Yes));
             }
 
-            // Parse next element
             items.push(parse_element(self)?);
         }
     }
 
-    /// Parses a comma-separated sequence without delimiters, stopping at `stop` token.
-    ///
-    /// Used when delimiters are handled externally. The sequence can be empty.
-    /// Does NOT consume the `stop` token.
+    pub fn parse_field_def(&mut self) -> Result<FieldDef<'ast>, ParseError> {
+        let name = self.parse_ident()?.inner;
+        self.expect(Token::Colon)?;
+        let r#type = self.parse_primary_expr()?;
+        Ok(FieldDef { name, r#type })
+    }
+
+    pub fn parse_struct_def(&mut self) -> Result<StructDef<'ast>, ParseError> {
+        self.expect(Token::Struct)?;
+
+        let (fields, _recovered) =
+            self.parse_comma_separated(Token::LeftCurly, Token::RightCurly, |p| {
+                p.parse_field_def()
+            })?;
+
+        let fields = self.arena.alloc_slice_fill_iter(fields);
+        Ok(StructDef { fields })
+    }
+
     pub fn parse_comma_separated_until<T>(
         &mut self,
         stop: Token,
@@ -505,43 +500,35 @@ impl<'src, 'ast> Parser<'src, 'ast> {
     ) -> Result<(std::vec::Vec<T>, Recovered), ParseError> {
         let mut items = std::vec::Vec::new();
 
-        // Check for empty sequence (stop token is next)
         if self.check_noexpect(stop) {
             return Ok((items, Recovered::No));
         }
 
-        // Parse first element
         items.push(parse_element(self)?);
 
         loop {
-            // Check for stop token
             if self.check_noexpect(stop) {
                 return Ok((items, Recovered::No));
             }
 
-            // Handle EOF
             if self.at_eof() {
                 return Ok((items, Recovered::Yes));
             }
 
-            // Expect comma
             match self.expect(Token::Comma) {
                 Ok(Recovered::Yes) => return Ok((items, Recovered::Yes)),
                 Ok(Recovered::No) => {}
                 Err(e) => return Err(e),
             }
 
-            // Check for trailing comma (stop after comma)
             if self.check_noexpect(stop) {
                 return Ok((items, Recovered::No));
             }
 
-            // Handle EOF after comma
             if self.at_eof() {
                 return Ok((items, Recovered::Yes));
             }
 
-            // Parse next element
             items.push(parse_element(self)?);
         }
     }
@@ -615,7 +602,7 @@ mod tests {
 
         let result = parser.parse_ident();
         assert!(result.is_err());
-        assert!(parser.has_errors());
+        assert!(parser.diagnostics.has_errors());
     }
 
     #[test]
@@ -625,7 +612,7 @@ mod tests {
 
         let result = parser.parse_ident();
         assert!(result.is_err());
-        assert!(parser.has_errors());
+        assert!(parser.diagnostics.has_errors());
     }
 
     #[test]
@@ -657,7 +644,7 @@ mod tests {
 
         let result = parser.parse_bool_literal();
         assert!(result.is_err());
-        assert!(parser.has_errors());
+        assert!(parser.diagnostics.has_errors());
     }
 
     #[test]
@@ -755,7 +742,7 @@ mod tests {
 
         let result = parser.parse_int_literal();
         assert!(result.is_err());
-        assert!(parser.has_errors());
+        assert!(parser.diagnostics.has_errors());
     }
 
     #[test]
@@ -813,7 +800,7 @@ mod tests {
 
         let result = parser.parse_name_path();
         assert!(result.is_err());
-        assert!(parser.has_errors());
+        assert!(parser.diagnostics.has_errors());
     }
 
     #[test]
@@ -823,7 +810,7 @@ mod tests {
 
         let result = parser.parse_name_path();
         assert!(result.is_err());
-        assert!(parser.has_errors());
+        assert!(parser.diagnostics.has_errors());
     }
 
     #[test]
@@ -922,7 +909,7 @@ mod tests {
 
         let result = parser.parse_primary_expr();
         assert!(result.is_err());
-        assert!(parser.has_errors());
+        assert!(parser.diagnostics.has_errors());
     }
 
     #[test]
@@ -932,7 +919,7 @@ mod tests {
 
         let result = parser.parse_primary_expr();
         assert!(result.is_err());
-        assert!(parser.has_errors());
+        assert!(parser.diagnostics.has_errors());
     }
 
     #[test]
@@ -986,5 +973,111 @@ mod tests {
         let result = parser.parse_member_expr().unwrap();
         assert!(matches!(result, Expr::Member(_)));
         assert_eq!(parser.token, Some(Token::Plus));
+    }
+
+    #[test]
+    fn test_parse_fn_call_no_args() {
+        let arena = Bump::new();
+        let mut parser = Parser::new("foo()", &arena);
+
+        let base = parser.parse_primary_expr().unwrap();
+        let result = parser.parse_fn_call(base).unwrap();
+        assert!(matches!(result, Expr::FnCall(_)));
+        if let Expr::FnCall(call) = result {
+            assert!(matches!(*call.fn_expr, Expr::Ident(_)));
+            assert_eq!(call.param_exprs.len(), 0);
+        }
+        assert!(parser.at_eof());
+    }
+
+    #[test]
+    fn test_parse_fn_call_single_arg() {
+        let arena = Bump::new();
+        let mut parser = Parser::new("foo(42)", &arena);
+
+        let base = parser.parse_primary_expr().unwrap();
+        let result = parser.parse_fn_call(base).unwrap();
+        assert!(matches!(result, Expr::FnCall(_)));
+        if let Expr::FnCall(call) = result {
+            assert_eq!(call.param_exprs.len(), 1);
+            assert!(matches!(call.param_exprs[0], Expr::IntLiteral(_)));
+        }
+        assert!(parser.at_eof());
+    }
+
+    #[test]
+    fn test_parse_fn_call_multiple_args() {
+        let arena = Bump::new();
+        let mut parser = Parser::new("foo(a, b, c)", &arena);
+
+        let base = parser.parse_primary_expr().unwrap();
+        let result = parser.parse_fn_call(base).unwrap();
+        assert!(matches!(result, Expr::FnCall(_)));
+        if let Expr::FnCall(call) = result {
+            assert_eq!(call.param_exprs.len(), 3);
+            assert!(matches!(call.param_exprs[0], Expr::Ident(_)));
+            assert!(matches!(call.param_exprs[1], Expr::Ident(_)));
+            assert!(matches!(call.param_exprs[2], Expr::Ident(_)));
+        }
+        assert!(parser.at_eof());
+    }
+
+    #[test]
+    fn test_parse_fn_call_trailing_comma() {
+        let arena = Bump::new();
+        let mut parser = Parser::new("foo(a, b,)", &arena);
+
+        let base = parser.parse_primary_expr().unwrap();
+        let result = parser.parse_fn_call(base).unwrap();
+        assert!(matches!(result, Expr::FnCall(_)));
+        if let Expr::FnCall(call) = result {
+            assert_eq!(call.param_exprs.len(), 2);
+        }
+        assert!(parser.at_eof());
+    }
+
+    #[test]
+    fn test_parse_struct_def_empty() {
+        let arena = Bump::new();
+        let mut parser = Parser::new("struct {}", &arena);
+
+        let result = parser.parse_struct_def().unwrap();
+        assert_eq!(result.fields.len(), 0);
+        assert!(parser.at_eof());
+    }
+
+    #[test]
+    fn test_parse_struct_def_single_field() {
+        let arena = Bump::new();
+        let mut parser = Parser::new("struct { x: u32 }", &arena);
+
+        let result = parser.parse_struct_def().unwrap();
+        assert_eq!(result.fields.len(), 1);
+        assert_eq!(parser.interner.resolve(result.fields[0].name), "x");
+        assert!(matches!(result.fields[0].r#type, Expr::Ident(_)));
+        assert!(parser.at_eof());
+    }
+
+    #[test]
+    fn test_parse_struct_def_multiple_fields() {
+        let arena = Bump::new();
+        let mut parser = Parser::new("struct { x: u32, y: u64, z: bool }", &arena);
+
+        let result = parser.parse_struct_def().unwrap();
+        assert_eq!(result.fields.len(), 3);
+        assert_eq!(parser.interner.resolve(result.fields[0].name), "x");
+        assert_eq!(parser.interner.resolve(result.fields[1].name), "y");
+        assert_eq!(parser.interner.resolve(result.fields[2].name), "z");
+        assert!(parser.at_eof());
+    }
+
+    #[test]
+    fn test_parse_struct_def_trailing_comma() {
+        let arena = Bump::new();
+        let mut parser = Parser::new("struct { x: u32, y: u64, }", &arena);
+
+        let result = parser.parse_struct_def().unwrap();
+        assert_eq!(result.fields.len(), 2);
+        assert!(parser.at_eof());
     }
 }
