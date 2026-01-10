@@ -493,6 +493,31 @@ impl<'src, 'ast> Parser<'src, 'ast> {
         Ok(StructDef { fields })
     }
 
+    pub fn parse_param_def(&mut self) -> Result<ParamDef<'ast>, ParseError> {
+        let comptime = self.eat(Token::Comptime);
+        let name = self.parse_ident()?.inner;
+        self.expect(Token::Colon)?;
+        let r#type = self.parse_primary_expr()?;
+        Ok(ParamDef { comptime, name, r#type })
+    }
+
+    pub fn parse_fn_def(&mut self) -> Result<FnDef<'ast>, ParseError> {
+        self.expect(Token::Fn)?;
+
+        let (params, _recovered) =
+            self.parse_comma_separated(Token::LeftRound, Token::RightRound, |p| {
+                p.parse_param_def()
+            })?;
+
+        let result =
+            if self.eat(Token::ThinArrow) { Some(self.parse_primary_expr()?) } else { None };
+
+        let body = self.parse_block()?;
+
+        let params = self.arena.alloc_slice_fill_iter(params);
+        Ok(FnDef { params, result, body })
+    }
+
     pub fn parse_block(&mut self) -> Result<Block<'ast>, ParseError> {
         let open_span = self.current_span;
         self.expect(Token::LeftCurly)?;
@@ -1268,5 +1293,95 @@ mod tests {
         let result = parser.parse_block().unwrap();
         assert!(result.last_expr.is_some());
         assert!(parser.diagnostics.has_errors());
+    }
+
+    #[test]
+    fn test_parse_fn_def_no_params_no_return() {
+        let arena = Bump::new();
+        let mut parser = Parser::new("fn () {}", &arena);
+
+        let result = parser.parse_fn_def().unwrap();
+        assert_eq!(result.params.len(), 0);
+        assert!(result.result.is_none());
+        assert_eq!(result.body.statements.len(), 0);
+        assert!(result.body.last_expr.is_none());
+        assert!(parser.at_eof());
+    }
+
+    #[test]
+    fn test_parse_fn_def_single_param() {
+        let arena = Bump::new();
+        let mut parser = Parser::new("fn (x: u32) {}", &arena);
+
+        let result = parser.parse_fn_def().unwrap();
+        assert_eq!(result.params.len(), 1);
+        assert!(!result.params[0].comptime);
+        assert_eq!(parser.interner.resolve(result.params[0].name), "x");
+        assert!(matches!(result.params[0].r#type, Expr::Ident(_)));
+        assert!(result.result.is_none());
+        assert!(parser.at_eof());
+    }
+
+    #[test]
+    fn test_parse_fn_def_multiple_params() {
+        let arena = Bump::new();
+        let mut parser = Parser::new("fn (a: u32, b: u64, c: bool) {}", &arena);
+
+        let result = parser.parse_fn_def().unwrap();
+        assert_eq!(result.params.len(), 3);
+        assert_eq!(parser.interner.resolve(result.params[0].name), "a");
+        assert_eq!(parser.interner.resolve(result.params[1].name), "b");
+        assert_eq!(parser.interner.resolve(result.params[2].name), "c");
+        assert!(parser.at_eof());
+    }
+
+    #[test]
+    fn test_parse_fn_def_comptime_param() {
+        let arena = Bump::new();
+        let mut parser = Parser::new("fn (comptime T: type) {}", &arena);
+
+        let result = parser.parse_fn_def().unwrap();
+        assert_eq!(result.params.len(), 1);
+        assert!(result.params[0].comptime);
+        assert_eq!(parser.interner.resolve(result.params[0].name), "T");
+        assert!(parser.at_eof());
+    }
+
+    #[test]
+    fn test_parse_fn_def_with_return_type() {
+        let arena = Bump::new();
+        let mut parser = Parser::new("fn () -> u32 {}", &arena);
+
+        let result = parser.parse_fn_def().unwrap();
+        assert!(result.result.is_some());
+        if let Some(Expr::Ident(istr)) = result.result {
+            assert_eq!(parser.interner.resolve(istr), "u32");
+        } else {
+            panic!("expected Ident as return type");
+        }
+        assert!(parser.at_eof());
+    }
+
+    #[test]
+    fn test_parse_fn_def_trailing_comma() {
+        let arena = Bump::new();
+        let mut parser = Parser::new("fn (x: u32,) {}", &arena);
+
+        let result = parser.parse_fn_def().unwrap();
+        assert_eq!(result.params.len(), 1);
+        assert!(parser.at_eof());
+    }
+
+    #[test]
+    fn test_parse_fn_def_mixed_comptime() {
+        let arena = Bump::new();
+        let mut parser = Parser::new("fn (comptime T: type, x: T) -> T {}", &arena);
+
+        let result = parser.parse_fn_def().unwrap();
+        assert_eq!(result.params.len(), 2);
+        assert!(result.params[0].comptime);
+        assert!(!result.params[1].comptime);
+        assert!(result.result.is_some());
+        assert!(parser.at_eof());
     }
 }

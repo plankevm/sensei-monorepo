@@ -112,7 +112,7 @@
       "name": "FnDef Parsing",
       "description": "Parse 'fn (params) -> expr { body }' into FnDef. ParamDef list supports 'comptime? IDENT : expr' syntax. Return type is optional; when '->' is omitted, represent as None. FnDef is part of TypeDef (expression values).",
       "dependencies": ["infra-05", "expr-02", "ast-03"],
-      "completed": false
+      "completed": true
     },
     {
       "id": "type-05",
