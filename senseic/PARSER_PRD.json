@@ -272,7 +272,7 @@
       "name": "Run Declaration",
       "description": "Parse 'run { ... }' into Declaration::Run with Block body.",
       "dependencies": ["expr-02"],
-      "completed": false
+      "completed": true
     },
     {
       "id": "decl-04",

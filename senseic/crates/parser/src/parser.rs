@@ -312,6 +312,12 @@ impl<'src, 'ast> Parser<'src, 'ast> {
         Ok(Declaration::Init(block))
     }
 
+    pub fn parse_run_decl(&mut self) -> Result<Declaration<'ast>, ParseError> {
+        self.expect(Token::Run)?;
+        let block = self.parse_block()?;
+        Ok(Declaration::Run(block))
+    }
+
     pub fn parse_ident(&mut self) -> Result<Ident, ParseError> {
         if self.check_with(Token::Identifier, ExpectedToken::Ident) {
             let span = self.current_span;
@@ -2591,6 +2597,64 @@ mod tests {
         let result = parser.parse_init_decl().unwrap();
         assert!(matches!(result, Declaration::Init(_)));
         if let Declaration::Init(block) = result {
+            assert!(block.last_expr.is_some());
+        }
+        assert!(parser.diagnostics.has_errors());
+    }
+
+    #[test]
+    fn test_parse_run_decl_empty() {
+        let arena = Bump::new();
+        let mut parser = Parser::new("run {}", &arena);
+
+        let result = parser.parse_run_decl().unwrap();
+        assert!(matches!(result, Declaration::Run(_)));
+        if let Declaration::Run(block) = result {
+            assert_eq!(block.statements.len(), 0);
+            assert!(block.last_expr.is_none());
+        }
+        assert!(parser.at_eof());
+        assert!(!parser.diagnostics.has_errors());
+    }
+
+    #[test]
+    fn test_parse_run_decl_with_statements() {
+        let arena = Bump::new();
+        let mut parser = Parser::new("run { let x = 42; return x; }", &arena);
+
+        let result = parser.parse_run_decl().unwrap();
+        assert!(matches!(result, Declaration::Run(_)));
+        if let Declaration::Run(block) = result {
+            assert_eq!(block.statements.len(), 2);
+            assert!(block.last_expr.is_none());
+        }
+        assert!(parser.at_eof());
+        assert!(!parser.diagnostics.has_errors());
+    }
+
+    #[test]
+    fn test_parse_run_decl_with_trailing_expr() {
+        let arena = Bump::new();
+        let mut parser = Parser::new("run { foo }", &arena);
+
+        let result = parser.parse_run_decl().unwrap();
+        assert!(matches!(result, Declaration::Run(_)));
+        if let Declaration::Run(block) = result {
+            assert_eq!(block.statements.len(), 0);
+            assert!(block.last_expr.is_some());
+        }
+        assert!(parser.at_eof());
+        assert!(!parser.diagnostics.has_errors());
+    }
+
+    #[test]
+    fn test_parse_run_decl_recovery_unclosed() {
+        let arena = Bump::new();
+        let mut parser = Parser::new("run { foo", &arena);
+
+        let result = parser.parse_run_decl().unwrap();
+        assert!(matches!(result, Declaration::Run(_)));
+        if let Declaration::Run(block) = result {
             assert!(block.last_expr.is_some());
         }
         assert!(parser.diagnostics.has_errors());
