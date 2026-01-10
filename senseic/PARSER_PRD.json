@@ -264,7 +264,7 @@
       "name": "Init Declaration",
       "description": "Parse 'init { ... }' into Declaration::Init with Block body.",
       "dependencies": ["expr-02"],
-      "completed": false
+      "completed": true
     },
     {
       "id": "decl-03",

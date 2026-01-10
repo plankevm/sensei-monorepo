@@ -306,6 +306,12 @@ impl<'src, 'ast> Parser<'src, 'ast> {
         todo!()
     }
 
+    pub fn parse_init_decl(&mut self) -> Result<Declaration<'ast>, ParseError> {
+        self.expect(Token::Init)?;
+        let block = self.parse_block()?;
+        Ok(Declaration::Init(block))
+    }
+
     pub fn parse_ident(&mut self) -> Result<Ident, ParseError> {
         if self.check_with(Token::Identifier, ExpectedToken::Ident) {
             let span = self.current_span;
@@ -2530,5 +2536,63 @@ mod tests {
         }
         assert!(parser.at_eof());
         assert!(!parser.diagnostics.has_errors());
+    }
+
+    #[test]
+    fn test_parse_init_decl_empty() {
+        let arena = Bump::new();
+        let mut parser = Parser::new("init {}", &arena);
+
+        let result = parser.parse_init_decl().unwrap();
+        assert!(matches!(result, Declaration::Init(_)));
+        if let Declaration::Init(block) = result {
+            assert_eq!(block.statements.len(), 0);
+            assert!(block.last_expr.is_none());
+        }
+        assert!(parser.at_eof());
+        assert!(!parser.diagnostics.has_errors());
+    }
+
+    #[test]
+    fn test_parse_init_decl_with_statements() {
+        let arena = Bump::new();
+        let mut parser = Parser::new("init { let x = 42; return x; }", &arena);
+
+        let result = parser.parse_init_decl().unwrap();
+        assert!(matches!(result, Declaration::Init(_)));
+        if let Declaration::Init(block) = result {
+            assert_eq!(block.statements.len(), 2);
+            assert!(block.last_expr.is_none());
+        }
+        assert!(parser.at_eof());
+        assert!(!parser.diagnostics.has_errors());
+    }
+
+    #[test]
+    fn test_parse_init_decl_with_trailing_expr() {
+        let arena = Bump::new();
+        let mut parser = Parser::new("init { foo }", &arena);
+
+        let result = parser.parse_init_decl().unwrap();
+        assert!(matches!(result, Declaration::Init(_)));
+        if let Declaration::Init(block) = result {
+            assert_eq!(block.statements.len(), 0);
+            assert!(block.last_expr.is_some());
+        }
+        assert!(parser.at_eof());
+        assert!(!parser.diagnostics.has_errors());
+    }
+
+    #[test]
+    fn test_parse_init_decl_recovery_unclosed() {
+        let arena = Bump::new();
+        let mut parser = Parser::new("init { foo", &arena);
+
+        let result = parser.parse_init_decl().unwrap();
+        assert!(matches!(result, Declaration::Init(_)));
+        if let Declaration::Init(block) = result {
+            assert!(block.last_expr.is_some());
+        }
+        assert!(parser.diagnostics.has_errors());
     }
 }
