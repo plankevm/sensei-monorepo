@@ -518,6 +518,20 @@ impl<'src, 'ast> Parser<'src, 'ast> {
         Ok(FnDef { params, result, body })
     }
 
+    pub fn parse_type_def(&mut self) -> Result<TypeDef<'ast>, ParseError> {
+        if self.check_noexpect(Token::Fn) {
+            let fn_def = self.parse_fn_def()?;
+            Ok(TypeDef::FnDef(self.arena.alloc(fn_def)))
+        } else if self.check_noexpect(Token::Struct) {
+            let struct_def = self.parse_struct_def()?;
+            Ok(TypeDef::StructDef(struct_def))
+        } else {
+            self.push_expected(ExpectedToken::Token(Token::Fn));
+            self.push_expected(ExpectedToken::Token(Token::Struct));
+            Err(self.unexpected_token())
+        }
+    }
+
     pub fn parse_block(&mut self) -> Result<Block<'ast>, ParseError> {
         let open_span = self.current_span;
         self.expect(Token::LeftCurly)?;
@@ -1383,5 +1397,52 @@ mod tests {
         assert!(!result.params[1].comptime);
         assert!(result.result.is_some());
         assert!(parser.at_eof());
+    }
+
+    #[test]
+    fn test_parse_type_def_fn() {
+        let arena = Bump::new();
+        let mut parser = Parser::new("fn (x: u32) -> u64 {}", &arena);
+
+        let result = parser.parse_type_def().unwrap();
+        assert!(matches!(result, TypeDef::FnDef(_)));
+        if let TypeDef::FnDef(fn_def) = result {
+            assert_eq!(fn_def.params.len(), 1);
+            assert!(fn_def.result.is_some());
+        }
+        assert!(parser.at_eof());
+    }
+
+    #[test]
+    fn test_parse_type_def_struct() {
+        let arena = Bump::new();
+        let mut parser = Parser::new("struct { x: u32, y: u64 }", &arena);
+
+        let result = parser.parse_type_def().unwrap();
+        assert!(matches!(result, TypeDef::StructDef(_)));
+        if let TypeDef::StructDef(struct_def) = result {
+            assert_eq!(struct_def.fields.len(), 2);
+        }
+        assert!(parser.at_eof());
+    }
+
+    #[test]
+    fn test_parse_type_def_fails_on_invalid_token() {
+        let arena = Bump::new();
+        let mut parser = Parser::new("if", &arena);
+
+        let result = parser.parse_type_def();
+        assert!(result.is_err());
+        assert!(parser.diagnostics.has_errors());
+    }
+
+    #[test]
+    fn test_parse_type_def_fails_on_identifier() {
+        let arena = Bump::new();
+        let mut parser = Parser::new("SomeType", &arena);
+
+        let result = parser.parse_type_def();
+        assert!(result.is_err());
+        assert!(parser.diagnostics.has_errors());
     }
 }

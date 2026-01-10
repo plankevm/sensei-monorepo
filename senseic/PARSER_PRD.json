@@ -120,7 +120,7 @@
       "name": "TypeDef Dispatch",
       "description": "Implement parse_type_def() that dispatches to FnDef or StructDef based on leading token ('fn' or 'struct'). TypeDef appears as expression values in Expr::TypeDef.",
       "dependencies": ["type-02", "type-03"],
-      "completed": false
+      "completed": true
     },
     {
       "id": "expr-01",
