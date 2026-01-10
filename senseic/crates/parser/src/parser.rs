@@ -389,28 +389,29 @@ impl<'src, 'ast> Parser<'src, 'ast> {
         }
     }
 
-    pub fn parse_member_expr(&mut self) -> Result<Expr<'ast>, ParseError> {
+    pub fn parse_postfix_expr(&mut self) -> Result<Expr<'ast>, ParseError> {
         let mut expr = self.parse_primary_expr()?;
 
-        while self.eat(Token::Dot) {
-            let ident = self.parse_ident()?;
-            let member = Member { expr: self.arena.alloc(expr), ident: ident.inner };
-            expr = Expr::Member(member);
+        loop {
+            if self.eat(Token::Dot) {
+                let ident = self.parse_ident()?;
+                let member = Member { expr: self.arena.alloc(expr), ident: ident.inner };
+                expr = Expr::Member(member);
+            } else if self.check_noexpect(Token::LeftRound) {
+                let (args, _recovered) =
+                    self.parse_comma_separated(Token::LeftRound, Token::RightRound, |p| {
+                        p.parse_postfix_expr()
+                    })?;
+
+                let param_exprs = self.arena.alloc_slice_fill_iter(args);
+                let call = FnCall { fn_expr: self.arena.alloc(expr), param_exprs };
+                expr = Expr::FnCall(call);
+            } else {
+                break;
+            }
         }
 
         Ok(expr)
-    }
-
-    pub fn parse_fn_call(&mut self, fn_expr: Expr<'ast>) -> Result<Expr<'ast>, ParseError> {
-        let (args, _recovered) =
-            self.parse_comma_separated(Token::LeftRound, Token::RightRound, |p| {
-                p.parse_primary_expr()
-            })?;
-
-        let param_exprs = self.arena.alloc_slice_fill_iter(args);
-        let call = FnCall { fn_expr: self.arena.alloc(fn_expr), param_exprs };
-
-        Ok(Expr::FnCall(call))
     }
 
     pub fn parse_comma_separated<T>(
@@ -1072,11 +1073,11 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_member_simple() {
+    fn test_parse_postfix_member_simple() {
         let arena = Bump::new();
         let mut parser = Parser::new("foo.bar", &arena);
 
-        let result = parser.parse_member_expr().unwrap();
+        let result = parser.parse_postfix_expr().unwrap();
         assert!(matches!(result, Expr::Member(_)));
         if let Expr::Member(member) = result {
             assert!(matches!(*member.expr, Expr::Ident(_)));
@@ -1086,11 +1087,11 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_member_chained() {
+    fn test_parse_postfix_member_chained() {
         let arena = Bump::new();
         let mut parser = Parser::new("a.b.c", &arena);
 
-        let result = parser.parse_member_expr().unwrap();
+        let result = parser.parse_postfix_expr().unwrap();
         // Should be ((a.b).c)
         assert!(matches!(result, Expr::Member(_)));
         if let Expr::Member(outer) = result {
@@ -1105,32 +1106,31 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_member_no_member_access() {
+    fn test_parse_postfix_no_postfix() {
         let arena = Bump::new();
         let mut parser = Parser::new("foo", &arena);
 
-        let result = parser.parse_member_expr().unwrap();
+        let result = parser.parse_postfix_expr().unwrap();
         assert!(matches!(result, Expr::Ident(_)));
         assert!(parser.at_eof());
     }
 
     #[test]
-    fn test_parse_member_stops_at_non_ident() {
+    fn test_parse_postfix_member_stops_at_operator() {
         let arena = Bump::new();
         let mut parser = Parser::new("foo.bar + baz", &arena);
 
-        let result = parser.parse_member_expr().unwrap();
+        let result = parser.parse_postfix_expr().unwrap();
         assert!(matches!(result, Expr::Member(_)));
         assert_eq!(parser.token, Some(Token::Plus));
     }
 
     #[test]
-    fn test_parse_fn_call_no_args() {
+    fn test_parse_postfix_fn_call_no_args() {
         let arena = Bump::new();
         let mut parser = Parser::new("foo()", &arena);
 
-        let base = parser.parse_primary_expr().unwrap();
-        let result = parser.parse_fn_call(base).unwrap();
+        let result = parser.parse_postfix_expr().unwrap();
         assert!(matches!(result, Expr::FnCall(_)));
         if let Expr::FnCall(call) = result {
             assert!(matches!(*call.fn_expr, Expr::Ident(_)));
@@ -1140,12 +1140,11 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_fn_call_single_arg() {
+    fn test_parse_postfix_fn_call_single_arg() {
         let arena = Bump::new();
         let mut parser = Parser::new("foo(42)", &arena);
 
-        let base = parser.parse_primary_expr().unwrap();
-        let result = parser.parse_fn_call(base).unwrap();
+        let result = parser.parse_postfix_expr().unwrap();
         assert!(matches!(result, Expr::FnCall(_)));
         if let Expr::FnCall(call) = result {
             assert_eq!(call.param_exprs.len(), 1);
@@ -1155,12 +1154,11 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_fn_call_multiple_args() {
+    fn test_parse_postfix_fn_call_multiple_args() {
         let arena = Bump::new();
         let mut parser = Parser::new("foo(a, b, c)", &arena);
 
-        let base = parser.parse_primary_expr().unwrap();
-        let result = parser.parse_fn_call(base).unwrap();
+        let result = parser.parse_postfix_expr().unwrap();
         assert!(matches!(result, Expr::FnCall(_)));
         if let Expr::FnCall(call) = result {
             assert_eq!(call.param_exprs.len(), 3);
@@ -1172,15 +1170,77 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_fn_call_trailing_comma() {
+    fn test_parse_postfix_fn_call_trailing_comma() {
         let arena = Bump::new();
         let mut parser = Parser::new("foo(a, b,)", &arena);
 
-        let base = parser.parse_primary_expr().unwrap();
-        let result = parser.parse_fn_call(base).unwrap();
+        let result = parser.parse_postfix_expr().unwrap();
         assert!(matches!(result, Expr::FnCall(_)));
         if let Expr::FnCall(call) = result {
             assert_eq!(call.param_exprs.len(), 2);
+        }
+        assert!(parser.at_eof());
+    }
+
+    #[test]
+    fn test_parse_postfix_chained_calls() {
+        let arena = Bump::new();
+        let mut parser = Parser::new("foo()()", &arena);
+
+        let result = parser.parse_postfix_expr().unwrap();
+        // Should be ((foo())())
+        assert!(matches!(result, Expr::FnCall(_)));
+        if let Expr::FnCall(outer) = result {
+            assert_eq!(outer.param_exprs.len(), 0);
+            assert!(matches!(*outer.fn_expr, Expr::FnCall(_)));
+            if let Expr::FnCall(ref inner) = *outer.fn_expr {
+                assert_eq!(inner.param_exprs.len(), 0);
+                assert!(matches!(*inner.fn_expr, Expr::Ident(_)));
+            }
+        }
+        assert!(parser.at_eof());
+    }
+
+    #[test]
+    fn test_parse_postfix_member_then_call() {
+        let arena = Bump::new();
+        let mut parser = Parser::new("foo.bar()", &arena);
+
+        let result = parser.parse_postfix_expr().unwrap();
+        // Should be ((foo.bar)())
+        assert!(matches!(result, Expr::FnCall(_)));
+        if let Expr::FnCall(call) = result {
+            assert_eq!(call.param_exprs.len(), 0);
+            assert!(matches!(*call.fn_expr, Expr::Member(_)));
+        }
+        assert!(parser.at_eof());
+    }
+
+    #[test]
+    fn test_parse_postfix_call_then_member() {
+        let arena = Bump::new();
+        let mut parser = Parser::new("foo().bar", &arena);
+
+        let result = parser.parse_postfix_expr().unwrap();
+        // Should be ((foo()).bar)
+        assert!(matches!(result, Expr::Member(_)));
+        if let Expr::Member(member) = result {
+            assert_eq!(parser.interner.resolve(member.ident), "bar");
+            assert!(matches!(*member.expr, Expr::FnCall(_)));
+        }
+        assert!(parser.at_eof());
+    }
+
+    #[test]
+    fn test_parse_postfix_complex_chain() {
+        let arena = Bump::new();
+        let mut parser = Parser::new("a.b(c).d(e, f).g", &arena);
+
+        let result = parser.parse_postfix_expr().unwrap();
+        // Should be ((((a.b)(c)).d)(e, f)).g
+        assert!(matches!(result, Expr::Member(_)));
+        if let Expr::Member(member) = result {
+            assert_eq!(parser.interner.resolve(member.ident), "g");
         }
         assert!(parser.at_eof());
     }

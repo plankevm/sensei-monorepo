@@ -152,7 +152,7 @@
       "name": "Function Call",
       "description": "Parse postfix 'expr(args)' into Expr::FnCall. Handle comma-separated argument list with recovery.",
       "dependencies": ["infra-05", "expr-01"],
-      "completed": false
+      "completed": true
     },
     {
       "id": "expr-05",
@@ -160,7 +160,7 @@
       "name": "Postfix Expression Loop",
       "description": "Implement parse_postfix_expr() that handles member access and function calls in a loop, building left-associative chains.",
       "dependencies": ["expr-03", "expr-04"],
-      "completed": false
+      "completed": true
     },
     {
       "id": "expr-07",
