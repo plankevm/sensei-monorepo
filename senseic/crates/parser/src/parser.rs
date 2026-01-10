@@ -202,6 +202,16 @@ impl<'src, 'ast> Parser<'src, 'ast> {
         is_present
     }
 
+    pub fn parse_spanned<T>(
+        &mut self,
+        f: impl FnOnce(&mut Self) -> Result<T, ParseError>,
+    ) -> Result<(SourceSpan, T), ParseError> {
+        let lo = self.current_span;
+        let result = f(self)?;
+        let span = if lo.is_dummy() { self.prev_span } else { lo.to(self.prev_span) };
+        Ok((span, result))
+    }
+
     fn expected_one_of_not_found(&mut self, expected: &[Token]) -> Result<Recovered, ParseError> {
         let mut all_expected: std::vec::Vec<ExpectedToken> = expected
             .iter()

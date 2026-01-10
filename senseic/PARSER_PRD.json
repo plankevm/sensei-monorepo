@@ -48,7 +48,7 @@
       "name": "Span Tracking",
       "description": "Implement parse_spanned() wrapper and span combination utilities (lo.to(hi)). Integrate with AST span fields from ast-01.",
       "dependencies": ["infra-02", "ast-01"],
-      "completed": false
+      "completed": true
     },
     {
       "id": "infra-04",

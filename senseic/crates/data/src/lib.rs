@@ -142,8 +142,20 @@ pub struct Span<T> {
 }
 
 impl<T> Span<T> {
-    pub fn new(start: T, end: T) -> Self {
+    pub const fn new(start: T, end: T) -> Self {
         Self { start, end }
+    }
+}
+
+impl<T: Copy> Span<T> {
+    pub fn to(self, other: Self) -> Self {
+        Self { start: self.start, end: other.end }
+    }
+}
+
+impl Span<u32> {
+    pub fn is_dummy(self) -> bool {
+        self.start == u32::MAX
     }
 }
 
