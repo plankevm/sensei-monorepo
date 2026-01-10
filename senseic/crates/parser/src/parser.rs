@@ -3272,4 +3272,152 @@ mod tests {
         assert!(formatted.contains("init"));
         assert!(formatted.contains("return"));
     }
+
+    // =============================================================
+    // Unit tests for helper parsing functions
+    // =============================================================
+
+    #[test]
+    fn test_parse_field_def_simple() {
+        let arena = Bump::new();
+        let mut parser = Parser::new("x: u32", &arena);
+
+        let result = parser.parse_field_def().unwrap();
+        assert_eq!(parser.interner.resolve(result.name), "x");
+        assert!(matches!(result.r#type.kind, ExprKind::Ident(_)));
+        if let ExprKind::Ident(istr) = result.r#type.kind {
+            assert_eq!(parser.interner.resolve(istr), "u32");
+        }
+        assert!(parser.at_eof());
+    }
+
+    #[test]
+    fn test_parse_field_def_complex_type() {
+        let arena = Bump::new();
+        let mut parser = Parser::new("data: SomeType", &arena);
+
+        let result = parser.parse_field_def().unwrap();
+        assert_eq!(parser.interner.resolve(result.name), "data");
+        assert!(matches!(result.r#type.kind, ExprKind::Ident(_)));
+        if let ExprKind::Ident(istr) = result.r#type.kind {
+            assert_eq!(parser.interner.resolve(istr), "SomeType");
+        }
+        assert!(parser.at_eof());
+    }
+
+    #[test]
+    fn test_parse_field_def_missing_colon() {
+        let arena = Bump::new();
+        let mut parser = Parser::new("x u32", &arena);
+
+        let result = parser.parse_field_def();
+        assert!(result.is_err());
+        assert!(parser.diagnostics.has_errors());
+    }
+
+    #[test]
+    fn test_parse_field_def_missing_type() {
+        let arena = Bump::new();
+        let mut parser = Parser::new("x:", &arena);
+
+        let result = parser.parse_field_def();
+        assert!(result.is_err());
+        assert!(parser.diagnostics.has_errors());
+    }
+
+    #[test]
+    fn test_parse_field_init_simple() {
+        let arena = Bump::new();
+        let mut parser = Parser::new("x: 42", &arena);
+
+        let result = parser.parse_field_init().unwrap();
+        assert_eq!(parser.interner.resolve(result.name), "x");
+        assert!(matches!(result.value.kind, ExprKind::IntLiteral(_)));
+        assert!(parser.at_eof());
+    }
+
+    #[test]
+    fn test_parse_field_init_ident_value() {
+        let arena = Bump::new();
+        let mut parser = Parser::new("foo: bar", &arena);
+
+        let result = parser.parse_field_init().unwrap();
+        assert_eq!(parser.interner.resolve(result.name), "foo");
+        assert!(matches!(result.value.kind, ExprKind::Ident(_)));
+        if let ExprKind::Ident(istr) = result.value.kind {
+            assert_eq!(parser.interner.resolve(istr), "bar");
+        }
+        assert!(parser.at_eof());
+    }
+
+    #[test]
+    fn test_parse_field_init_complex_value() {
+        let arena = Bump::new();
+        let mut parser = Parser::new("callback: foo.bar()", &arena);
+
+        let result = parser.parse_field_init().unwrap();
+        assert_eq!(parser.interner.resolve(result.name), "callback");
+        assert!(matches!(result.value.kind, ExprKind::FnCall(_)));
+        assert!(parser.at_eof());
+    }
+
+    #[test]
+    fn test_parse_field_init_missing_colon() {
+        let arena = Bump::new();
+        let mut parser = Parser::new("x 42", &arena);
+
+        let result = parser.parse_field_init();
+        assert!(result.is_err());
+        assert!(parser.diagnostics.has_errors());
+    }
+
+    #[test]
+    fn test_parse_param_def_simple() {
+        let arena = Bump::new();
+        let mut parser = Parser::new("x: u32", &arena);
+
+        let result = parser.parse_param_def().unwrap();
+        assert!(!result.comptime);
+        assert_eq!(parser.interner.resolve(result.name), "x");
+        assert!(matches!(result.r#type.kind, ExprKind::Ident(_)));
+        if let ExprKind::Ident(istr) = result.r#type.kind {
+            assert_eq!(parser.interner.resolve(istr), "u32");
+        }
+        assert!(parser.at_eof());
+    }
+
+    #[test]
+    fn test_parse_param_def_comptime() {
+        let arena = Bump::new();
+        let mut parser = Parser::new("comptime T: type", &arena);
+
+        let result = parser.parse_param_def().unwrap();
+        assert!(result.comptime);
+        assert_eq!(parser.interner.resolve(result.name), "T");
+        assert!(matches!(result.r#type.kind, ExprKind::Ident(_)));
+        if let ExprKind::Ident(istr) = result.r#type.kind {
+            assert_eq!(parser.interner.resolve(istr), "type");
+        }
+        assert!(parser.at_eof());
+    }
+
+    #[test]
+    fn test_parse_param_def_missing_colon() {
+        let arena = Bump::new();
+        let mut parser = Parser::new("x u32", &arena);
+
+        let result = parser.parse_param_def();
+        assert!(result.is_err());
+        assert!(parser.diagnostics.has_errors());
+    }
+
+    #[test]
+    fn test_parse_param_def_missing_type() {
+        let arena = Bump::new();
+        let mut parser = Parser::new("x:", &arena);
+
+        let result = parser.parse_param_def();
+        assert!(result.is_err());
+        assert!(parser.diagnostics.has_errors());
+    }
 }

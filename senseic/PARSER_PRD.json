@@ -296,7 +296,7 @@
       "name": "Parser Unit Tests",
       "description": "Add unit tests for each parser component. Test happy paths and error recovery cases. Use insta for snapshot testing if appropriate.",
       "dependencies": ["decl-05"],
-      "completed": false
+      "completed": true
     },
     {
       "id": "test-02",
