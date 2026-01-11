@@ -67,8 +67,8 @@ impl<'i> DisplayContext<'i> {
         f: &mut fmt::Formatter<'_>,
         decl: &Declaration<'_>,
     ) -> fmt::Result {
-        match decl {
-            Declaration::Init(block) => {
+        match &decl.kind {
+            DeclarationKind::Init(block) => {
                 writeln!(f, "(init")?;
                 self.with_indent(1, |ctx| {
                     ctx.write_indent(f)?;
@@ -78,7 +78,7 @@ impl<'i> DisplayContext<'i> {
                 self.write_indent(f)?;
                 write!(f, ")")
             }
-            Declaration::Run(block) => {
+            DeclarationKind::Run(block) => {
                 writeln!(f, "(run")?;
                 self.with_indent(1, |ctx| {
                     ctx.write_indent(f)?;
@@ -88,7 +88,7 @@ impl<'i> DisplayContext<'i> {
                 self.write_indent(f)?;
                 write!(f, ")")
             }
-            Declaration::ConstDef(const_def) => self.fmt_const_def(f, const_def, "const-def"),
+            DeclarationKind::ConstDef(const_def) => self.fmt_const_def(f, const_def, "const-def"),
         }
     }
 
@@ -157,8 +157,8 @@ impl<'i> DisplayContext<'i> {
     }
 
     fn fmt_statement(&mut self, f: &mut fmt::Formatter<'_>, stmt: &Statement<'_>) -> fmt::Result {
-        match stmt {
-            Statement::Let(let_stmt) => {
+        match &stmt.kind {
+            StatementKind::Let(let_stmt) => {
                 write!(f, "(let {:?}", self.lookup(let_stmt.ident))?;
                 if let_stmt.mutable {
                     write!(f, " mut")?;
@@ -190,7 +190,7 @@ impl<'i> DisplayContext<'i> {
                 self.write_indent(f)?;
                 write!(f, ")")
             }
-            Statement::Return(expr) => {
+            StatementKind::Return(expr) => {
                 writeln!(f, "(return")?;
                 self.with_indent(1, |ctx| {
                     ctx.write_indent(f)?;
@@ -200,7 +200,7 @@ impl<'i> DisplayContext<'i> {
                 self.write_indent(f)?;
                 write!(f, ")")
             }
-            Statement::Assign(assign) => {
+            StatementKind::Assign(assign) => {
                 write!(f, "(assign ")?;
                 self.fmt_assign_op(f, &assign.op)?;
                 writeln!(f)?;
@@ -223,8 +223,8 @@ impl<'i> DisplayContext<'i> {
                 self.write_indent(f)?;
                 write!(f, ")")
             }
-            Statement::Block(block) => self.fmt_block(f, block),
-            Statement::Conditional(cond) => {
+            StatementKind::Block(block) => self.fmt_block(f, block),
+            StatementKind::Conditional(cond) => {
                 writeln!(f, "(conditional")?;
                 self.with_indent(1, |ctx| {
                     ctx.write_indent(f)?;
@@ -266,7 +266,7 @@ impl<'i> DisplayContext<'i> {
                 self.write_indent(f)?;
                 write!(f, ")")
             }
-            Statement::While(while_stmt) => {
+            StatementKind::While(while_stmt) => {
                 write!(f, "(while")?;
                 if while_stmt.inline {
                     write!(f, " inline")?;
@@ -296,7 +296,7 @@ impl<'i> DisplayContext<'i> {
                 self.write_indent(f)?;
                 write!(f, ")")
             }
-            Statement::Expr(expr) => {
+            StatementKind::Expr(expr) => {
                 writeln!(f, "(expr")?;
                 self.with_indent(1, |ctx| {
                     ctx.write_indent(f)?;
@@ -316,8 +316,8 @@ impl<'i> DisplayContext<'i> {
     }
 
     fn fmt_expr(&mut self, f: &mut fmt::Formatter<'_>, expr: &Expr<'_>) -> fmt::Result {
-        match expr {
-            Expr::TypeDef(type_def) => {
+        match &expr.kind {
+            ExprKind::TypeDef(type_def) => {
                 write!(f, "(type-def")?;
                 writeln!(f)?;
                 self.with_indent(1, |ctx| {
@@ -328,8 +328,8 @@ impl<'i> DisplayContext<'i> {
                 self.write_indent(f)?;
                 write!(f, ")")
             }
-            Expr::Block(block) => self.fmt_block(f, block),
-            Expr::Comptime(block) => {
+            ExprKind::Block(block) => self.fmt_block(f, block),
+            ExprKind::Comptime(block) => {
                 writeln!(f, "(comptime")?;
                 self.with_indent(1, |ctx| {
                     ctx.write_indent(f)?;
@@ -339,7 +339,7 @@ impl<'i> DisplayContext<'i> {
                 self.write_indent(f)?;
                 write!(f, ")")
             }
-            Expr::Binary(binary) => {
+            ExprKind::Binary(binary) => {
                 write!(f, "(binary ")?;
                 self.fmt_binary_op(f, &binary.op)?;
                 writeln!(f)?;
@@ -369,14 +369,14 @@ impl<'i> DisplayContext<'i> {
                 self.write_indent(f)?;
                 write!(f, ")")
             }
-            Expr::IntLiteral(int_lit) => {
+            ExprKind::IntLiteral(int_lit) => {
                 write!(f, "(int ")?;
                 self.fmt_int_literal(f, int_lit)?;
                 write!(f, ")")
             }
-            Expr::BoolLiteral(b) => write!(f, "(bool {})", b),
-            Expr::Ident(istr) => write!(f, "(ident {:?})", self.lookup(*istr)),
-            Expr::Member(member) => {
+            ExprKind::BoolLiteral(b) => write!(f, "(bool {})", b),
+            ExprKind::Ident(istr) => write!(f, "(ident {:?})", self.lookup(*istr)),
+            ExprKind::Member(member) => {
                 write!(f, "(member {:?}", self.lookup(member.ident))?;
                 writeln!(f)?;
                 self.with_indent(1, |ctx| {
@@ -387,7 +387,7 @@ impl<'i> DisplayContext<'i> {
                 self.write_indent(f)?;
                 write!(f, ")")
             }
-            Expr::FnCall(fn_call) => {
+            ExprKind::FnCall(fn_call) => {
                 writeln!(f, "(fn-call")?;
                 self.with_indent(1, |ctx| {
                     ctx.write_indent(f)?;
@@ -421,7 +421,7 @@ impl<'i> DisplayContext<'i> {
                 self.write_indent(f)?;
                 write!(f, ")")
             }
-            Expr::Conditional(cond) => {
+            ExprKind::Conditional(cond) => {
                 writeln!(f, "(conditional")?;
                 self.with_indent(1, |ctx| {
                     ctx.write_indent(f)?;
@@ -463,7 +463,7 @@ impl<'i> DisplayContext<'i> {
                 self.write_indent(f)?;
                 write!(f, ")")
             }
-            Expr::StructLiteral(struct_lit) => {
+            ExprKind::StructLiteral(struct_lit) => {
                 writeln!(f, "(struct-literal")?;
                 self.with_indent(1, |ctx| {
                     ctx.write_indent(f)?;
@@ -663,11 +663,11 @@ impl<'i> DisplayContext<'i> {
 
     fn fmt_name_path(&self, f: &mut fmt::Formatter<'_>, name_path: &NamePath) -> fmt::Result {
         write!(f, "(name-path")?;
-        let name_path = &name_path.0;
-        let last_member_index = name_path.len() - 1;
-        for segment in &name_path[..last_member_index] {
+        let segments = &name_path.segments;
+        let last_member_index = segments.len() - 1;
+        for segment in &segments[..last_member_index] {
             write!(f, " {:?}", self.lookup(*segment))?;
         }
-        write!(f, " {:?})", self.lookup(name_path[last_member_index]))
+        write!(f, " {:?})", self.lookup(segments[last_member_index]))
     }
 }
