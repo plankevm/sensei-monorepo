@@ -12,6 +12,10 @@ expr = ("comptime" block) | cond_expr | expr_no_block
 expr_no_block =
     IDENT | literal | member
     | fn_call | fn_def | struct_def | struct_lit
+    | binary | unary | paren
+binary = expr binary_op expr
+unary = unary_op expr
+paren = "(" expr ")"
 
 cond_expr = "if" expr block ("else" "if" expr block)* "else" block
 
