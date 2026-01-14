@@ -17,13 +17,15 @@ cargo +nightly clippy --workspace --all --all-features --locked -- -D warnings
 
 Cargo workspace with crates in `crates/`:
 
-- **Docs** (`docs`): Documentation (Never commit temporary files related to
-  project management or tasks, any documentation outside of `docs` is usually
-  temporary stuff)
-- **neosen-data** (`crates/data`): Core data structures (`X32<M>` type-safe indices, `Span<T>` ranges)
-- **neosen-parser** (`crates/parser`): Lexer, parser, and AST definitions
+- **Docs** (`docs`): Documentation
+- **neosen-data** (`crates/data`):
+    - `index.rs`: `X32` easily new-typed index 
+    - `span.rs`: Range-like start, end with a more convenient API
+    - `bigint.rs`: Arena allocated big int with parsing helpers
+- **neosen-parser** (`crates/parser`):
   - `lexer.rs`: Token lexer using the `logos` crate
-  - `ast.rs`: AST node definitions
+  - `cst.rs`: Homogeneous syntax tree that stores well-formed nodes & errors
+  - `parser.rs`: LSP-grade error resilient parser
 
 
 ## Coding Style
@@ -38,3 +40,6 @@ extract it into a helper method. Common cases:
 (e.g., "// Parse next element"). The code should be self-documenting. 
 Only add comments for non-obvious *why* decisions.
 
+
+**Type Driven Development:** Use types to define & rule out certain kinds of
+errors.
