@@ -1,6 +1,6 @@
 ---
 name: parser-engineer
-description: Resilient Parsing engineering guidelines. Use when working on the parser or tightly coupled data structures such as the CST & lexer.
+description: Mandatory use when developing or analyzing the parser or other tightly coupled data structures such as the CST & lexer.
 ---
 
 # Resilient Parser Engineering
