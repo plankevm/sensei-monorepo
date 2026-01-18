@@ -30,9 +30,9 @@ Cargo workspace with crates in `crates/`:
 
 ## Coding Style
 
-**DRY Principle:** If you find yourself writing the same pattern 2-3 times, 
+**DRY Principle:** If you find yourself writing the same pattern 3-4 times,
 extract it into a helper method. Common cases:
-- Checking multiple tokens with a semantic expected value → add a helper like 
+- Checking multiple tokens with a semantic expected value → add a helper like
 `check_with(tok, expected)` or `expect_any(toks, expected)`
 - Repeated error recovery sequences → add a recovery helper
 

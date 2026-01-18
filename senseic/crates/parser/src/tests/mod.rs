@@ -163,8 +163,8 @@ fn token_name(token: Token) -> &'static str {
 }
 
 fn underline(col_start: usize, col_end: usize) -> String {
-    let prefix = " ".repeat(col_start - 1);
-    let carets = "^".repeat((col_end - col_start).max(1));
+    let prefix = " ".repeat(col_start.saturating_sub(1));
+    let carets = "^".repeat(col_end.saturating_sub(col_start).max(1));
     format!("{}{}", prefix, carets)
 }
 
@@ -330,15 +330,16 @@ fn dedent(s: &str) -> String {
 }
 
 pub fn assert_parser_errors(source: &str, expected_errors: &[&str]) {
+    let source = dedent(source);
     let arena = Bump::new();
-    let lexer = Lexer::new(source);
+    let lexer = Lexer::new(&source);
     let mut collector = ErrorCollector::default();
 
     let _cst = parse(&arena, lexer, 64, &mut collector);
 
-    let line_index = LineIndex::new(source);
+    let line_index = LineIndex::new(&source);
     let actual: Vec<String> =
-        collector.errors.iter().map(|e| format_error(e, source, &line_index)).collect();
+        collector.errors.iter().map(|e| format_error(e, &source, &line_index)).collect();
 
     let expected: Vec<String> = expected_errors.iter().map(|s| dedent(s)).collect();
 

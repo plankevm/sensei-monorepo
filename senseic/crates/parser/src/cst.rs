@@ -1,3 +1,4 @@
+use crate::const_print::const_assert_eq;
 use allocator_api2::vec::Vec;
 use bumpalo::Bump;
 use neosen_data::{Span, X32};
@@ -15,6 +16,8 @@ pub struct Node {
     pub next_sibling: Option<NodeIdx>,
     pub first_child: Option<NodeIdx>,
 }
+
+const _ASSERT_NODE_SIZE: () = const_assert_eq(std::mem::size_of::<Node>(), 20);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NodeKind {

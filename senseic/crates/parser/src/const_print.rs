@@ -22,10 +22,11 @@ pub const fn num_to_str(buf: &mut [u8], x: u16) -> &str {
 }
 
 pub const fn const_assert_eq(x: usize, y: usize) {
-    if x != y {
-        let mut xbuf = [0u8; 5];
-        assert!(x <= u16::MAX as usize, "!= & left hand side not u16");
-        let xs = num_to_str(&mut xbuf, x as u16);
-        panic!("{}", xs);
+    if x == y {
+        return;
     }
+    let mut xbuf = [0u8; 5];
+    assert!(x <= u16::MAX as usize, "not equal and left hand side not u16");
+    let xs = num_to_str(&mut xbuf, x as u16);
+    panic!("{}", xs);
 }

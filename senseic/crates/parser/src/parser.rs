@@ -109,9 +109,9 @@ where
         let item = self.tokens.next().expect("advancing past EOF");
 
         let (token, ti, src_span) = item;
+        self.last_token_idx = ti;
+        self.last_src_span = src_span;
         if token.is_error() {
-            self.last_token_idx = ti;
-            self.last_src_span = src_span;
             self.diagnostics.emit_lexer_error(token, ti, src_span);
         }
 
@@ -1124,11 +1124,9 @@ where
 
         // = value
         self.skip_trivia();
-        if !self.expect(Token::Equals) {
-            if self.at_any(BLOCK_RECOVERY) {
-                self.finalize_node(node, start);
-                return;
-            }
+        if !self.expect(Token::Equals) && self.at_any(BLOCK_RECOVERY) {
+            self.finalize_node(node, start);
+            return;
         }
 
         let after_eq_span = self.current_src_span();
