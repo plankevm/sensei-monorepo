@@ -282,19 +282,20 @@ fn test_unary_not() {
     assert_parses_to_cst_no_errors_dedented(
         "const x = !a;",
         r#"
-        ConstDecl
-            "const"
-            " "
-            Identifier
-                "x"
-            " "
-            "="
-            " "
-            UnaryExpr(Not)
-                "!"
+        File
+            ConstDecl
+                "const"
+                " "
                 Identifier
-                    "a"
-            ";"
+                    "x"
+                " "
+                "="
+                UnaryExpr(Not)
+                    " "
+                    "!"
+                    Identifier
+                        "a"
+                ";"
         "#,
     );
 }
@@ -304,19 +305,20 @@ fn test_unary_tilde() {
     assert_parses_to_cst_no_errors_dedented(
         "const x = ~a;",
         r#"
-        ConstDecl
-            "const"
-            " "
-            Identifier
-                "x"
-            " "
-            "="
-            " "
-            UnaryExpr(Tilde)
-                "~"
+        File
+            ConstDecl
+                "const"
+                " "
                 Identifier
-                    "a"
-            ";"
+                    "x"
+                " "
+                "="
+                UnaryExpr(Tilde)
+                    " "
+                    "~"
+                    Identifier
+                        "a"
+                ";"
         "#,
     );
 }
@@ -330,25 +332,24 @@ fn test_binary_plus() {
     assert_parses_to_cst_no_errors_dedented(
         "const x = a + b;",
         r#"
-        ConstDecl
-            "const"
-            " "
-            Identifier
-                "x"
-            " "
-            "="
-            " "
-            BinaryExpr(Plus)
-                NamePath
+        File
+            ConstDecl
+                "const"
+                " "
+                Identifier
+                    "x"
+                " "
+                "="
+                BinaryExpr(Plus)
+                    " "
                     Identifier
                         "a"
-                " "
-                "+"
-                " "
-                NamePath
+                    " "
+                    "+"
+                    " "
                     Identifier
                         "b"
-            ";"
+                ";"
         "#,
     );
 }
@@ -358,25 +359,24 @@ fn test_binary_minus() {
     assert_parses_to_cst_no_errors_dedented(
         "const x = a - b;",
         r#"
-        ConstDecl
-            "const"
-            " "
-            Identifier
-                "x"
-            " "
-            "="
-            " "
-            BinaryExpr(Minus)
-                NamePath
+        File
+            ConstDecl
+                "const"
+                " "
+                Identifier
+                    "x"
+                " "
+                "="
+                BinaryExpr(Minus)
+                    " "
                     Identifier
                         "a"
-                " "
-                "-"
-                " "
-                NamePath
+                    " "
+                    "-"
+                    " "
                     Identifier
                         "b"
-            ";"
+                ";"
         "#,
     );
 }
@@ -386,25 +386,24 @@ fn test_binary_double_equals() {
     assert_parses_to_cst_no_errors_dedented(
         "const x = a == b;",
         r#"
-        ConstDecl
-            "const"
-            " "
-            Identifier
-                "x"
-            " "
-            "="
-            " "
-            BinaryExpr(DoubleEquals)
-                NamePath
+        File
+            ConstDecl
+                "const"
+                " "
+                Identifier
+                    "x"
+                " "
+                "="
+                BinaryExpr(DoubleEquals)
+                    " "
                     Identifier
                         "a"
-                " "
-                "=="
-                " "
-                NamePath
+                    " "
+                    "=="
+                    " "
                     Identifier
                         "b"
-            ";"
+                ";"
         "#,
     );
 }
@@ -414,25 +413,24 @@ fn test_binary_not_equals() {
     assert_parses_to_cst_no_errors_dedented(
         "const x = a != b;",
         r#"
-        ConstDecl
-            "const"
-            " "
-            Identifier
-                "x"
-            " "
-            "="
-            " "
-            BinaryExpr(NotEquals)
-                NamePath
+        File
+            ConstDecl
+                "const"
+                " "
+                Identifier
+                    "x"
+                " "
+                "="
+                BinaryExpr(NotEquals)
+                    " "
                     Identifier
                         "a"
-                " "
-                "!="
-                " "
-                NamePath
+                    " "
+                    "!="
+                    " "
                     Identifier
                         "b"
-            ";"
+                ";"
         "#,
     );
 }
@@ -442,25 +440,24 @@ fn test_binary_greater_than() {
     assert_parses_to_cst_no_errors_dedented(
         "const x = a > b;",
         r#"
-        ConstDecl
-            "const"
-            " "
-            Identifier
-                "x"
-            " "
-            "="
-            " "
-            BinaryExpr(GreaterThan)
-                NamePath
+        File
+            ConstDecl
+                "const"
+                " "
+                Identifier
+                    "x"
+                " "
+                "="
+                BinaryExpr(GreaterThan)
+                    " "
                     Identifier
                         "a"
-                " "
-                ">"
-                " "
-                NamePath
+                    " "
+                    ">"
+                    " "
                     Identifier
                         "b"
-            ";"
+                ";"
         "#,
     );
 }
@@ -470,25 +467,24 @@ fn test_binary_and() {
     assert_parses_to_cst_no_errors_dedented(
         "const x = a and b;",
         r#"
-        ConstDecl
-            "const"
-            " "
-            Identifier
-                "x"
-            " "
-            "="
-            " "
-            BinaryExpr(And)
-                NamePath
+        File
+            ConstDecl
+                "const"
+                " "
+                Identifier
+                    "x"
+                " "
+                "="
+                BinaryExpr(And)
+                    " "
                     Identifier
                         "a"
-                " "
-                "and"
-                " "
-                NamePath
+                    " "
+                    "and"
+                    " "
                     Identifier
                         "b"
-            ";"
+                ";"
         "#,
     );
 }
@@ -498,25 +494,24 @@ fn test_binary_ampersand() {
     assert_parses_to_cst_no_errors_dedented(
         "const x = a & b;",
         r#"
-        ConstDecl
-            "const"
-            " "
-            Identifier
-                "x"
-            " "
-            "="
-            " "
-            BinaryExpr(Ampersand)
-                NamePath
+        File
+            ConstDecl
+                "const"
+                " "
+                Identifier
+                    "x"
+                " "
+                "="
+                BinaryExpr(Ampersand)
+                    " "
                     Identifier
                         "a"
-                " "
-                "&"
-                " "
-                NamePath
+                    " "
+                    "&"
+                    " "
                     Identifier
                         "b"
-            ";"
+                ";"
         "#,
     );
 }
@@ -526,29 +521,30 @@ fn test_binary_precedence_mul_add() {
     assert_parses_to_cst_no_errors_dedented(
         "const x = 1 + 2 * 3;",
         r#"
-        ConstDecl
-            "const"
-            " "
-            Identifier
-                "x"
-            " "
-            "="
-            " "
-            BinaryExpr(Plus)
-                Literal
-                    "1"
+        File
+            ConstDecl
+                "const"
                 " "
-                "+"
+                Identifier
+                    "x"
                 " "
-                BinaryExpr(Star)
-                    Literal
-                        "2"
+                "="
+                BinaryExpr(Plus)
                     " "
-                    "*"
+                    LiteralExpr
+                        "1"
                     " "
-                    Literal
-                        "3"
-            ";"
+                    "+"
+                    BinaryExpr(Star)
+                        " "
+                        LiteralExpr
+                            "2"
+                        " "
+                        "*"
+                        " "
+                        LiteralExpr
+                            "3"
+                ";"
         "#,
     );
 }
@@ -558,39 +554,36 @@ fn test_binary_precedence_cmp_and() {
     assert_parses_to_cst_no_errors_dedented(
         "const x = a < b and c > d;",
         r#"
-        ConstDecl
-            "const"
-            " "
-            Identifier
-                "x"
-            " "
-            "="
-            " "
-            BinaryExpr(And)
-                BinaryExpr(LessThan)
-                    NamePath
+        File
+            ConstDecl
+                "const"
+                " "
+                Identifier
+                    "x"
+                " "
+                "="
+                BinaryExpr(And)
+                    BinaryExpr(LessThan)
+                        " "
                         Identifier
                             "a"
-                    " "
-                    "<"
-                    " "
-                    NamePath
+                        " "
+                        "<"
+                        " "
                         Identifier
                             "b"
                     " "
-                "and"
-                " "
-                BinaryExpr(GreaterThan)
-                    NamePath
+                    "and"
+                    BinaryExpr(GreaterThan)
+                        " "
                         Identifier
                             "c"
-                    " "
-                    ">"
-                    " "
-                    NamePath
+                        " "
+                        ">"
+                        " "
                         Identifier
                             "d"
-            ";"
+                ";"
         "#,
     );
 }
@@ -604,46 +597,44 @@ fn test_cond_expr_if_else() {
     assert_parses_to_cst_no_errors_dedented(
         "const x = if a { b; } else { c; };",
         r#"
-        ConstDecl
-            "const"
-            " "
-            Identifier
-                "x"
-            " "
-            "="
-            " "
-            CondExpr
-                "if"
+        File
+            ConstDecl
+                "const"
                 " "
-                NamePath
+                Identifier
+                    "x"
+                " "
+                "="
+                CondExpr
+                    " "
+                    "if"
+                    " "
                     Identifier
                         "a"
-                " "
-                Block
-                    "{"
-                    " "
-                    ExprStmt
-                        NamePath
-                            Identifier
-                                "b"
-                        ";"
-                    " "
-                    "}"
-                " "
-                ElseBranch
-                    "else"
                     " "
                     Block
                         "{"
                         " "
                         ExprStmt
-                            NamePath
-                                Identifier
-                                    "c"
+                            Identifier
+                                "b"
                             ";"
                         " "
                         "}"
-            ";"
+                    " "
+                    ElseBranch
+                        "else"
+                        " "
+                        Block
+                            "{"
+                            " "
+                            ExprStmt
+                                Identifier
+                                    "c"
+                                ";"
+                            " "
+                            "}"
+                ";"
         "#,
     );
 }
@@ -653,66 +644,62 @@ fn test_cond_expr_if_elseif_else() {
     assert_parses_to_cst_no_errors_dedented(
         "const x = if a { b; } else if c { d; } else { e; };",
         r#"
-        ConstDecl
-            "const"
-            " "
-            Identifier
-                "x"
-            " "
-            "="
-            " "
-            CondExpr
-                "if"
+        File
+            ConstDecl
+                "const"
                 " "
-                NamePath
-                    Identifier
-                        "a"
+                Identifier
+                    "x"
                 " "
-                Block
-                    "{"
-                    " "
-                    ExprStmt
-                        NamePath
-                            Identifier
-                                "b"
-                        ";"
-                    " "
-                    "}"
-                " "
-                ElseBranch
-                    "else"
+                "="
+                CondExpr
                     " "
                     "if"
                     " "
-                    NamePath
+                    Identifier
+                        "a"
+                    " "
+                    Block
+                        "{"
+                        " "
+                        ExprStmt
+                            Identifier
+                                "b"
+                            ";"
+                        " "
+                        "}"
+                    " "
+                    ElseBranch
+                        "else"
+                        " "
+                        "if"
+                        " "
                         Identifier
                             "c"
-                    " "
-                    Block
-                        "{"
                         " "
-                        ExprStmt
-                            NamePath
+                        Block
+                            "{"
+                            " "
+                            ExprStmt
                                 Identifier
                                     "d"
-                            ";"
-                        " "
-                        "}"
-                " "
-                ElseBranch
-                    "else"
+                                ";"
+                            " "
+                            "}"
                     " "
-                    Block
-                        "{"
+                    ElseBranch
+                        "else"
                         " "
-                        ExprStmt
-                            NamePath
+                        Block
+                            "{"
+                            " "
+                            ExprStmt
                                 Identifier
                                     "e"
-                            ";"
-                        " "
-                        "}"
-            ";"
+                                ";"
+                            " "
+                            "}"
+                ";"
         "#,
     );
 }
@@ -726,22 +713,22 @@ fn test_fn_call_zero_args() {
     assert_parses_to_cst_no_errors_dedented(
         "const x = f();",
         r#"
-        ConstDecl
-            "const"
-            " "
-            Identifier
-                "x"
-            " "
-            "="
-            " "
-            CallExpr
-                NamePath
+        File
+            ConstDecl
+                "const"
+                " "
+                Identifier
+                    "x"
+                " "
+                "="
+                CallExpr
+                    " "
                     Identifier
                         "f"
-                "("
-                ArgList
-                ")"
-            ";"
+                    "("
+                    ArgList
+                    ")"
+                ";"
         "#,
     );
 }
@@ -751,25 +738,24 @@ fn test_fn_call_one_arg() {
     assert_parses_to_cst_no_errors_dedented(
         "const x = f(a);",
         r#"
-        ConstDecl
-            "const"
-            " "
-            Identifier
-                "x"
-            " "
-            "="
-            " "
-            CallExpr
-                NamePath
+        File
+            ConstDecl
+                "const"
+                " "
+                Identifier
+                    "x"
+                " "
+                "="
+                CallExpr
+                    " "
                     Identifier
                         "f"
-                "("
-                ArgList
-                    NamePath
+                    "("
+                    ArgList
                         Identifier
                             "a"
-                ")"
-            ";"
+                    ")"
+                ";"
         "#,
     );
 }
@@ -779,30 +765,28 @@ fn test_fn_call_two_args() {
     assert_parses_to_cst_no_errors_dedented(
         "const x = f(a, b);",
         r#"
-        ConstDecl
-            "const"
-            " "
-            Identifier
-                "x"
-            " "
-            "="
-            " "
-            CallExpr
-                NamePath
+        File
+            ConstDecl
+                "const"
+                " "
+                Identifier
+                    "x"
+                " "
+                "="
+                CallExpr
+                    " "
                     Identifier
                         "f"
-                "("
-                ArgList
-                    NamePath
+                    "("
+                    ArgList
                         Identifier
                             "a"
-                    ","
-                    " "
-                    NamePath
+                        ","
+                        " "
                         Identifier
                             "b"
-                ")"
-            ";"
+                    ")"
+                ";"
         "#,
     );
 }
@@ -812,31 +796,29 @@ fn test_fn_call_trailing_comma() {
     assert_parses_to_cst_no_errors_dedented(
         "const x = f(a, b,);",
         r#"
-        ConstDecl
-            "const"
-            " "
-            Identifier
-                "x"
-            " "
-            "="
-            " "
-            CallExpr
-                NamePath
+        File
+            ConstDecl
+                "const"
+                " "
+                Identifier
+                    "x"
+                " "
+                "="
+                CallExpr
+                    " "
                     Identifier
                         "f"
-                "("
-                ArgList
-                    NamePath
+                    "("
+                    ArgList
                         Identifier
                             "a"
-                    ","
-                    " "
-                    NamePath
+                        ","
+                        " "
                         Identifier
                             "b"
-                    ","
-                ")"
-            ";"
+                        ","
+                    ")"
+                ";"
         "#,
     );
 }
@@ -850,24 +832,25 @@ fn test_fn_def_zero_params() {
     assert_parses_to_cst_no_errors_dedented(
         "const f = fn() {};",
         r#"
-        ConstDecl
-            "const"
-            " "
-            Identifier
-                "f"
-            " "
-            "="
-            " "
-            FnDef
-                "fn"
-                "("
-                ParamList
-                ")"
+        File
+            ConstDecl
+                "const"
                 " "
-                Block
-                    "{"
-                    "}"
-            ";"
+                Identifier
+                    "f"
+                " "
+                "="
+                FnDef
+                    " "
+                    "fn"
+                    "("
+                    ParamList
+                    ")"
+                    " "
+                    Block
+                        "{"
+                        "}"
+                ";"
         "#,
     );
 }
@@ -877,32 +860,32 @@ fn test_fn_def_one_param() {
     assert_parses_to_cst_no_errors_dedented(
         "const f = fn(x: T) {};",
         r#"
-        ConstDecl
-            "const"
-            " "
-            Identifier
-                "f"
-            " "
-            "="
-            " "
-            FnDef
-                "fn"
-                "("
-                ParamList
-                    ParamDef
-                        Identifier
-                            "x"
-                        ":"
-                        " "
-                        NamePath
+        File
+            ConstDecl
+                "const"
+                " "
+                Identifier
+                    "f"
+                " "
+                "="
+                FnDef
+                    " "
+                    "fn"
+                    "("
+                    ParamList
+                        ParamDef
+                            Identifier
+                                "x"
+                            ":"
+                            " "
                             Identifier
                                 "T"
-                ")"
-                " "
-                Block
-                    "{"
-                    "}"
-            ";"
+                    ")"
+                    " "
+                    Block
+                        "{"
+                        "}"
+                ";"
         "#,
     );
 }
@@ -912,42 +895,41 @@ fn test_fn_def_two_params() {
     assert_parses_to_cst_no_errors_dedented(
         "const f = fn(x: T, y: U) {};",
         r#"
-        ConstDecl
-            "const"
-            " "
-            Identifier
-                "f"
-            " "
-            "="
-            " "
-            FnDef
-                "fn"
-                "("
-                ParamList
-                    ParamDef
-                        Identifier
-                            "x"
-                        ":"
-                        " "
-                        NamePath
+        File
+            ConstDecl
+                "const"
+                " "
+                Identifier
+                    "f"
+                " "
+                "="
+                FnDef
+                    " "
+                    "fn"
+                    "("
+                    ParamList
+                        ParamDef
+                            Identifier
+                                "x"
+                            ":"
+                            " "
                             Identifier
                                 "T"
-                    ","
-                    " "
-                    ParamDef
-                        Identifier
-                            "y"
-                        ":"
+                        ","
                         " "
-                        NamePath
+                        ParamDef
+                            Identifier
+                                "y"
+                            ":"
+                            " "
                             Identifier
                                 "U"
-                ")"
-                " "
-                Block
-                    "{"
-                    "}"
-            ";"
+                    ")"
+                    " "
+                    Block
+                        "{"
+                        "}"
+                ";"
         "#,
     );
 }
@@ -957,30 +939,30 @@ fn test_fn_def_with_return_type() {
     assert_parses_to_cst_no_errors_dedented(
         "const f = fn() -> T {};",
         r#"
-        ConstDecl
-            "const"
-            " "
-            Identifier
-                "f"
-            " "
-            "="
-            " "
-            FnDef
-                "fn"
-                "("
-                ParamList
-                ")"
+        File
+            ConstDecl
+                "const"
                 " "
-                "->"
+                Identifier
+                    "f"
                 " "
-                NamePath
+                "="
+                FnDef
+                    " "
+                    "fn"
+                    "("
+                    ParamList
+                    ")"
+                    " "
+                    "->"
+                    " "
                     Identifier
                         "T"
-                " "
-                Block
-                    "{"
-                    "}"
-            ";"
+                    " "
+                    Block
+                        "{"
+                        "}"
+                ";"
         "#,
     );
 }
@@ -990,45 +972,43 @@ fn test_fn_def_full() {
     assert_parses_to_cst_no_errors_dedented(
         "const f = fn(x: T) -> U { x; };",
         r#"
-        ConstDecl
-            "const"
-            " "
-            Identifier
-                "f"
-            " "
-            "="
-            " "
-            FnDef
-                "fn"
-                "("
-                ParamList
-                    ParamDef
-                        Identifier
-                            "x"
-                        ":"
-                        " "
-                        NamePath
-                            Identifier
-                                "T"
-                ")"
+        File
+            ConstDecl
+                "const"
                 " "
-                "->"
+                Identifier
+                    "f"
                 " "
-                NamePath
-                    Identifier
-                        "U"
-                " "
-                Block
-                    "{"
+                "="
+                FnDef
                     " "
-                    ExprStmt
-                        NamePath
+                    "fn"
+                    "("
+                    ParamList
+                        ParamDef
                             Identifier
                                 "x"
-                        ";"
+                            ":"
+                            " "
+                            Identifier
+                                "T"
+                    ")"
                     " "
-                    "}"
-            ";"
+                    "->"
+                    " "
+                    Identifier
+                        "U"
+                    " "
+                    Block
+                        "{"
+                        " "
+                        ExprStmt
+                            Identifier
+                                "x"
+                            ";"
+                        " "
+                        "}"
+                ";"
         "#,
     );
 }
@@ -1042,21 +1022,22 @@ fn test_struct_def_zero_fields() {
     assert_parses_to_cst_no_errors_dedented(
         "const S = struct {};",
         r#"
-        ConstDecl
-            "const"
-            " "
-            Identifier
-                "S"
-            " "
-            "="
-            " "
-            StructDef
-                "struct"
+        File
+            ConstDecl
+                "const"
                 " "
-                "{"
-                FieldList
-                "}"
-            ";"
+                Identifier
+                    "S"
+                " "
+                "="
+                StructDef
+                    " "
+                    "struct"
+                    " "
+                    "{"
+                    FieldList
+                    "}"
+                ";"
         "#,
     );
 }
@@ -1066,31 +1047,31 @@ fn test_struct_def_one_field() {
     assert_parses_to_cst_no_errors_dedented(
         "const S = struct { x: T };",
         r#"
-        ConstDecl
-            "const"
-            " "
-            Identifier
-                "S"
-            " "
-            "="
-            " "
-            StructDef
-                "struct"
+        File
+            ConstDecl
+                "const"
                 " "
-                "{"
-                FieldList
+                Identifier
+                    "S"
+                " "
+                "="
+                StructDef
                     " "
-                    FieldDef
-                        Identifier
-                            "x"
-                        ":"
+                    "struct"
+                    " "
+                    "{"
+                    FieldList
                         " "
-                        NamePath
+                        FieldDef
+                            Identifier
+                                "x"
+                            ":"
+                            " "
                             Identifier
                                 "T"
-                        " "
-                "}"
-            ";"
+                            " "
+                    "}"
+                ";"
         "#,
     );
 }
@@ -1100,41 +1081,40 @@ fn test_struct_def_two_fields() {
     assert_parses_to_cst_no_errors_dedented(
         "const S = struct { x: T, y: U };",
         r#"
-        ConstDecl
-            "const"
-            " "
-            Identifier
-                "S"
-            " "
-            "="
-            " "
-            StructDef
-                "struct"
+        File
+            ConstDecl
+                "const"
                 " "
-                "{"
-                FieldList
+                Identifier
+                    "S"
+                " "
+                "="
+                StructDef
                     " "
-                    FieldDef
-                        Identifier
-                            "x"
-                        ":"
+                    "struct"
+                    " "
+                    "{"
+                    FieldList
                         " "
-                        NamePath
+                        FieldDef
+                            Identifier
+                                "x"
+                            ":"
+                            " "
                             Identifier
                                 "T"
-                    ","
-                    " "
-                    FieldDef
-                        Identifier
-                            "y"
-                        ":"
+                        ","
                         " "
-                        NamePath
+                        FieldDef
+                            Identifier
+                                "y"
+                            ":"
+                            " "
                             Identifier
                                 "U"
-                        " "
-                "}"
-            ";"
+                            " "
+                    "}"
+                ";"
         "#,
     );
 }
@@ -1144,32 +1124,32 @@ fn test_struct_def_trailing_comma() {
     assert_parses_to_cst_no_errors_dedented(
         "const S = struct { x: T, };",
         r#"
-        ConstDecl
-            "const"
-            " "
-            Identifier
-                "S"
-            " "
-            "="
-            " "
-            StructDef
-                "struct"
+        File
+            ConstDecl
+                "const"
                 " "
-                "{"
-                FieldList
+                Identifier
+                    "S"
+                " "
+                "="
+                StructDef
                     " "
-                    FieldDef
-                        Identifier
-                            "x"
-                        ":"
+                    "struct"
+                    " "
+                    "{"
+                    FieldList
                         " "
-                        NamePath
+                        FieldDef
+                            Identifier
+                                "x"
+                            ":"
+                            " "
                             Identifier
                                 "T"
-                    ","
-                    " "
-                "}"
-            ";"
+                        ","
+                        " "
+                    "}"
+                ";"
         "#,
     );
 }
@@ -1183,23 +1163,23 @@ fn test_struct_lit_zero_fields() {
     assert_parses_to_cst_no_errors_dedented(
         "const s = S {};",
         r#"
-        ConstDecl
-            "const"
-            " "
-            Identifier
-                "s"
-            " "
-            "="
-            " "
-            StructLit
-                NamePath
+        File
+            ConstDecl
+                "const"
+                " "
+                Identifier
+                    "s"
+                " "
+                "="
+                StructLit
+                    " "
                     Identifier
                         "S"
-                " "
-                "{"
-                FieldList
-                "}"
-            ";"
+                    " "
+                    "{"
+                    FieldList
+                    "}"
+                ";"
         "#,
     );
 }
@@ -1209,32 +1189,32 @@ fn test_struct_lit_one_field() {
     assert_parses_to_cst_no_errors_dedented(
         "const s = S { x: 1 };",
         r#"
-        ConstDecl
-            "const"
-            " "
-            Identifier
-                "s"
-            " "
-            "="
-            " "
-            StructLit
-                NamePath
+        File
+            ConstDecl
+                "const"
+                " "
+                Identifier
+                    "s"
+                " "
+                "="
+                StructLit
+                    " "
                     Identifier
                         "S"
-                " "
-                "{"
-                FieldList
                     " "
-                    FieldDef
-                        Identifier
-                            "x"
-                        ":"
+                    "{"
+                    FieldList
                         " "
-                        Literal
-                            "1"
-                        " "
-                "}"
-            ";"
+                        FieldDef
+                            Identifier
+                                "x"
+                            ":"
+                            " "
+                            LiteralExpr
+                                "1"
+                            " "
+                    "}"
+                ";"
         "#,
     );
 }
@@ -1244,41 +1224,41 @@ fn test_struct_lit_two_fields() {
     assert_parses_to_cst_no_errors_dedented(
         "const s = S { x: 1, y: 2 };",
         r#"
-        ConstDecl
-            "const"
-            " "
-            Identifier
-                "s"
-            " "
-            "="
-            " "
-            StructLit
-                NamePath
+        File
+            ConstDecl
+                "const"
+                " "
+                Identifier
+                    "s"
+                " "
+                "="
+                StructLit
+                    " "
                     Identifier
                         "S"
-                " "
-                "{"
-                FieldList
                     " "
-                    FieldDef
-                        Identifier
-                            "x"
-                        ":"
+                    "{"
+                    FieldList
                         " "
-                        Literal
-                            "1"
-                    ","
-                    " "
-                    FieldDef
-                        Identifier
-                            "y"
-                        ":"
+                        FieldDef
+                            Identifier
+                                "x"
+                            ":"
+                            " "
+                            LiteralExpr
+                                "1"
+                        ","
                         " "
-                        Literal
-                            "2"
-                        " "
-                "}"
-            ";"
+                        FieldDef
+                            Identifier
+                                "y"
+                            ":"
+                            " "
+                            LiteralExpr
+                                "2"
+                            " "
+                    "}"
+                ";"
         "#,
     );
 }
@@ -1288,33 +1268,33 @@ fn test_struct_lit_trailing_comma() {
     assert_parses_to_cst_no_errors_dedented(
         "const s = S { x: 1, };",
         r#"
-        ConstDecl
-            "const"
-            " "
-            Identifier
-                "s"
-            " "
-            "="
-            " "
-            StructLit
-                NamePath
+        File
+            ConstDecl
+                "const"
+                " "
+                Identifier
+                    "s"
+                " "
+                "="
+                StructLit
+                    " "
                     Identifier
                         "S"
-                " "
-                "{"
-                FieldList
                     " "
-                    FieldDef
-                        Identifier
-                            "x"
-                        ":"
+                    "{"
+                    FieldList
                         " "
-                        Literal
-                            "1"
-                    ","
-                    " "
-                "}"
-            ";"
+                        FieldDef
+                            Identifier
+                                "x"
+                            ":"
+                            " "
+                            LiteralExpr
+                                "1"
+                        ","
+                        " "
+                    "}"
+                ";"
         "#,
     );
 }
@@ -1328,22 +1308,22 @@ fn test_block_one_stmt() {
     assert_parses_to_cst_no_errors_dedented(
         "init { foo(); }",
         r#"
-        InitBlock
-            "init"
-            " "
-            "{"
-            " "
-            ExprStmt
-                CallExpr
-                    NamePath
+        File
+            InitBlock
+                "init"
+                " "
+                "{"
+                " "
+                ExprStmt
+                    CallExpr
                         Identifier
                             "foo"
-                    "("
-                    ArgList
-                    ")"
-                ";"
-            " "
-            "}"
+                        "("
+                        ArgList
+                        ")"
+                    ";"
+                " "
+                "}"
         "#,
     );
 }
@@ -1353,32 +1333,31 @@ fn test_block_two_stmts() {
     assert_parses_to_cst_no_errors_dedented(
         "init { foo(); bar(); }",
         r#"
-        InitBlock
-            "init"
-            " "
-            "{"
-            " "
-            ExprStmt
-                CallExpr
-                    NamePath
+        File
+            InitBlock
+                "init"
+                " "
+                "{"
+                " "
+                ExprStmt
+                    CallExpr
                         Identifier
                             "foo"
-                    "("
-                    ArgList
-                    ")"
-                ";"
-            " "
-            ExprStmt
-                CallExpr
-                    NamePath
+                        "("
+                        ArgList
+                        ")"
+                    ";"
+                " "
+                ExprStmt
+                    CallExpr
                         Identifier
                             "bar"
-                    "("
-                    ArgList
-                    ")"
-                ";"
-            " "
-            "}"
+                        "("
+                        ArgList
+                        ")"
+                    ";"
+                " "
+                "}"
         "#,
     );
 }
@@ -1392,24 +1371,25 @@ fn test_let_basic() {
     assert_parses_to_cst_no_errors_dedented(
         "init { let x = 1; }",
         r#"
-        InitBlock
-            "init"
-            " "
-            "{"
-            " "
-            LetStmt
-                "let"
+        File
+            InitBlock
+                "init"
                 " "
-                Identifier
-                    "x"
+                "{"
                 " "
-                "="
+                LetStmt
+                    "let"
+                    " "
+                    Identifier
+                        "x"
+                    " "
+                    "="
+                    " "
+                    LiteralExpr
+                        "1"
+                    ";"
                 " "
-                Literal
-                    "1"
-                ";"
-            " "
-            "}"
+                "}"
         "#,
     );
 }
@@ -1419,26 +1399,27 @@ fn test_let_with_mut() {
     assert_parses_to_cst_no_errors_dedented(
         "init { let mut x = 1; }",
         r#"
-        InitBlock
-            "init"
-            " "
-            "{"
-            " "
-            LetStmt
-                "let"
+        File
+            InitBlock
+                "init"
                 " "
-                "mut"
+                "{"
                 " "
-                Identifier
-                    "x"
+                LetStmt
+                    "let"
+                    " "
+                    "mut"
+                    " "
+                    Identifier
+                        "x"
+                    " "
+                    "="
+                    " "
+                    LiteralExpr
+                        "1"
+                    ";"
                 " "
-                "="
-                " "
-                Literal
-                    "1"
-                ";"
-            " "
-            "}"
+                "}"
         "#,
     );
 }
@@ -1448,29 +1429,29 @@ fn test_let_with_type() {
     assert_parses_to_cst_no_errors_dedented(
         "init { let x: T = 1; }",
         r#"
-        InitBlock
-            "init"
-            " "
-            "{"
-            " "
-            LetStmt
-                "let"
+        File
+            InitBlock
+                "init"
                 " "
-                Identifier
-                    "x"
-                ":"
+                "{"
                 " "
-                NamePath
+                LetStmt
+                    "let"
+                    " "
+                    Identifier
+                        "x"
+                    ":"
+                    " "
                     Identifier
                         "T"
+                    " "
+                    "="
+                    " "
+                    LiteralExpr
+                        "1"
+                    ";"
                 " "
-                "="
-                " "
-                Literal
-                    "1"
-                ";"
-            " "
-            "}"
+                "}"
         "#,
     );
 }
@@ -1480,31 +1461,31 @@ fn test_let_full() {
     assert_parses_to_cst_no_errors_dedented(
         "init { let mut x: T = 1; }",
         r#"
-        InitBlock
-            "init"
-            " "
-            "{"
-            " "
-            LetStmt
-                "let"
+        File
+            InitBlock
+                "init"
                 " "
-                "mut"
+                "{"
                 " "
-                Identifier
-                    "x"
-                ":"
-                " "
-                NamePath
+                LetStmt
+                    "let"
+                    " "
+                    "mut"
+                    " "
+                    Identifier
+                        "x"
+                    ":"
+                    " "
                     Identifier
                         "T"
+                    " "
+                    "="
+                    " "
+                    LiteralExpr
+                        "1"
+                    ";"
                 " "
-                "="
-                " "
-                Literal
-                    "1"
-                ";"
-            " "
-            "}"
+                "}"
         "#,
     );
 }
@@ -1518,32 +1499,33 @@ fn test_return_stmt() {
     assert_parses_to_cst_no_errors_dedented(
         "const f = fn() { return 42; };",
         r#"
-        ConstDecl
-            "const"
-            " "
-            Identifier
-                "f"
-            " "
-            "="
-            " "
-            FnDef
-                "fn"
-                "("
-                ParamList
-                ")"
+        File
+            ConstDecl
+                "const"
                 " "
-                Block
-                    "{"
+                Identifier
+                    "f"
+                " "
+                "="
+                FnDef
                     " "
-                    ReturnStmt
-                        "return"
+                    "fn"
+                    "("
+                    ParamList
+                    ")"
+                    " "
+                    Block
+                        "{"
                         " "
-                        Literal
-                            "42"
-                        ";"
-                    " "
-                    "}"
-            ";"
+                        ReturnStmt
+                            "return"
+                            " "
+                            LiteralExpr
+                                "42"
+                            ";"
+                        " "
+                        "}"
+                ";"
         "#,
     );
 }
@@ -1553,23 +1535,23 @@ fn test_assign_stmt() {
     assert_parses_to_cst_no_errors_dedented(
         "init { x = 1; }",
         r#"
-        InitBlock
-            "init"
-            " "
-            "{"
-            " "
-            AssignStmt
-                NamePath
+        File
+            InitBlock
+                "init"
+                " "
+                "{"
+                " "
+                AssignStmt
                     Identifier
                         "x"
+                    " "
+                    "="
+                    " "
+                    LiteralExpr
+                        "1"
+                    ";"
                 " "
-                "="
-                " "
-                Literal
-                    "1"
-                ";"
-            " "
-            "}"
+                "}"
         "#,
     );
 }
@@ -1579,30 +1561,29 @@ fn test_while_basic() {
     assert_parses_to_cst_no_errors_dedented(
         "init { while x { y; } }",
         r#"
-        InitBlock
-            "init"
-            " "
-            "{"
-            " "
-            WhileStmt
-                "while"
+        File
+            InitBlock
+                "init"
                 " "
-                NamePath
+                "{"
+                " "
+                WhileStmt
+                    "while"
+                    " "
                     Identifier
                         "x"
-                " "
-                Block
-                    "{"
                     " "
-                    ExprStmt
-                        NamePath
+                    Block
+                        "{"
+                        " "
+                        ExprStmt
                             Identifier
                                 "y"
-                        ";"
-                    " "
-                    "}"
-            " "
-            "}"
+                            ";"
+                        " "
+                        "}"
+                " "
+                "}"
         "#,
     );
 }
@@ -1612,32 +1593,31 @@ fn test_while_inline() {
     assert_parses_to_cst_no_errors_dedented(
         "init { inline while x { y; } }",
         r#"
-        InitBlock
-            "init"
-            " "
-            "{"
-            " "
-            WhileStmt
-                "inline"
+        File
+            InitBlock
+                "init"
                 " "
-                "while"
+                "{"
                 " "
-                NamePath
+                WhileStmt
+                    "inline"
+                    " "
+                    "while"
+                    " "
                     Identifier
                         "x"
-                " "
-                Block
-                    "{"
                     " "
-                    ExprStmt
-                        NamePath
+                    Block
+                        "{"
+                        " "
+                        ExprStmt
                             Identifier
                                 "y"
-                        ";"
-                    " "
-                    "}"
-            " "
-            "}"
+                            ";"
+                        " "
+                        "}"
+                " "
+                "}"
         "#,
     );
 }
@@ -1647,30 +1627,29 @@ fn test_cond_stmt_if_only() {
     assert_parses_to_cst_no_errors_dedented(
         "init { if x { y; } }",
         r#"
-        InitBlock
-            "init"
-            " "
-            "{"
-            " "
-            CondExpr
-                "if"
+        File
+            InitBlock
+                "init"
                 " "
-                NamePath
+                "{"
+                " "
+                CondExpr
+                    "if"
+                    " "
                     Identifier
                         "x"
-                " "
-                Block
-                    "{"
                     " "
-                    ExprStmt
-                        NamePath
+                    Block
+                        "{"
+                        " "
+                        ExprStmt
                             Identifier
                                 "y"
-                        ";"
-                    " "
-                    "}"
+                            ";"
+                        " "
+                        "}"
                 " "
-            "}"
+                "}"
         "#,
     );
 }
@@ -1680,50 +1659,47 @@ fn test_cond_stmt_if_elseif() {
     assert_parses_to_cst_no_errors_dedented(
         "init { if a { b; } else if c { d; } }",
         r#"
-        InitBlock
-            "init"
-            " "
-            "{"
-            " "
-            CondExpr
-                "if"
+        File
+            InitBlock
+                "init"
                 " "
-                NamePath
-                    Identifier
-                        "a"
+                "{"
                 " "
-                Block
-                    "{"
-                    " "
-                    ExprStmt
-                        NamePath
-                            Identifier
-                                "b"
-                        ";"
-                    " "
-                    "}"
-                " "
-                ElseBranch
-                    "else"
-                    " "
+                CondExpr
                     "if"
                     " "
-                    NamePath
-                        Identifier
-                            "c"
+                    Identifier
+                        "a"
                     " "
                     Block
                         "{"
                         " "
                         ExprStmt
-                            NamePath
-                                Identifier
-                                    "d"
+                            Identifier
+                                "b"
                             ";"
                         " "
                         "}"
+                    " "
+                    ElseBranch
+                        "else"
+                        " "
+                        "if"
+                        " "
+                        Identifier
+                            "c"
+                        " "
+                        Block
+                            "{"
+                            " "
+                            ExprStmt
+                                Identifier
+                                    "d"
+                                ";"
+                            " "
+                            "}"
                 " "
-            "}"
+                "}"
         "#,
     );
 }
@@ -1776,17 +1752,18 @@ fn test_untyped_const_decl() {
     assert_parses_to_cst_no_errors_dedented(
         "const x = 42;",
         r#"
-        ConstDecl
-            "const"
-            " "
-            Identifier
-                "x"
-            " "
-            "="
-            " "
-            Literal
-                "42"
-            ";"
+        File
+            ConstDecl
+                "const"
+                " "
+                Identifier
+                    "x"
+                " "
+                "="
+                " "
+                LiteralExpr
+                    "42"
+                ";"
         "#,
     );
 }
@@ -1796,22 +1773,22 @@ fn test_typed_const_decl() {
     assert_parses_to_cst_no_errors_dedented(
         "const y: comptime_int = 67;",
         r#"
-        TypedConstDecl
-            "const"
-            " "
-            Identifier
-                "y"
-            ":"
-            " "
-            NamePath
+        File
+            TypedConstDecl
+                "const"
+                " "
+                Identifier
+                    "y"
+                ":"
+                " "
                 Identifier
                     "comptime_int"
-            " "
-            "="
-            " "
-            Literal
-                "67"
-            ";"
+                " "
+                "="
+                " "
+                LiteralExpr
+                    "67"
+                ";"
         "#,
     );
 }
@@ -1829,8 +1806,8 @@ fn test_empty_block_expr() {
                     "x"
                 " "
                 "="
-                " "
                 Block
+                    " "
                     "{"
                     "}"
                 ";"
