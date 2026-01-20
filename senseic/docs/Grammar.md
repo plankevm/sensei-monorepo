@@ -8,7 +8,7 @@ init = "init" block
 run = "run" block
 const_def = "const" IDENT (":" expr)? "=" expr ";"
 
-expr = ("comptime" block) | cond_expr | expr_no_block
+expr = ("comptime"? block) | cond_expr | expr_no_block
 expr_no_block =
     IDENT | literal | member
     | fn_call | fn_def | struct_def | struct_lit
@@ -17,7 +17,7 @@ binary = expr binary_op expr
 unary = unary_op expr
 paren = "(" expr ")"
 
-cond_expr = "if" "(" expr ")" block ("else" "if" "(" expr ")" block)* "else" block
+cond_expr = "if" expr block ("else" "if" expr block)* "else" block
 
 
 block = "{" stmt* expr? "}"
@@ -30,14 +30,14 @@ hex_literal = /-?0x[0-9A-Fa-f][0-9A-Fa-f_]*/
 bin_literal = /-?0b[01][01_]*/
 dec_literal = /-?[0-9][0-9_]*/
 
-cond_stmt = "if" "(" expr ")" block ("else" "if" "(" expr ")" block)*
+cond_stmt = "if" expr block ("else" "if" expr block)*
 
 stmt =
     (expr_no_block | return | assign | let) ";"
     | (block | cond_expr) ";"?
     | cond_stmt | while
 
-while = "inline"? "while" "(" expr ")" block
+while = "inline"? "while" expr block
 let = "let" "mut"? IDENT (":" expr)? "=" expr
 return = "return" expr
 assign = name_path "=" expr

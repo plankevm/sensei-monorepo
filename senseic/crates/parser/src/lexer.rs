@@ -18,7 +18,7 @@ fn inner_do_lex<'a, R>(
 
 fn lex_line_comment(lexer: &mut LogosLexer<Token>) {
     fn inner<'a>(chars: &mut CharsPeekable<'a>) {
-        while chars.next_if(|&(_, c)| c != '\n').is_some() {}
+        while chars.next().is_some_and(|(_, c)| c != '\n') {}
     }
     inner_do_lex(lexer, inner)
 }
@@ -127,12 +127,12 @@ pub enum Token {
     GreaterEquals,
 
     // Logical
-    #[token("&&")]
-    And,
-    #[token("||")]
-    Or,
     #[token("!")]
     Not,
+    #[token("&&")]
+    AmperAmper,
+    #[token("||")]
+    PipePipe,
 
     // Bitwise
     #[token("&")]
@@ -179,6 +179,10 @@ pub enum Token {
     True,
     #[token("false")]
     False,
+    #[token("and")]
+    And,
+    #[token("or")]
+    Or,
 
     #[regex("[a-zA-Z_][a-zA-Z0-9_]*")]
     Identifier,
@@ -202,6 +206,14 @@ pub enum Token {
     InvalidCharError,
     MalformedIdentError,
     UnclosedBlockCommentError,
+
+    Eof,
+}
+
+impl std::fmt::Display for Token {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.name())
+    }
 }
 
 impl Token {
@@ -209,11 +221,83 @@ impl Token {
         matches!(self, Token::Whitespace | Token::LineComment | Token::BlockComment)
     }
 
-    pub const fn is_error(&self) -> bool {
+    pub const fn is_lex_error(&self) -> bool {
         matches!(
             self,
             Token::InvalidCharError | Token::MalformedIdentError | Token::UnclosedBlockCommentError
         )
+    }
+
+    pub const fn name(self) -> &'static str {
+        match self {
+            Token::Semicolon => "`;`",
+            Token::Comma => "`,`",
+            Token::Colon => "`:`",
+            Token::Dot => "`.`",
+            Token::LeftCurly => "`{`",
+            Token::RightCurly => "`}`",
+            Token::LeftRound => "`(`",
+            Token::RightRound => "`)`",
+            Token::LeftSquare => "`[`",
+            Token::RightSquare => "`]`",
+            Token::ThinArrow => "`->`",
+            Token::Equals => "`=`",
+            Token::Plus => "`+`",
+            Token::PlusPercent => "`+%`",
+            Token::Minus => "`-`",
+            Token::MinusPercent => "`-%`",
+            Token::Star => "`*`",
+            Token::StarPercent => "`*%`",
+            Token::Slash => "`/`",
+            Token::SlashPlus => "`/+`",
+            Token::SlashNeg => "`/-`",
+            Token::SlashLess => "`/<`",
+            Token::SlashGreater => "`/>`",
+            Token::Percent => "`%`",
+            Token::DoubleEquals => "`==`",
+            Token::NotEquals => "`!=`",
+            Token::LessThan => "`<`",
+            Token::GreaterThan => "`>`",
+            Token::LessEquals => "`<=`",
+            Token::GreaterEquals => "`>=`",
+            Token::AmperAmper => "`&&`",
+            Token::PipePipe => "`||`",
+            Token::Not => "`!`",
+            Token::Ampersand => "`&`",
+            Token::Pipe => "`|`",
+            Token::Caret => "`^`",
+            Token::Tilde => "`~`",
+            Token::ShiftLeft => "`<<`",
+            Token::ShiftRight => "`>>`",
+            Token::If => "`if`",
+            Token::Else => "`else`",
+            Token::Fn => "`fn`",
+            Token::Let => "`let`",
+            Token::Mut => "`mut`",
+            Token::Const => "`const`",
+            Token::Init => "`init`",
+            Token::Run => "`run`",
+            Token::Struct => "`struct`",
+            Token::Return => "`return`",
+            Token::Comptime => "`comptime`",
+            Token::Inline => "`inline`",
+            Token::While => "`while`",
+            Token::True => "`true`",
+            Token::False => "`false`",
+            Token::And => "`and`",
+            Token::Or => "`or`",
+            Token::Identifier => "identifier",
+            Token::DecimalLiteral => "decimal literal",
+            Token::HexLiteral => "hex literal",
+            Token::BinLiteral => "binary literal",
+            Token::Whitespace => "whitespace",
+            Token::LineComment => "line comment",
+            Token::BlockComment => "block comment",
+            Token::InvalidCharError => "invalid character",
+            Token::MalformedIdentError => "malformed literal",
+            Token::UnclosedBlockCommentError => "unclosed block comment",
+            Token::Eof => "EOF",
+        }
     }
 }
 
@@ -236,18 +320,24 @@ impl<'src> Lexer<'src> {
         );
         Self { inner: Token::lexer(source) }
     }
+
+    pub fn next_with_eof(&mut self) -> (Token, SourceSpan) {
+        let token = match self.inner.next() {
+            Some(Ok(token) | Err(token)) => token,
+            None => Token::Eof,
+        };
+        let span = self.inner.span();
+        let span = Span::new(span.start as u32, span.end as u32);
+        (token, span)
+    }
 }
 
 impl<'src> Iterator for Lexer<'src> {
     type Item = (Token, SourceSpan);
 
     fn next(&mut self) -> Option<Self::Item> {
-        let token = match self.inner.next()? {
-            Ok(token) | Err(token) => token,
-        };
-        let span = self.inner.span();
-        let span = Span::new(span.start as u32, span.end as u32);
-        Some((token, span))
+        let (tok, span) = self.next_with_eof();
+        (tok != Token::Eof).then_some((tok, span))
     }
 }
 
@@ -293,8 +383,8 @@ mod tests {
         assert_eq!(lex_all(">"), vec![(Token::GreaterThan, 0..1, ">")]);
         assert_eq!(lex_all("<="), vec![(Token::LessEquals, 0..2, "<=")]);
         assert_eq!(lex_all(">="), vec![(Token::GreaterEquals, 0..2, ">=")]);
-        assert_eq!(lex_all("&&"), vec![(Token::And, 0..2, "&&")]);
-        assert_eq!(lex_all("||"), vec![(Token::Or, 0..2, "||")]);
+        assert_eq!(lex_all("and"), vec![(Token::And, 0..2, "and")]);
+        assert_eq!(lex_all("or"), vec![(Token::Or, 0..2, "or")]);
         assert_eq!(lex_all("!"), vec![(Token::Not, 0..1, "!")]);
         assert_eq!(lex_all("&"), vec![(Token::Ampersand, 0..1, "&")]);
         assert_eq!(lex_all("|"), vec![(Token::Pipe, 0..1, "|")]);
@@ -420,10 +510,9 @@ mod tests {
     #[test]
     fn test_line_comment() {
         let results = lex_all("// this is a comment\nfoo");
-        assert_eq!(results.len(), 3);
-        assert_eq!(results[0], (Token::LineComment, 0..20, "// this is a comment"));
-        assert_eq!(results[1], (Token::Whitespace, 20..21, "\n"));
-        assert_eq!(results[2], (Token::Identifier, 21..24, "foo"));
+        assert_eq!(results.len(), 2);
+        assert_eq!(results[0], (Token::LineComment, 0..21, "// this is a comment\n"));
+        assert_eq!(results[1], (Token::Identifier, 21..24, "foo"));
     }
 
     #[test]
@@ -495,10 +584,9 @@ mod tests {
     #[test]
     fn test_line_comment_utf8() {
         let results = lex_all("// café ☕\nfoo");
-        assert_eq!(results.len(), 3);
-        assert_eq!(results[0], (Token::LineComment, 0..12, "// café ☕"));
-        assert_eq!(results[1], (Token::Whitespace, 12..13, "\n"));
-        assert_eq!(results[2], (Token::Identifier, 13..16, "foo"));
+        assert_eq!(results.len(), 2);
+        assert_eq!(results[0], (Token::LineComment, 0..13, "// café ☕\n"));
+        assert_eq!(results[1], (Token::Identifier, 13..16, "foo"));
     }
 
     #[test]

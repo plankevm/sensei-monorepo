@@ -1,6 +1,7 @@
 pub mod ast;
 pub mod cst;
 pub mod diagnostics;
+pub mod error_report;
 pub mod lexer;
 pub mod parser;
 

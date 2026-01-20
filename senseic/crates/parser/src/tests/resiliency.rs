@@ -11,11 +11,11 @@ fn test_missing_semicolon() {
             }
             "#,
         &["
-                error: missing `;`
-                  --> line 1:10
+                error: unexpected `init`, expected one of `-`, `!`, `~`, decimal literal, hex literal, binary literal, `true`, `false`, `(`, `fn`, `struct`, `if`, `comptime`, identifier
+                  --> line 2:13
                    |
-                  1| const x =
-                   |          ^
+                  2|             init {
+                   |             ^^^^
             "],
     );
 }
@@ -108,6 +108,25 @@ fn test_unexpcted_token_post_const_decl() {
     );
 }
 
+#[test]
+fn test_const_decl_missing_expr() {
+    assert_parser_errors(
+        r#"
+        const x =
+        init { }
+        "#,
+        &[
+            "
+            error: unexpected `init`, expected one of `-`, `!`, `~`, decimal literal, hex literal, binary literal, `true`, `false`, `(`, `fn`, `struct`, `if`, `comptime`, identifier
+              --> line 2:1
+               |
+              2| init { }
+               | ^^^^
+            ",
+        ],
+    );
+}
+
 // ==============================================================================
 // Tests exposing brittle/weak parsing patterns
 // ==============================================================================
@@ -116,25 +135,6 @@ fn test_unexpcted_token_post_const_decl() {
 /// Input: `const x = \n init { }` (missing value before init)
 /// Expected: One error about missing expression, then `init` block parses normally.
 /// Actual: `init` gets consumed as error, causing "unexpected `{`" cascade.
-#[test]
-fn test_recovery_token_consumed_in_expr() {
-    assert_parser_errors(
-        r#"
-        const x =
-        init { }
-        "#,
-        &[
-            // Should ideally be just one error about missing expression
-            "
-            error: missing `;`
-              --> line 1:10
-               |
-              1| const x =
-               |          ^
-            ",
-        ],
-    );
-}
 
 /// Issue: `parse_name_path` leaves dot unconsumed when followed by non-identifier.
 /// Input: `run { foo.123; }`
@@ -155,7 +155,7 @@ fn test_name_path_dot_not_followed_by_ident() {
             "#,
             // Second error: `123` re-parsed as statement, cascading error
             r#"
-                error: unexpected decimal literal, expected one of identifier, `=`, `;`
+                error: unexpected decimal literal, expected one of identifier, `||`, `&&`, `==`, `!=`, `<`, `>`, `<=`, `>=`, `|`, `^`, `&`, `<<`, `>>`, `+`, `-`, `+%`, `-%`, `*`, `/`, `%`, `*%`, `/+`, `/-`, `/<`, `/>`, `=`, `;`
                   --> line 1:11
                    |
                   1| run { foo.123; }
@@ -184,7 +184,7 @@ fn test_field_list_garbage_silent_exit() {
             "#,
             // Cascading: parse_const_decl expects `;` after struct
             r#"
-                error: unexpected decimal literal, expected one of `}`, `;`
+                error: unexpected decimal literal, expected one of `}`, `||`, `&&`, `==`, `!=`, `<`, `>`, `<=`, `>=`, `|`, `^`, `&`, `<<`, `>>`, `+`, `-`, `+%`, `-%`, `*`, `/`, `%`, `*%`, `/+`, `/-`, `/<`, `/>`, `;`
                   --> line 1:28
                    |
                   1| const S = struct { x: u32, 123 y: u32 };
@@ -192,7 +192,7 @@ fn test_field_list_garbage_silent_exit() {
             "#,
             // Cascading: top-level expects init/run/const
             r#"
-                error: unexpected decimal literal, expected one of `}`, `;`, `init`, `run`, `const`
+                error: unexpected decimal literal, expected one of `}`, `||`, `&&`, `==`, `!=`, `<`, `>`, `<=`, `>=`, `|`, `^`, `&`, `<<`, `>>`, `+`, `-`, `+%`, `-%`, `*`, `/`, `%`, `*%`, `/+`, `/-`, `/<`, `/>`, `;`, `init`, `run`, `const`
                   --> line 1:28
                    |
                   1| const S = struct { x: u32, 123 y: u32 };
@@ -248,7 +248,7 @@ fn test_arg_list_empty_after_comma() {
         &[
             // parse_call expects `)` after arg_list breaks
             r#"
-                error: unexpected `,`, expected `)`
+                error: unexpected `,`, expected one of `-`, `!`, `~`, decimal literal, hex literal, binary literal, `true`, `false`, `(`, `fn`, `struct`, `if`, `comptime`, identifier, `)`
                   --> line 1:14
                    |
                   1| run { foo(a, , b); }
@@ -256,7 +256,7 @@ fn test_arg_list_empty_after_comma() {
             "#,
             // `,` re-parsed as statement expression, expects `=` or `;`
             r#"
-                error: unexpected `,`, expected one of `)`, `=`, `;`
+                error: unexpected `,`, expected one of `-`, `!`, `~`, decimal literal, hex literal, binary literal, `true`, `false`, `(`, `fn`, `struct`, `if`, `comptime`, identifier, `)`, `||`, `&&`, `==`, `!=`, `<`, `>`, `<=`, `>=`, `|`, `^`, `&`, `<<`, `>>`, `+`, `+%`, `-%`, `*`, `/`, `%`, `*%`, `/+`, `/-`, `/<`, `/>`, `=`, `;`
                   --> line 1:14
                    |
                   1| run { foo(a, , b); }
@@ -264,7 +264,7 @@ fn test_arg_list_empty_after_comma() {
             "#,
             // `)` seen as unexpected in statement context
             r#"
-                error: unexpected `)`, expected one of `=`, `;`
+                error: unexpected `)`, expected one of `||`, `&&`, `==`, `!=`, `<`, `>`, `<=`, `>=`, `|`, `^`, `&`, `<<`, `>>`, `+`, `-`, `+%`, `-%`, `*`, `/`, `%`, `*%`, `/+`, `/-`, `/<`, `/>`, `=`, `;`
                   --> line 1:17
                    |
                   1| run { foo(a, , b); }
@@ -301,7 +301,7 @@ fn test_param_list_empty_after_comma() {
             "#,
             // Cascading through block recovery
             r#"
-                error: unexpected identifier, expected one of `)`, `->`, `{`, `}`, `;`
+                error: unexpected identifier, expected one of `)`, `->`, `{`, `}`, `||`, `&&`, `==`, `!=`, `<`, `>`, `<=`, `>=`, `|`, `^`, `&`, `<<`, `>>`, `+`, `-`, `+%`, `-%`, `*`, `/`, `%`, `*%`, `/+`, `/-`, `/<`, `/>`, `;`
                   --> line 1:24
                    |
                   1| const f = fn(x: u32, , y: u32) -> u32 { return x; };
@@ -309,7 +309,7 @@ fn test_param_list_empty_after_comma() {
             "#,
             // Bubbles up to top-level
             r#"
-                error: unexpected identifier, expected one of `)`, `->`, `{`, `}`, `;`, `init`, `run`, `const`
+                error: unexpected identifier, expected one of `)`, `->`, `{`, `}`, `||`, `&&`, `==`, `!=`, `<`, `>`, `<=`, `>=`, `|`, `^`, `&`, `<<`, `>>`, `+`, `-`, `+%`, `-%`, `*`, `/`, `%`, `*%`, `/+`, `/-`, `/<`, `/>`, `;`, `init`, `run`, `const`
                   --> line 1:24
                    |
                   1| const f = fn(x: u32, , y: u32) -> u32 { return x; };
@@ -426,7 +426,7 @@ fn test_binary_expr_missing_rhs() {
         &[
             // `;` was eaten by advance_with_error(), now expects `;` at `}`
             r#"
-                error: unexpected `}`, expected `;`
+                error: unexpected `}`, expected one of `||`, `&&`, `==`, `!=`, `<`, `>`, `<=`, `>=`, `|`, `^`, `&`, `<<`, `>>`, `+`, `-`, `+%`, `-%`, `*`, `/`, `%`, `*%`, `/+`, `/-`, `/<`, `/>`, `;`
                   --> line 1:17
                    |
                   1| run { x = 1 + ; }
@@ -447,7 +447,7 @@ fn test_unary_expr_missing_operand() {
         &[
             // `;` was eaten by advance_with_error(), now expects `;` at `}`
             r#"
-                error: unexpected `}`, expected `;`
+                error: unexpected `}`, expected one of `||`, `&&`, `==`, `!=`, `<`, `>`, `<=`, `>=`, `|`, `^`, `&`, `<<`, `>>`, `+`, `-`, `+%`, `-%`, `*`, `/`, `%`, `*%`, `/+`, `/-`, `/<`, `/>`, `;`
                   --> line 1:14
                    |
                   1| run { x = -; }

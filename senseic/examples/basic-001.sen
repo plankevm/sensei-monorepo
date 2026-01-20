@@ -1,22 +1,27 @@
-const MyStruct = struct { x: u256, y: u256 };
+// const MyStruct = struct { x: u256, y: u256 };
+
+const alice bob charlie ;
+
+const wow = 34;
 
 const my_func = fn () -> MyStruct {
 
 };
 
-const IMPORTANT_NUM: u256 = 3;
-
-const ByteBuffer = struct {
-    ptr: byteptr,
-    len: u256,
-};
-
-init {
-    let x = 3;
-    let mut y = 24;
-}
-
-
-run {
-
-}
+//
+// const IMPORTANT_NUM: u256 = 3;
+//
+// const ByteBuffer = struct {
+//     ptr: byteptr,
+//     len: u256,
+// };
+//
+// init {
+//     let x = 3;
+//     let mut y = 24;
+// }
+//
+//
+// run {
+//
+// }

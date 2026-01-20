@@ -10,12 +10,14 @@ pub struct X32<M> {
 #[cold]
 #[inline(never)]
 #[cfg_attr(debug_assertions, track_caller)]
-const fn panic_x32_overflow() -> ! {
+pub const fn panic_x32_overflow() -> ! {
     panic!("Overflowed 32-bits for an X32");
 }
 
 impl<M> X32<M> {
     pub const ZERO: X32<M> = X32::new(0);
+    pub const MAX: X32<M> = X32::new(u32::MAX - 1);
+    pub const MAX_USIZE: usize = Self::MAX.idx();
 
     #[inline]
     pub const fn try_new(value: u32) -> Option<X32<M>> {
@@ -49,20 +51,44 @@ impl<M> X32<M> {
     }
 
     #[inline(always)]
-    pub fn idx(self) -> usize {
+    pub const fn idx(self) -> usize {
         self.get() as usize
     }
 
     /// Gets the underlying index value.
     #[inline(always)]
-    pub fn get(self) -> u32 {
+    pub const fn get(self) -> u32 {
         // Safety: By definition `>= 1`.
         unsafe { self.idx.get().unchecked_sub(1) }
     }
+}
 
-    /// Returns `self + 1`.
-    pub fn next(self) -> Self {
-        Self::new(self.get().wrapping_add(1))
+impl<M> std::ops::Add<u32> for X32<M> {
+    type Output = Self;
+
+    fn add(self, rhs: u32) -> Self::Output {
+        Self::new(self.get() + rhs)
+    }
+}
+
+impl<M> std::ops::Sub<u32> for X32<M> {
+    type Output = Self;
+
+    fn sub(self, rhs: u32) -> Self::Output {
+        Self::new(self.get() - rhs)
+    }
+}
+
+impl<M> TryFrom<usize> for X32<M> {
+    type Error = ();
+
+    fn try_from(value: usize) -> Result<Self, Self::Error> {
+        unsafe {
+            if value > Self::MAX_USIZE {
+                return Err(());
+            }
+            Ok(Self::new_unchecked(value as u32))
+        }
     }
 }
 

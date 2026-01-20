@@ -8,7 +8,7 @@ impl<M> IncIterable for X32<M> {
     #[inline(always)]
     fn get_and_inc(&mut self) -> Self {
         let current = *self;
-        *self = self.next();
+        *self = *self + 1;
         current
     }
 }
@@ -28,12 +28,22 @@ pub struct Span<T> {
 }
 
 impl<T> Span<T> {
-    pub fn new(start: T, end: T) -> Self {
+    pub const fn new(start: T, end: T) -> Self {
         Self { start, end }
     }
 
     pub fn range(self) -> std::ops::Range<T> {
         self.start..self.end
+    }
+}
+
+impl<M> Span<X32<M>> {
+    pub const fn dummy() -> Self {
+        Self { start: X32::MAX, end: X32::ZERO }
+    }
+
+    pub fn is_dummy(self) -> bool {
+        self == Self::dummy()
     }
 }
 
@@ -100,7 +110,7 @@ impl<T: IncIterable> Iterator for IncIterator<T> {
     type Item = T;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.start == self.end {
+        if self.start >= self.end {
             return None;
         }
         Some(self.start.get_and_inc())

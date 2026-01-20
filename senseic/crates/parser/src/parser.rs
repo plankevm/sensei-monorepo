@@ -6,10 +6,23 @@ use crate::{
 };
 use allocator_api2::vec::Vec;
 use bumpalo::Bump;
-use neosen_data::Span;
+use neosen_data::{IndexVec, Span, span::IncIterable};
 
-type TokenItem = (Token, TokenIdx, SourceSpan);
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+struct OpPriority(u8);
 
+impl OpPriority {
+    const ZERO: Self = OpPriority(0);
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ParseExprMode {
+    AllowAll,
+    CondExpr,
+    TypeExpr,
+}
+
+const DECL_RECOVERY: &[Token] = &[Token::Init, Token::Run, Token::Const];
 // Recovery sets - tokens that signal "stop skipping, parent can handle this"
 const BLOCK_RECOVERY: &[Token] = &[Token::RightCurly, Token::Init, Token::Run, Token::Const];
 const EXPR_RECOVERY: &[Token] =
@@ -19,114 +32,119 @@ const PARAM_RECOVERY: &[Token] = &[Token::RightRound, Token::ThinArrow, Token::L
 // Ensure fields are private letting us more easily enforce the invariant that the iterator either
 // consumes fuel or advances.
 mod token_item_iter {
-    use super::TokenItem;
-    use std::iter::Peekable;
+    use crate::lexer::{Lexer, SourceSpan, Token};
 
-    pub(super) struct TokenItems<TokenIter: Iterator<Item = TokenItem>> {
-        tokens: Peekable<TokenIter>,
+    pub(super) struct TokenItems<'src> {
+        lexer: Lexer<'src>,
+        peeked: Option<(Token, SourceSpan)>,
         fuel: u32,
     }
 
-    impl<TokenIter: Iterator<Item = TokenItem>> TokenItems<TokenIter> {
+    impl<'src> TokenItems<'src> {
         const DEFAULT_FUEL: u32 = 256;
 
-        pub(crate) fn new(tokens: TokenIter) -> TokenItems<TokenIter> {
-            TokenItems { tokens: tokens.peekable(), fuel: Self::DEFAULT_FUEL }
+        pub(crate) fn new(lexer: Lexer<'src>) -> Self {
+            TokenItems { lexer, peeked: None, fuel: Self::DEFAULT_FUEL }
         }
 
-        pub(crate) fn peek(&mut self) -> Option<TokenItem> {
-            self.fuel -= 1;
-            assert!(self.fuel > 0, "out of fuel");
-            self.tokens.peek().copied()
+        fn next_fuel_unchanged(&mut self) -> (Token, SourceSpan) {
+            self.peeked.take().unwrap_or_else(|| {
+                let (tok, span) = self.lexer.next_with_eof();
+                (tok, span)
+            })
         }
 
-        pub(super) fn next(&mut self) -> Option<TokenItem> {
+        pub(crate) fn peek(&mut self) -> (Token, SourceSpan) {
+            self.fuel = self.fuel.checked_sub(1).expect("out of fuel");
+            let next = self.next_fuel_unchanged();
+            self.peeked = Some(next);
+            next
+        }
+
+        pub(super) fn next(&mut self) -> (Token, SourceSpan) {
             self.fuel = Self::DEFAULT_FUEL;
-            self.tokens.next()
+            self.peeked.take().unwrap_or_else(|| self.next_fuel_unchanged())
         }
     }
 }
 
-struct Parser<'ast, 'd, TokenIter: Iterator<Item = TokenItem>, D: DiagnosticsContext> {
-    nodes: Vec<cst::Node, &'ast Bump>,
+struct Parser<'ast, 'd, 'src, D: DiagnosticsContext> {
+    nodes: IndexVec<NodeIndex, cst::Node, &'ast Bump>,
     expected: Vec<Token, &'ast Bump>,
-    tokens: TokenItems<TokenIter>,
+    tokens: TokenItems<'src>,
     diagnostics: &'d mut D,
-    last_token_idx: TokenIdx,
+    current_token_idx: TokenIdx,
     last_src_span: SourceSpan,
+    last_unexpected: Option<TokenIdx>,
 }
 
-impl<'ast, 'd, TokenIter, D> Parser<'ast, 'd, TokenIter, D>
+impl<'ast, 'd, 'src, D> Parser<'ast, 'd, 'src, D>
 where
     D: DiagnosticsContext,
-    TokenIter: Iterator<Item = TokenItem>,
 {
+    const UNARY_PRIORITY: OpPriority = OpPriority(19);
+
     fn new(
         arena: &'ast Bump,
-        tokens: TokenIter,
+        lexer: Lexer<'src>,
         estimated_node_count: usize,
         diagnostics: &'d mut D,
     ) -> Self {
         Parser {
-            tokens: TokenItems::new(tokens),
-            nodes: Vec::with_capacity_in(estimated_node_count, arena),
+            tokens: TokenItems::new(lexer),
+            nodes: IndexVec::with_capacity_in(estimated_node_count, arena),
             expected: Vec::with_capacity_in(8, arena),
             diagnostics,
-            last_token_idx: TokenIdx::ZERO,
+            current_token_idx: TokenIdx::ZERO,
             last_src_span: Span::new(0, 0),
+            last_unexpected: None,
         }
     }
 
-    fn alloc_node(&mut self, kind: NodeKind) -> NodeIdx {
-        let id = NodeIdx::new(self.nodes.len() as u32);
-        self.nodes.push(Node {
-            kind,
-            tokens: Span::new(TokenIdx::ZERO, TokenIdx::ZERO),
-            next_sibling: None,
-            first_child: None,
-        });
-        id
+    fn assert_complete(&mut self) {
+        assert!(self.eof());
+        for (i, node) in self.nodes.enumerate_idx() {
+            assert!(!node.tokens.is_dummy(), "node #{} has dummy token span", i.get());
+        }
     }
 
-    fn current(&mut self) -> Option<TokenItem> {
-        self.tokens.peek()
-    }
-
-    fn current_token(&mut self) -> Option<Token> {
-        self.current().map(|(t, _, _)| t)
-    }
-
-    fn current_token_idx(&mut self) -> TokenIdx {
-        self.current().map_or(self.last_token_idx, |(_, idx, _)| idx)
+    fn current_token(&mut self) -> Token {
+        self.tokens.peek().0
     }
 
     fn current_src_span(&mut self) -> SourceSpan {
-        self.current().map_or(self.last_src_span, |(_, _, span)| span)
+        self.tokens.peek().1
     }
 
-    fn advance(&mut self) -> TokenItem {
+    fn advance(&mut self) {
         self.expected.clear();
-        let item = self.tokens.next().expect("advancing past EOF");
 
-        let (token, ti, src_span) = item;
-        self.last_token_idx = ti;
+        let (token, src_span) = self.tokens.next();
+        let ti = self.current_token_idx.get_and_inc();
         self.last_src_span = src_span;
-        if token.is_error() {
+        if token.is_lex_error() {
             self.diagnostics.emit_lexer_error(token, ti, src_span);
         }
-
-        item
     }
 
     fn at(&mut self, token: Token) -> bool {
-        self.current().is_some_and(|(next_token, _, _)| next_token == token)
+        self.current_token() == token
     }
 
     fn at_any(&mut self, tokens: &[Token]) -> bool {
-        self.current().is_some_and(|(next_token, _, _)| tokens.contains(&next_token))
+        tokens.contains(&self.current_token())
+    }
+
+    fn skip_trivia(&mut self) {
+        while let token = self.current_token()
+            && (token.is_trivia() || token.is_lex_error())
+        {
+            self.advance();
+        }
     }
 
     fn check(&mut self, token: Token) -> bool {
+        self.skip_trivia();
         if self.at(token) {
             return true;
         }
@@ -145,1004 +163,242 @@ where
     }
 
     fn emit_unexpected(&mut self) {
+        if self.last_unexpected.is_some_and(|ti| ti == self.current_token_idx) {
+            return;
+        }
         let found = self.current_token();
         let span = self.current_src_span();
+        self.last_unexpected = Some(self.current_token_idx);
         self.diagnostics.emit_unexpected_token(found, &self.expected, span);
+        self.expected.clear();
     }
 
     fn eof(&mut self) -> bool {
-        self.current().is_none()
+        self.skip_trivia();
+        self.at(Token::Eof)
     }
 
     fn expect(&mut self, token: Token) -> bool {
-        if self.eat(token) {
-            return true;
-        }
-        self.emit_unexpected();
-        false
-    }
-
-    fn expect_ident(&mut self) -> Option<NodeIdx> {
-        if self.check(Token::Identifier) {
-            self.parse_ident()
-        } else {
+        let eaten = self.eat(token);
+        if !eaten {
             self.emit_unexpected();
-            None
         }
+        eaten
     }
 
-    fn skip_until(&mut self, stop: &[Token]) {
-        while let Some((tok, _, _)) = self.current() {
-            if stop.contains(&tok) || tok.is_trivia() {
-                break;
-            }
-            self.advance();
-        }
+    fn alloc_node(&mut self, kind: NodeKind) -> NodeIdx {
+        self.nodes.push(Node { kind, tokens: Span::dummy(), next_sibling: None, first_child: None })
     }
 
-    fn advance_with_error(&mut self) -> NodeIdx {
-        let err = self.alloc_node(NodeKind::Error);
-        let start = self.current_token_idx();
-        self.advance();
-        self.finalize_node(err, start);
-        err
+    fn finalize_node(&mut self, node: NodeIdx, start: TokenIdx) -> NodeIdx {
+        let end = self.current_token_idx;
+        self.nodes[node].tokens = Span::new(start, end);
+        node
     }
 
-    fn parse_expr_or_error(&mut self, recovery: &[Token]) -> NodeIdx {
-        if let Some(expr) = self.parse_expr() {
-            return expr;
-        }
-        if self.at_any(recovery) {
-            let err = self.alloc_node(NodeKind::Error);
-            let start = self.current_token_idx();
-            self.finalize_node(err, start);
-            return err;
-        }
-        self.advance_with_error()
+    fn update_kind(&mut self, node: NodeIdx, kind: NodeKind) {
+        self.nodes[node].kind = kind;
     }
 
-    fn skip_trivia(&mut self) {
-        while let Some(token) = self.current_token()
-            && (token.is_trivia() || token.is_error())
-        {
-            self.advance();
-        }
+    fn set_first_child(&mut self, parent: NodeIdx, child: NodeIdx) -> NodeIdx {
+        debug_assert!(self.nodes[parent].first_child.is_none(), "ovewriting child");
+        self.nodes[parent].first_child = Some(child);
+        child
     }
 
-    fn finalize_node(&mut self, node: NodeIdx, start: TokenIdx) {
-        let end = TokenIdx::new(self.last_token_idx.get() + 1);
-        self.nodes[node.idx()].tokens = Span::new(start, end);
+    fn push_sibling(&mut self, last: &mut NodeIdx, child: NodeIdx) {
+        debug_assert!(self.nodes[*last].next_sibling.is_none(), "overwriting sibling");
+        self.nodes[*last].next_sibling = Some(child);
+        *last = child;
     }
 
     fn link_child(&mut self, parent: NodeIdx, child: NodeIdx, last: &mut Option<NodeIdx>) {
         if let Some(prev) = last.replace(child) {
-            self.nodes[prev.idx()].next_sibling = Some(child);
+            self.nodes[prev].next_sibling = Some(child);
         } else {
-            self.nodes[parent.idx()].first_child = Some(child);
+            self.nodes[parent].first_child = Some(child);
         }
     }
 
-    // ======================== ATOM PARSING ========================
-
-    fn parse_literal(&mut self) -> Option<NodeIdx> {
-        let tok = self.current_token()?;
-        if !matches!(
-            tok,
-            Token::DecimalLiteral
-                | Token::HexLiteral
-                | Token::BinLiteral
-                | Token::True
-                | Token::False
-        ) {
-            return None;
-        }
-        let node = self.alloc_node(NodeKind::Literal);
-        let start = self.current_token_idx();
-        self.advance();
-        self.finalize_node(node, start);
-        Some(node)
-    }
-
-    fn parse_ident(&mut self) -> Option<NodeIdx> {
-        if !self.at(Token::Identifier) {
-            return None;
-        }
-        let node = self.alloc_node(NodeKind::Ident);
-        let start = self.current_token_idx();
-        self.advance();
-        self.finalize_node(node, start);
-        Some(node)
-    }
-
-    fn parse_name_path(&mut self) -> Option<NodeIdx> {
-        if !self.at(Token::Identifier) {
-            return None;
-        }
-        let node = self.alloc_node(NodeKind::NamePath);
-        let start = self.current_token_idx();
-        let mut last: Option<NodeIdx> = None;
-
-        let first_ident = self.parse_ident()?;
-        self.link_child(node, first_ident, &mut last);
-
-        while self.at(Token::Dot) {
-            self.skip_trivia();
-            if !self.at(Token::Identifier) {
-                break;
-            }
-            self.advance(); // consume dot
-            self.skip_trivia();
-            if let Some(ident) = self.parse_ident() {
-                self.link_child(node, ident, &mut last);
-            } else {
-                break;
-            }
-        }
-
-        self.finalize_node(node, start);
-        Some(node)
+    fn alloc_single_token_node(&mut self, kind: NodeKind) -> NodeIdx {
+        let node = self.alloc_node(kind);
+        self.finalize_node(node, self.current_token_idx - 1);
+        node
     }
 
     // ======================== EXPRESSION PARSING (PRATT) ========================
 
-    fn binding_power(token: Token) -> Option<(u8, u8)> {
-        Some(match token {
-            Token::Or => (1, 2),
-            Token::And => (3, 4),
-            Token::DoubleEquals
-            | Token::NotEquals
-            | Token::LessThan
-            | Token::GreaterThan
-            | Token::LessEquals
-            | Token::GreaterEquals => (5, 6),
-            Token::Pipe => (7, 8),
-            Token::Caret => (9, 10),
-            Token::Ampersand => (11, 12),
-            Token::ShiftLeft | Token::ShiftRight => (13, 14),
-            Token::Plus | Token::Minus | Token::PlusPercent | Token::MinusPercent => (15, 16),
-            Token::Star
-            | Token::Slash
-            | Token::Percent
-            | Token::StarPercent
-            | Token::SlashPlus
-            | Token::SlashNeg
-            | Token::SlashLess
-            | Token::SlashGreater => (17, 18),
-            _ => return None,
-        })
-    }
-
-    fn is_binary_op(&mut self) -> Option<(u8, u8)> {
-        Self::binding_power(self.current_token()?)
-    }
-
-    fn unary_binding_power(token: Token) -> Option<u8> {
-        match token {
-            Token::Minus | Token::Not | Token::Tilde => Some(19),
-            _ => None,
-        }
-    }
-
-    fn is_unary_op(&mut self) -> Option<u8> {
-        Self::unary_binding_power(self.current_token()?)
-    }
-
-    fn parse_expr(&mut self) -> Option<NodeIdx> {
-        self.skip_trivia();
-        self.parse_expr_bp(0)
-    }
-
-    fn parse_expr_bp(&mut self, min_bp: u8) -> Option<NodeIdx> {
-        let mut lhs = self.parse_expr_prefix()?;
-
-        loop {
-            self.skip_trivia();
-
-            if let Some((l_bp, r_bp)) = self.is_binary_op() {
-                if l_bp < min_bp {
-                    break;
-                }
-
-                let bin_node = self.alloc_node(NodeKind::BinaryExpr);
-                let start = self.nodes[lhs.idx()].tokens.start;
-
-                self.advance(); // consume operator
-                self.skip_trivia();
-
-                let rhs = self.parse_expr_bp(r_bp).unwrap_or_else(|| self.advance_with_error());
-
-                let mut last = None;
-                self.link_child(bin_node, lhs, &mut last);
-                self.link_child(bin_node, rhs, &mut last);
-                self.finalize_node(bin_node, start);
-
-                lhs = bin_node;
-            } else {
-                break;
-            }
+    fn check_binary_op(&mut self) -> Option<(OpPriority, OpPriority, BinaryKind)> {
+        macro_rules! check_binary_op {
+            ($($kind:ident => ($left:literal, $right:literal)),* $(,)?) => {
+                $(
+                    if self.check(Token::$kind) {
+                        return Some((OpPriority($left), OpPriority($right), BinaryKind::$kind));
+                    }
+                )*
+            };
         }
 
-        Some(lhs)
-    }
-
-    fn parse_expr_prefix(&mut self) -> Option<NodeIdx> {
-        self.skip_trivia();
-
-        if let Some(r_bp) = self.is_unary_op() {
-            let node = self.alloc_node(NodeKind::UnaryExpr);
-            let start = self.current_token_idx();
-            self.advance(); // consume operator
-            self.skip_trivia();
-
-            let operand = self.parse_expr_bp(r_bp).unwrap_or_else(|| self.advance_with_error());
-
-            let mut last = None;
-            self.link_child(node, operand, &mut last);
-            self.finalize_node(node, start);
-            return Some(node);
-        }
-
-        self.parse_expr_primary()
-    }
-
-    fn parse_expr_primary(&mut self) -> Option<NodeIdx> {
-        let mut expr = self.parse_expr_atom()?;
-
-        loop {
-            self.skip_trivia();
-            if self.at(Token::LeftRound) {
-                expr = self.parse_call(expr);
-            } else if self.at(Token::Dot) {
-                expr = self.parse_member(expr);
-            } else {
-                break;
-            }
-        }
-
-        Some(expr)
-    }
-
-    fn parse_expr_atom(&mut self) -> Option<NodeIdx> {
-        self.skip_trivia();
-
-        // Literals
-        if let Some(lit) = self.parse_literal() {
-            return Some(lit);
-        }
-
-        // Parenthesized expression
-        if self.at(Token::LeftRound) {
-            return Some(self.parse_paren_expr());
-        }
-
-        // Function definition
-        if self.at(Token::Fn) {
-            return Some(self.parse_fn_def());
-        }
-
-        // Struct definition
-        if self.at(Token::Struct) {
-            return Some(self.parse_struct_def());
-        }
-
-        // Conditional expression
-        if self.at(Token::If) {
-            return self.parse_cond_expr();
-        }
-
-        // Comptime expression
-        if self.at(Token::Comptime) {
-            return Some(self.parse_comptime_expr());
-        }
-
-        // Identifier or struct literal (name_path followed by optional `{`)
-        if self.at(Token::Identifier) {
-            let name = self.parse_name_path()?;
-            self.skip_trivia();
-
-            // Check for struct literal
-            if self.at(Token::LeftCurly) {
-                return Some(self.parse_struct_lit(name));
-            }
-
-            return Some(name);
+        check_binary_op! {
+            Or => (1, 2),
+            And => (3, 4),
+            DoubleEquals => (5, 6),
+            NotEquals => (5, 6),
+            LessThan => (5, 6),
+            GreaterThan => (5, 6),
+            LessEquals => (5, 6),
+            GreaterEquals => (5, 6),
+            Pipe => (7, 8),
+            Caret => (9, 10),
+            Ampersand => (11, 12),
+            ShiftLeft => (13, 14),
+            ShiftRight => (13, 14),
+            Plus => (15, 16),
+            Minus => (15, 16),
+            PlusPercent => (15, 16),
+            MinusPercent => (15, 16),
+            Star => (17, 18),
+            Slash => (17, 18),
+            Percent => (17, 18),
+            StarPercent => (17, 18),
+            SlashPlus => (17, 18),
+            SlashNeg => (17, 18),
+            SlashLess => (17, 18),
+            SlashGreater => (17, 18),
         }
 
         None
     }
 
-    fn parse_paren_expr(&mut self) -> NodeIdx {
-        let node = self.alloc_node(NodeKind::ParenExpr);
-        let start = self.current_token_idx();
-        self.advance(); // consume '('
-        self.skip_trivia();
-
-        let inner = self.parse_expr().unwrap_or_else(|| self.advance_with_error());
-
-        let mut last = None;
-        self.link_child(node, inner, &mut last);
-
-        self.skip_trivia();
-        self.expect(Token::RightRound);
-        self.finalize_node(node, start);
-        node
+    fn check_unary(&mut self) -> Option<UnaryKind> {
+        if self.eat(Token::Minus) {
+            return Some(UnaryKind::Minus);
+        }
+        if self.eat(Token::Not) {
+            return Some(UnaryKind::Not);
+        }
+        if self.eat(Token::Tilde) {
+            return Some(UnaryKind::Tilde);
+        }
+        None
     }
 
-    fn parse_comptime_expr(&mut self) -> NodeIdx {
-        let node = self.alloc_node(NodeKind::ComptimeExpr);
-        let start = self.current_token_idx();
-        self.advance(); // consume 'comptime'
-        self.skip_trivia();
+    // ========================== EXPRESSION PARSING ==========================
 
-        let inner = self.parse_expr().unwrap_or_else(|| self.advance_with_error());
-
-        let mut last = None;
-        self.link_child(node, inner, &mut last);
-        self.finalize_node(node, start);
-        node
-    }
-
-    // ======================== POSTFIX OPERATIONS ========================
-
-    fn parse_call(&mut self, callee: NodeIdx) -> NodeIdx {
-        let node = self.alloc_node(NodeKind::CallExpr);
-        let start = self.nodes[callee.idx()].tokens.start;
-        self.advance(); // consume '('
-
-        let mut last = None;
-        self.link_child(node, callee, &mut last);
-
-        let args = self.parse_arg_list();
-        self.link_child(node, args, &mut last);
-
-        self.skip_trivia();
-        self.expect(Token::RightRound);
-        self.finalize_node(node, start);
-        node
-    }
-
-    fn parse_arg_list(&mut self) -> NodeIdx {
-        let node = self.alloc_node(NodeKind::ArgList);
-        let start = self.current_token_idx();
-        let mut last = None;
-
-        self.skip_trivia();
-        if !self.at(Token::RightRound)
-            && let Some(first) = self.parse_expr()
+    fn parse_atom(&mut self) -> NodeIdx {
+        let start = self.current_token_idx;
+        let expr = if self.eat(Token::DecimalLiteral)
+            || self.eat(Token::BinLiteral)
+            || self.eat(Token::HexLiteral)
+            || self.eat(Token::True)
+            || self.eat(Token::False)
         {
-            self.link_child(node, first, &mut last);
-
-            loop {
-                self.skip_trivia();
-                if !self.eat(Token::Comma) {
-                    break;
-                }
-                self.skip_trivia();
-                if self.at(Token::RightRound) {
-                    break;
-                }
-                if let Some(arg) = self.parse_expr() {
-                    self.link_child(node, arg, &mut last);
-                } else {
-                    self.skip_until(EXPR_RECOVERY);
-                    break;
-                }
-            }
-        }
-
-        self.finalize_node(node, start);
-        node
+            self.alloc_single_token_node(NodeKind::LiteralExpr)
+        } else if self.eat(Token::Identifier) {
+            self.alloc_single_token_node(NodeKind::Identifier)
+        } else if self.eat(Token::LeftRound) {
+            // TODO: Track recursion to emit nice error instead of stack overflow.
+            let paren_expr = self.alloc_node(NodeKind::ParenExpr);
+            let inner_expr = self.parse_expr(ParseExprMode::AllowAll);
+            self.set_first_child(paren_expr, inner_expr);
+            self.expect(Token::RightRound);
+            self.finalize_node(paren_expr, start)
+        } else {
+            // return None;
+            let err = self.alloc_node(NodeKind::Error);
+            self.finalize_node(err, self.current_token_idx)
+        };
+        expr
     }
 
-    fn parse_member(&mut self, base: NodeIdx) -> NodeIdx {
-        let node = self.alloc_node(NodeKind::MemberExpr);
-        let start = self.nodes[base.idx()].tokens.start;
-        assert!(self.eat(Token::Dot), "invoked without '.'");
-
-        let mut last = None;
-        self.link_child(node, base, &mut last);
-
-        self.skip_trivia();
-        if let Some(ident) = self.expect_ident() {
-            self.link_child(node, ident, &mut last);
+    fn parse_expr(&mut self, mode: ParseExprMode) -> NodeIdx {
+        let start = self.current_token_idx;
+        let mut lhs = self.parse_atom();
+        while self.eat(Token::Dot) {
+            let member = self.alloc_node(NodeKind::MemberExpr);
+            let mut last = self.set_first_child(member, lhs);
+            let access_name = if self.expect(Token::Identifier) {
+                self.alloc_single_token_node(NodeKind::Identifier)
+            } else {
+                let error = self.alloc_node(NodeKind::Error);
+                self.finalize_node(error, self.current_token_idx)
+            };
+            self.push_sibling(&mut last, access_name);
+            lhs = self.finalize_node(member, start);
         }
-
-        self.finalize_node(node, start);
-        node
+        lhs
     }
 
-    // ======================== FUNCTION DEFINITION ========================
+    // ========================== STATEMENT PARSING ==========================
 
-    fn parse_fn_def(&mut self) -> NodeIdx {
-        let node = self.alloc_node(NodeKind::FnDef);
-        let start = self.current_token_idx();
-        self.advance(); // consume 'fn'
-        self.skip_trivia();
-
-        let mut last = None;
-
-        self.expect(Token::LeftRound);
-        let params = self.parse_param_list();
-        self.link_child(node, params, &mut last);
-        self.skip_trivia();
-        self.expect(Token::RightRound);
-
-        // Optional return type
-        self.skip_trivia();
-        if self.eat(Token::ThinArrow) {
-            self.skip_trivia();
-            let ret_type = self.parse_expr().unwrap_or_else(|| self.advance_with_error());
-            self.link_child(node, ret_type, &mut last);
-        }
-
-        // Body block
-        self.skip_trivia();
-        let body = self.parse_block();
-        self.link_child(node, body, &mut last);
-
-        self.finalize_node(node, start);
-        node
-    }
-
-    fn parse_param_list(&mut self) -> NodeIdx {
-        let node = self.alloc_node(NodeKind::ParamList);
-        let start = self.current_token_idx();
-        let mut last = None;
-
-        self.skip_trivia();
-        if !self.at(Token::RightRound)
-            && let Some(first) = self.parse_param_def()
-        {
-            self.link_child(node, first, &mut last);
-
-            loop {
-                self.skip_trivia();
-                if !self.eat(Token::Comma) {
-                    break;
-                }
-                self.skip_trivia();
-                if self.at(Token::RightRound) {
-                    break;
-                }
-                if let Some(param) = self.parse_param_def() {
-                    self.link_child(node, param, &mut last);
-                } else {
-                    self.skip_until(PARAM_RECOVERY);
-                    break;
-                }
-            }
-        }
-
-        self.finalize_node(node, start);
-        node
-    }
-
-    fn parse_param_def(&mut self) -> Option<NodeIdx> {
-        if !self.at(Token::Identifier) {
-            return None;
-        }
-        let node = self.alloc_node(NodeKind::ParamDef);
-        let start = self.current_token_idx();
-        let mut last = None;
-
-        let name = self.parse_ident()?;
-        self.link_child(node, name, &mut last);
-
-        self.skip_trivia();
-        self.expect(Token::Colon);
-        self.skip_trivia();
-
-        let type_expr = self.parse_expr().unwrap_or_else(|| self.advance_with_error());
-        self.link_child(node, type_expr, &mut last);
-
-        self.finalize_node(node, start);
-        Some(node)
-    }
-
-    // ======================== STRUCT DEFINITION ========================
-
-    fn parse_struct_def(&mut self) -> NodeIdx {
-        let node = self.alloc_node(NodeKind::StructDef);
-        let start = self.current_token_idx();
-        self.advance(); // consume 'struct'
-        self.skip_trivia();
-
-        let mut last = None;
+    fn parse_block(&mut self, start: TokenIdx, block_kind: NodeKind) -> NodeIdx {
+        let block = self.alloc_node(block_kind);
 
         self.expect(Token::LeftCurly);
-        let fields = self.parse_field_list();
-        self.link_child(node, fields, &mut last);
-        self.skip_trivia();
         self.expect(Token::RightCurly);
 
-        self.finalize_node(node, start);
-        node
-    }
-
-    fn parse_struct_lit(&mut self, name: NodeIdx) -> NodeIdx {
-        let node = self.alloc_node(NodeKind::StructLit);
-        let start = self.nodes[name.idx()].tokens.start;
-        self.advance(); // consume '{'
-
-        let mut last = None;
-        self.link_child(node, name, &mut last);
-
-        let fields = self.parse_field_list();
-        self.link_child(node, fields, &mut last);
-
-        self.skip_trivia();
-        self.expect(Token::RightCurly);
-
-        self.finalize_node(node, start);
-        node
-    }
-
-    fn parse_field_list(&mut self) -> NodeIdx {
-        let node = self.alloc_node(NodeKind::FieldList);
-        let start = self.current_token_idx();
-        let mut last = None;
-
-        self.skip_trivia();
-        while !self.at(Token::RightCurly) && !self.eof() {
-            if let Some(field) = self.parse_field_def() {
-                self.link_child(node, field, &mut last);
-                self.skip_trivia();
-                if !self.eat(Token::Comma) {
-                    break;
-                }
-                self.skip_trivia();
-            } else {
-                break;
-            }
-        }
-
-        self.finalize_node(node, start);
-        node
-    }
-
-    fn parse_field_def(&mut self) -> Option<NodeIdx> {
-        if !self.at(Token::Identifier) {
-            return None;
-        }
-        let node = self.alloc_node(NodeKind::FieldDef);
-        let start = self.current_token_idx();
-        let mut last = None;
-
-        let name = self.parse_ident()?;
-        self.link_child(node, name, &mut last);
-
-        self.skip_trivia();
-        self.expect(Token::Colon);
-        self.skip_trivia();
-
-        let type_expr = self.parse_expr().unwrap_or_else(|| self.advance_with_error());
-        self.link_child(node, type_expr, &mut last);
-
-        self.finalize_node(node, start);
-        Some(node)
-    }
-
-    // ======================== CONDITIONAL EXPRESSIONS ========================
-
-    fn parse_cond_expr(&mut self) -> Option<NodeIdx> {
-        let node = self.alloc_node(NodeKind::CondExpr);
-        let start = self.current_token_idx();
-        self.advance(); // consume 'if'
-        self.skip_trivia();
-
-        let mut last = None;
-
-        self.expect(Token::LeftRound);
-        self.skip_trivia();
-        let cond = self.parse_expr().unwrap_or_else(|| self.advance_with_error());
-        self.link_child(node, cond, &mut last);
-        self.skip_trivia();
-        self.expect(Token::RightRound);
-
-        self.skip_trivia();
-        let then_block = self.parse_block();
-        self.link_child(node, then_block, &mut last);
-
-        // Parse else branches
-        loop {
-            self.skip_trivia();
-            if !self.eat(Token::Else) {
-                break;
-            }
-
-            let else_node = self.alloc_node(NodeKind::ElseBranch);
-            let else_start = self.last_token_idx;
-
-            self.skip_trivia();
-            if self.eat(Token::If) {
-                // else if
-                self.skip_trivia();
-                self.expect(Token::LeftRound);
-                self.skip_trivia();
-                let else_cond = self.parse_expr().unwrap_or_else(|| self.advance_with_error());
-                let mut else_last = None;
-                self.link_child(else_node, else_cond, &mut else_last);
-                self.skip_trivia();
-                self.expect(Token::RightRound);
-
-                self.skip_trivia();
-                let else_block = self.parse_block();
-                self.link_child(else_node, else_block, &mut else_last);
-                self.finalize_node(else_node, else_start);
-                self.link_child(node, else_node, &mut last);
-            } else {
-                // final else
-                let else_block = self.parse_block();
-                let mut else_last = None;
-                self.link_child(else_node, else_block, &mut else_last);
-                self.finalize_node(else_node, else_start);
-                self.link_child(node, else_node, &mut last);
-                break;
-            }
-        }
-
-        self.finalize_node(node, start);
-        Some(node)
-    }
-
-    // ======================== STATEMENTS ========================
-
-    fn parse_stmt(&mut self) -> Option<NodeIdx> {
-        self.skip_trivia();
-
-        if self.at(Token::Let) {
-            return Some(self.parse_let_stmt());
-        }
-        if self.at(Token::Return) {
-            return Some(self.parse_return_stmt());
-        }
-        if self.at(Token::While) || self.at(Token::Inline) {
-            return Some(self.parse_while_stmt());
-        }
-        if self.at(Token::If) {
-            return Some(self.parse_cond_stmt());
-        }
-        if self.at(Token::LeftCurly) {
-            return Some(self.parse_block());
-        }
-
-        // Expression statement or assignment
-        self.parse_assign_or_expr_stmt()
-    }
-
-    fn parse_let_stmt(&mut self) -> NodeIdx {
-        let node = self.alloc_node(NodeKind::LetStmt);
-        let start = self.current_token_idx();
-        self.advance(); // consume 'let'
-        self.skip_trivia();
-
-        let mut last = None;
-
-        // Optional mut
-        self.eat(Token::Mut);
-        self.skip_trivia();
-
-        // Name
-        if let Some(name) = self.expect_ident() {
-            self.link_child(node, name, &mut last);
-        }
-
-        // Optional type annotation
-        self.skip_trivia();
-        if self.eat(Token::Colon) {
-            self.skip_trivia();
-            let type_expr = self.parse_expr_or_error(BLOCK_RECOVERY);
-            self.link_child(node, type_expr, &mut last);
-        }
-
-        // = value
-        self.skip_trivia();
-        if !self.eat(Token::Equals) {
-            self.emit_unexpected();
-            if self.at_any(BLOCK_RECOVERY) {
-                self.finalize_node(node, start);
-                return node;
-            }
-        }
-        let after_eq_span = self.current_src_span();
-        self.skip_trivia();
-        if self.at_any(BLOCK_RECOVERY) {
-            self.diagnostics.emit_missing_token(Token::Semicolon, after_eq_span);
-            self.finalize_node(node, start);
-            return node;
-        }
-        let value = self.parse_expr_or_error(BLOCK_RECOVERY);
-        self.link_child(node, value, &mut last);
-
-        self.skip_trivia();
-        self.expect(Token::Semicolon);
-
-        self.finalize_node(node, start);
-        node
-    }
-
-    fn parse_return_stmt(&mut self) -> NodeIdx {
-        let node = self.alloc_node(NodeKind::ReturnStmt);
-        let start = self.current_token_idx();
-        self.advance(); // consume 'return'
-        self.skip_trivia();
-
-        let mut last = None;
-
-        let value = self.parse_expr_or_error(BLOCK_RECOVERY);
-        self.link_child(node, value, &mut last);
-
-        self.skip_trivia();
-        self.expect(Token::Semicolon);
-
-        self.finalize_node(node, start);
-        node
-    }
-
-    fn parse_while_stmt(&mut self) -> NodeIdx {
-        let node = self.alloc_node(NodeKind::WhileStmt);
-        let start = self.current_token_idx();
-
-        // Optional inline
-        self.eat(Token::Inline);
-        self.skip_trivia();
-
-        self.expect(Token::While);
-        self.skip_trivia();
-
-        let mut last = None;
-
-        self.expect(Token::LeftRound);
-        self.skip_trivia();
-        let cond = self.parse_expr().unwrap_or_else(|| self.advance_with_error());
-        self.link_child(node, cond, &mut last);
-        self.skip_trivia();
-        self.expect(Token::RightRound);
-
-        self.skip_trivia();
-        let body = self.parse_block();
-        self.link_child(node, body, &mut last);
-
-        self.finalize_node(node, start);
-        node
-    }
-
-    fn parse_cond_stmt(&mut self) -> NodeIdx {
-        let node = self.alloc_node(NodeKind::CondStmt);
-        let start = self.current_token_idx();
-        self.advance(); // consume 'if'
-        self.skip_trivia();
-
-        let mut last = None;
-
-        self.expect(Token::LeftRound);
-        self.skip_trivia();
-        let cond = self.parse_expr().unwrap_or_else(|| self.advance_with_error());
-        self.link_child(node, cond, &mut last);
-        self.skip_trivia();
-        self.expect(Token::RightRound);
-
-        self.skip_trivia();
-        let then_block = self.parse_block();
-        self.link_child(node, then_block, &mut last);
-
-        // Parse else if branches (but not final else in statement form)
-        loop {
-            self.skip_trivia();
-            if !self.at(Token::Else) {
-                break;
-            }
-
-            // Peek ahead to see if this is else-if or final else
-            self.advance(); // consume 'else'
-            self.skip_trivia();
-
-            if self.at(Token::If) {
-                let else_node = self.alloc_node(NodeKind::ElseBranch);
-                let else_start = self.last_token_idx;
-                self.advance(); // consume 'if'
-
-                self.skip_trivia();
-                self.expect(Token::LeftRound);
-                self.skip_trivia();
-                let else_cond = self.parse_expr().unwrap_or_else(|| self.advance_with_error());
-                let mut else_last = None;
-                self.link_child(else_node, else_cond, &mut else_last);
-                self.skip_trivia();
-                self.expect(Token::RightRound);
-
-                self.skip_trivia();
-                let else_block = self.parse_block();
-                self.link_child(else_node, else_block, &mut else_last);
-                self.finalize_node(else_node, else_start);
-                self.link_child(node, else_node, &mut last);
-            } else {
-                // Final else - this means it's actually a cond_expr being used as statement
-                // For simplicity, handle it here
-                let else_node = self.alloc_node(NodeKind::ElseBranch);
-                let else_start = self.last_token_idx;
-                let else_block = self.parse_block();
-                let mut else_last = None;
-                self.link_child(else_node, else_block, &mut else_last);
-                self.finalize_node(else_node, else_start);
-                self.link_child(node, else_node, &mut last);
-                break;
-            }
-        }
-
-        self.finalize_node(node, start);
-        node
-    }
-
-    fn parse_assign_or_expr_stmt(&mut self) -> Option<NodeIdx> {
-        let expr = self.parse_expr()?;
-
-        self.skip_trivia();
-        if self.eat(Token::Equals) {
-            // Assignment
-            let node = self.alloc_node(NodeKind::AssignStmt);
-            let start = self.nodes[expr.idx()].tokens.start;
-
-            self.skip_trivia();
-            let value = self.parse_expr_or_error(BLOCK_RECOVERY);
-
-            let mut last = None;
-            self.link_child(node, expr, &mut last);
-            self.link_child(node, value, &mut last);
-
-            self.skip_trivia();
-            self.expect(Token::Semicolon);
-
-            self.finalize_node(node, start);
-            Some(node)
-        } else {
-            // Expression statement
-            let node = self.alloc_node(NodeKind::ExprStmt);
-            let start = self.nodes[expr.idx()].tokens.start;
-
-            let mut last = None;
-            self.link_child(node, expr, &mut last);
-
-            self.skip_trivia();
-            self.expect(Token::Semicolon);
-
-            self.finalize_node(node, start);
-            Some(node)
-        }
-    }
-
-    // ======================== BLOCKS ========================
-
-    fn parse_block(&mut self) -> NodeIdx {
-        let node = self.alloc_node(NodeKind::Block);
-        let start = self.current_token_idx();
-
-        self.skip_trivia();
-        let has_open = self.expect(Token::LeftCurly);
-
-        let mut last = None;
-
-        if has_open {
-            loop {
-                self.skip_trivia();
-                if self.at(Token::RightCurly) || self.eof() {
-                    break;
-                }
-
-                if let Some(stmt) = self.parse_stmt() {
-                    self.link_child(node, stmt, &mut last);
-                } else {
-                    if self.at_any(BLOCK_RECOVERY) {
-                        break;
-                    }
-                    let err = self.advance_with_error();
-                    self.link_child(node, err, &mut last);
-                }
-            }
-
-            self.skip_trivia();
-            self.expect(Token::RightCurly);
-        } else {
-            self.skip_trivia();
-            self.eat(Token::RightCurly);
-        }
-
-        self.finalize_node(node, start);
-        node
+        self.finalize_node(block, start)
     }
 
     // ======================== TOP-LEVEL DECLARATIONS ========================
 
-    fn parse_program(&mut self) {
-        loop {
-            self.skip_trivia();
-            if self.eof() {
-                break;
-            }
+    fn parse_file(&mut self) -> NodeIdx {
+        let file = self.alloc_node(NodeKind::File);
+        let mut last = None;
 
-            if self.check(Token::Init) {
-                self.parse_init_block();
-            } else if self.check(Token::Run) {
-                self.parse_run_block();
-            } else if self.check(Token::Const) {
-                self.parse_const_decl();
-            } else {
-                self.emit_unexpected();
-                self.advance();
-            }
+        while !self.eof() {
+            let new_decl = self.parse_decl();
+            self.link_child(file, new_decl, &mut last);
+        }
+
+        self.finalize_node(file, TokenIdx::ZERO)
+    }
+
+    fn parse_decl(&mut self) -> NodeIdx {
+        let start = self.current_token_idx;
+        if self.eat(Token::Init) {
+            self.parse_block(start, NodeKind::InitBlock)
+        } else if self.eat(Token::Run) {
+            self.parse_block(start, NodeKind::RunBlock)
+        } else if self.check(Token::Const) {
+            self.parse_const_decl()
+        } else {
+            self.emit_unexpected();
+            self.advance();
+            self.alloc_single_token_node(NodeKind::Error)
         }
     }
 
-    fn parse_init_block(&mut self) {
-        let node = self.alloc_node(NodeKind::InitBlock);
-        let start = self.current_token_idx();
-        self.advance(); // consume 'init'
+    fn parse_const_decl(&mut self) -> NodeIdx {
+        let start = self.current_token_idx;
+        assert!(self.expect(Token::Const));
 
-        self.skip_trivia();
-        let block = self.parse_block();
+        let r#const = self.alloc_node(NodeKind::ConstDecl);
 
-        let mut last = None;
-        self.link_child(node, block, &mut last);
-
-        self.finalize_node(node, start);
-    }
-
-    fn parse_run_block(&mut self) {
-        let node = self.alloc_node(NodeKind::RunBlock);
-        let start = self.current_token_idx();
-        self.advance(); // consume 'run'
-
-        self.skip_trivia();
-        let block = self.parse_block();
-
-        let mut last = None;
-        self.link_child(node, block, &mut last);
-
-        self.finalize_node(node, start);
-    }
-
-    fn parse_const_decl(&mut self) {
-        let node = self.alloc_node(NodeKind::ConstDecl);
-        let start = self.current_token_idx();
-        self.advance(); // consume 'const'
-        self.skip_trivia();
-
-        let mut last = None;
-
-        // Name
-        if let Some(name) = self.expect_ident() {
-            self.link_child(node, name, &mut last);
-        }
+        let name = if self.expect(Token::Identifier) {
+            self.alloc_single_token_node(NodeKind::Identifier)
+        } else {
+            let error = self.alloc_node(NodeKind::Error);
+            self.finalize_node(error, self.current_token_idx)
+        };
+        let mut last = self.set_first_child(r#const, name);
 
         // Optional type annotation
-        self.skip_trivia();
         if self.eat(Token::Colon) {
-            self.skip_trivia();
-            let type_expr = self.parse_expr_or_error(BLOCK_RECOVERY);
-            self.link_child(node, type_expr, &mut last);
+            self.update_kind(r#const, NodeKind::TypedConstDecl);
+            let type_expr = self.parse_expr(ParseExprMode::TypeExpr);
+            self.push_sibling(&mut last, type_expr);
         }
 
         // = value
-        self.skip_trivia();
-        if !self.expect(Token::Equals) && self.at_any(BLOCK_RECOVERY) {
-            self.finalize_node(node, start);
-            return;
-        }
+        self.expect(Token::Equals);
 
-        let after_eq_span = self.current_src_span();
-        self.skip_trivia();
-        if self.at_any(BLOCK_RECOVERY) {
-            self.diagnostics.emit_missing_token(Token::Semicolon, after_eq_span);
-            self.finalize_node(node, start);
-            return;
-        }
-        let value = self.parse_expr_or_error(BLOCK_RECOVERY);
-        self.link_child(node, value, &mut last);
+        let expr = self.parse_expr(ParseExprMode::AllowAll);
+        self.push_sibling(&mut last, expr);
 
-        self.skip_trivia();
         self.expect(Token::Semicolon);
 
-        self.finalize_node(node, start);
+        self.finalize_node(r#const, start)
     }
 }
 
@@ -1152,14 +408,12 @@ pub fn parse<'ast, 'src, D: DiagnosticsContext>(
     estimated_node_count: usize,
     diagnostics: &mut D,
 ) -> ConcreteSyntaxTree<'ast> {
-    let mut parser = Parser::new(
-        arena,
-        lexer.enumerate().map(|(i, (tok, span))| (tok, TokenIdx::new(i as u32), span)),
-        estimated_node_count,
-        diagnostics,
-    );
+    let mut parser = Parser::new(arena, lexer, estimated_node_count, diagnostics);
 
-    parser.parse_program();
+    let file = parser.parse_file();
+    assert_eq!(file, ConcreteSyntaxTree::FILE_IDX);
+
+    parser.assert_complete();
 
     ConcreteSyntaxTree { nodes: parser.nodes }
 }
