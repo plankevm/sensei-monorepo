@@ -149,9 +149,8 @@ impl<'ast> ConcreteSyntaxTree<'ast> {
 
     pub fn assert_no_intersecting_token_spans_node(&self, parent: NodeIdx) {
         let parent_span = self.nodes[parent].tokens;
-        let mut children = self.iter_children(parent).map(|child| {
+        let mut children = self.iter_children(parent).inspect(|&child| {
             self.assert_no_intersecting_token_spans_node(child);
-            child
         });
         if let Some(first_child) = children.next() {
             let first_child_span = self.nodes[first_child].tokens;

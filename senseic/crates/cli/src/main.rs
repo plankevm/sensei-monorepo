@@ -12,7 +12,7 @@ fn main() {
     let file_path = args.next().expect("Missing: PATH");
     let mut show_lines = false;
 
-    while let Some(arg) = args.next() {
+    for arg in args {
         match arg.as_str() {
             "--show-lines" | "-l" => show_lines = true,
             unknown => panic!("Unexpected value or flag {unknown:?}"),

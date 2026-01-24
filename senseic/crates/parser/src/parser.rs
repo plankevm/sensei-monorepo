@@ -1,5 +1,5 @@
 use crate::{
-    cst::{self, display::DisplayCST, *},
+    cst::{self, *},
     diagnostics::DiagnosticsContext,
     lexer::*,
     parser::token_item_iter::TokenItems,
@@ -22,10 +22,10 @@ enum ParseExprMode {
     TypeExpr,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum ParseConditionalMode {
-    ExprRequiringElse,
-    Stmt,
+enum StmtResult {
+    Statement(NodeIdx),
+    MaybeEndExpr(NodeIdx),
+    ForcedEndExpr(NodeIdx),
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -33,13 +33,6 @@ struct UnfinishedNode {
     idx: NodeIdx,
     last_child: Option<NodeIdx>,
 }
-
-const DECL_RECOVERY: &[Token] = &[Token::Init, Token::Run, Token::Const];
-// Recovery sets - tokens that signal "stop skipping, parent can handle this"
-const BLOCK_RECOVERY: &[Token] = &[Token::RightCurly, Token::Init, Token::Run, Token::Const];
-const EXPR_RECOVERY: &[Token] =
-    &[Token::Semicolon, Token::RightCurly, Token::Comma, Token::RightRound];
-const PARAM_RECOVERY: &[Token] = &[Token::RightRound, Token::ThinArrow, Token::LeftCurly];
 
 // Ensure fields are private letting us more easily enforce the invariant that the iterator either
 // consumes fuel or advances.
@@ -95,7 +88,7 @@ where
     D: DiagnosticsContext,
 {
     const UNARY_PRIORITY: OpPriority = OpPriority(19);
-    const MEMBER_PRIORITY: OpPriority = OpPriority(21);
+    const _MEMBER_PRIORITY: OpPriority = OpPriority(21);
 
     fn new(
         arena: &'ast Bump,
@@ -142,10 +135,6 @@ where
 
     fn at(&mut self, token: Token) -> bool {
         self.current_token() == token
-    }
-
-    fn at_any(&mut self, tokens: &[Token]) -> bool {
-        tokens.contains(&self.current_token())
     }
 
     fn skip_trivia(&mut self) {
@@ -362,7 +351,7 @@ where
         Some(self.close_node(conditional))
     }
 
-    fn try_parse_standalone_expr(&mut self, mode: ParseExprMode) -> Option<NodeIdx> {
+    fn try_parse_standalone_expr(&mut self, _mode: ParseExprMode) -> Option<NodeIdx> {
         let start = self.current_token_idx;
 
         if self.eat(Token::DecimalLiteral)
@@ -475,6 +464,29 @@ where
 
     // ========================== STATEMENT PARSING ==========================
 
+    fn try_parse_stmt(&mut self) -> Option<StmtResult> {
+        let stmt_start = self.current_token_idx;
+        let expr = self.try_parse_expr(ParseExprMode::AllowAll)?;
+
+        if self.eat(Token::Semicolon) {
+            let mut expr_stmt = self.alloc_node_from(stmt_start, NodeKind::ExprStmt);
+            self.push_child(&mut expr_stmt, expr);
+            let expr_stmt = self.close_node(expr_stmt);
+            return Some(StmtResult::Statement(expr_stmt));
+        }
+
+        let expr_kind = self.nodes[expr].kind;
+        let requires_semi = expr_kind
+            .expr_requires_semi_as_stmt()
+            .unwrap_or_else(|| panic!("`try_parse_expr` returned non-expr node {:?}", expr_kind));
+
+        if requires_semi {
+            Some(StmtResult::ForcedEndExpr(expr))
+        } else {
+            Some(StmtResult::MaybeEndExpr(expr))
+        }
+    }
+
     fn parse_block(&mut self, block_start: TokenIdx, block_kind: NodeKind) -> NodeIdx {
         let mut block = self.alloc_node_from(block_start, block_kind);
 
@@ -484,47 +496,23 @@ where
         let mut end_expr = None;
 
         while !self.check(Token::RightCurly) {
-            let block_item_start = self.current_token_idx;
-            if let Some(expr) = self.try_parse_expr(ParseExprMode::AllowAll) {
-                if let Some(supposed_end_expr) = end_expr.take() {
-                    self.push_child(&mut statements_list, supposed_end_expr);
-                }
+            let Some(result) = self.try_parse_stmt() else {
+                self.emit_unexpected();
+                break;
+            };
 
-                if self.eat(Token::Semicolon) {
-                    let mut expr_stmt = self.alloc_node_from(block_item_start, NodeKind::ExprStmt);
-                    self.push_child(&mut expr_stmt, expr);
-                    let expr_stmt = self.close_node(expr_stmt);
-                    self.push_child(&mut statements_list, expr_stmt);
-                    continue;
-                }
-
-                end_expr = Some(expr);
-
-                let expr_kind = self.nodes[expr].kind;
-                let requires_semi_as_stmt =
-                    expr_kind.expr_requires_semi_as_stmt().unwrap_or_else(|| {
-                        panic!("`try_parse_expr` returned non-expr node {:?}", expr_kind)
-                    });
-
-                if requires_semi_as_stmt {
-                    break;
-                }
-
-                continue;
+            if let Some(prev_end) = end_expr.take() {
+                self.push_child(&mut statements_list, prev_end);
             }
 
-            // TODO: while statement
-            // if self.eat(Token::While) {
-            //     let r#while = self.alloc_node(NodeKind::WhileStmt);
-            //     let condition = self.try_parse_expr(ParseExprMode::CondExpr).unwrap_or_else(|| {
-            //         self.emit_unexpected();
-            //         let err = self.alloc_node(NodeKind::Error);
-            //         self.finalize_node(err, self.current_token_idx)
-            //     });
-            // }
-
-            self.emit_unexpected();
-            break;
+            match result {
+                StmtResult::Statement(stmt) => self.push_child(&mut statements_list, stmt),
+                StmtResult::MaybeEndExpr(expr) => end_expr = Some(expr),
+                StmtResult::ForcedEndExpr(expr) => {
+                    end_expr = Some(expr);
+                    break;
+                }
+            }
         }
 
         let statements_list = self.close_node(statements_list);
@@ -612,7 +600,6 @@ pub fn parse<'ast, 'src, D: DiagnosticsContext>(
     assert_eq!(file, ConcreteSyntaxTree::FILE_IDX);
 
     parser.assert_complete();
-    let cst = ConcreteSyntaxTree { nodes: parser.nodes };
 
-    cst
+    ConcreteSyntaxTree { nodes: parser.nodes }
 }
