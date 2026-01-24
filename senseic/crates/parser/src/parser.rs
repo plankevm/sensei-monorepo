@@ -219,7 +219,7 @@ where
         UnfinishedNode { idx, last_child: None }
     }
 
-    fn finalize_node(&mut self, node: UnfinishedNode) -> NodeIdx {
+    fn close_node(&mut self, node: UnfinishedNode) -> NodeIdx {
         self.nodes[node.idx].tokens.end = self.current_token_idx;
         node.idx
     }
@@ -250,7 +250,7 @@ where
 
     fn alloc_last_token_as_node(&mut self, kind: NodeKind) -> NodeIdx {
         let node = self.alloc_node_from(self.current_token_idx - 1, kind);
-        self.finalize_node(node)
+        self.close_node(node)
     }
 
     // ======================== EXPRESSION PARSING (PRATT) ========================
@@ -347,11 +347,11 @@ where
             let branch_body = self.parse_block(self.current_token_idx, NodeKind::Block);
             self.push_child(&mut else_if, branch_body);
 
-            let else_if = self.finalize_node(else_if);
+            let else_if = self.close_node(else_if);
             self.push_child(&mut else_ifs, else_if);
         }
 
-        let else_ifs = self.finalize_node(else_ifs);
+        let else_ifs = self.close_node(else_ifs);
         self.push_child(&mut conditional, else_ifs);
 
         if let Some(r#else) = r#else {
@@ -359,7 +359,7 @@ where
             self.push_child(&mut conditional, r#else);
         }
 
-        Some(self.finalize_node(conditional))
+        Some(self.close_node(conditional))
     }
 
     fn try_parse_standalone_expr(&mut self, mode: ParseExprMode) -> Option<NodeIdx> {
@@ -384,7 +384,7 @@ where
             let inner_expr = self.parse_expr(ParseExprMode::AllowAll);
             self.push_child(&mut paren_expr, inner_expr);
             self.expect(Token::RightRound);
-            return Some(self.finalize_node(paren_expr));
+            return Some(self.close_node(paren_expr));
         }
 
         if self.eat(Token::Comptime) {
@@ -406,7 +406,7 @@ where
         self.try_parse_expr(mode).unwrap_or_else(|| {
             self.emit_unexpected();
             let err = self.alloc_node(NodeKind::Error);
-            self.finalize_node(err)
+            self.close_node(err)
         })
     }
 
@@ -427,10 +427,10 @@ where
             let expr = self.try_parse_expr_min_bp(mode, rhs).unwrap_or_else(|| {
                 self.emit_unexpected();
                 let err = self.alloc_node(NodeKind::Error);
-                self.finalize_node(err)
+                self.close_node(err)
             });
             self.push_child(&mut unary, expr);
-            self.finalize_node(unary)
+            self.close_node(unary)
         } else {
             self.try_parse_standalone_expr(mode)?
         };
@@ -443,10 +443,10 @@ where
                     self.alloc_last_token_as_node(NodeKind::Identifier)
                 } else {
                     let error = self.alloc_node(NodeKind::Error);
-                    self.finalize_node(error)
+                    self.close_node(error)
                 };
                 self.push_child(&mut member, access_name);
-                expr = self.finalize_node(member);
+                expr = self.close_node(member);
                 continue;
             }
 
@@ -460,10 +460,10 @@ where
                 let rhs_expr = self.try_parse_expr_min_bp(mode, rhs).unwrap_or_else(|| {
                     self.emit_unexpected();
                     let err = self.alloc_node(NodeKind::Error);
-                    self.finalize_node(err)
+                    self.close_node(err)
                 });
                 self.push_child(&mut binary_expr, rhs_expr);
-                expr = self.finalize_node(binary_expr);
+                expr = self.close_node(binary_expr);
                 continue;
             }
 
@@ -493,7 +493,7 @@ where
                 if self.eat(Token::Semicolon) {
                     let mut expr_stmt = self.alloc_node_from(block_item_start, NodeKind::ExprStmt);
                     self.push_child(&mut expr_stmt, expr);
-                    let expr_stmt = self.finalize_node(expr_stmt);
+                    let expr_stmt = self.close_node(expr_stmt);
                     self.push_child(&mut statements_list, expr_stmt);
                     continue;
                 }
@@ -527,7 +527,7 @@ where
             break;
         }
 
-        let statements_list = self.finalize_node(statements_list);
+        let statements_list = self.close_node(statements_list);
         self.push_child(&mut block, statements_list);
         if let Some(end_expr) = end_expr {
             self.nodes[statements_list].tokens.end = self.nodes[end_expr].tokens.start;
@@ -536,7 +536,7 @@ where
 
         self.expect(Token::RightCurly);
 
-        self.finalize_node(block)
+        self.close_node(block)
     }
 
     // ======================== TOP-LEVEL DECLARATIONS ========================
@@ -549,7 +549,7 @@ where
             self.push_child(&mut file, new_decl);
         }
 
-        self.finalize_node(file)
+        self.close_node(file)
     }
 
     fn parse_decl(&mut self) -> NodeIdx {
@@ -577,7 +577,7 @@ where
             self.alloc_last_token_as_node(NodeKind::Identifier)
         } else {
             let error = self.alloc_node(NodeKind::Error);
-            self.finalize_node(error)
+            self.close_node(error)
         };
         self.push_child(&mut r#const, name);
 
@@ -596,7 +596,7 @@ where
 
         self.expect(Token::Semicolon);
 
-        self.finalize_node(r#const)
+        self.close_node(r#const)
     }
 }
 
