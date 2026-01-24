@@ -212,8 +212,8 @@ fn test_paren_expr_simple() {
                     "x"
                 " "
                 "="
+                " "
                 ParenExpr
-                    " "
                     "("
                     LiteralExpr
                         "42"
@@ -236,8 +236,8 @@ fn test_paren_expr_nested() {
                     "x"
                 " "
                 "="
+                " "
                 ParenExpr
-                    " "
                     "("
                     ParenExpr
                         "("
