@@ -60,7 +60,8 @@ mod token_item_iter {
         }
 
         pub(crate) fn peek(&mut self) -> (Token, SourceSpan) {
-            self.fuel = self.fuel.checked_sub(1).expect("out of fuel");
+            self.fuel =
+                self.fuel.checked_sub(1).expect("out of fuel: likely caused by infinite loop");
             let next = self.next_fuel_unchanged();
             self.peeked = Some(next);
             next
