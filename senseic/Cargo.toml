@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["frontend/*"]
+members = ["frontend/*", "sir/crates/*", "sir/test-utils"]
 
 [workspace.package]
 version = "0.1.0"
@@ -8,17 +8,29 @@ edition = "2024"
 license = "MIT"
 
 [workspace.dependencies]
-# Sub Crates
-neosen-data = {path = "frontend/data"}
-neosen-parser = {path = "frontend/parser"}
+# Frontend Sub Crates
+neosen-data = { path = "frontend/data" }
+neosen-parser = { path = "frontend/parser" }
+
+# SIR Sub Crates
+sir-data = { path = "sir/crates/data" }
+sir-analyses = { path = "sir/crates/analyses" }
+sir-parser = { path = "sir/crates/parser" }
+sir-assembler = { path = "sir/crates/assembler" }
+sir-debug-backend = { path = "sir/crates/debug-backend" }
 
 # Shared Dependencies
-bumpalo = {version = "3.19.0", features=["allocator-api2"]}
+bumpalo = { version = "3.19.0", features = ["allocator-api2", "collections"] }
 allocator-api2 = "0.2"
-hashbrown = {version="0.16.0", features=["allocator-api2"]}
-sir-data = { git = "https://github.com/senseilang/sensei-ir.git" }
+hashbrown = { version = "0.16.0", features = ["allocator-api2"] }
 smallvec = "1.15.1"
 inturn = "0.1.2"
+alloy-primitives = "1.1.2"
+thiserror = "2.0.17"
+logos = "0.16.0"
+chumsky = "0.11.1"
+index_vec = "0.1.4"
+clap = { version = "4.5", features = ["derive"] }
 
 # Testing
 pretty_assertions = "1.4.1"

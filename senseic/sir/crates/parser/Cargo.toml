@@ -5,13 +5,13 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
-logos = "0.15.1"
-chumsky = "0.11.1"
+logos.workspace = true
+chumsky.workspace = true
 thiserror.workspace = true
 sir-data.workspace = true
 bumpalo.workspace = true
 alloy-primitives.workspace = true
-smallvec = "1.15.1"
+smallvec.workspace = true
 
 [dev-dependencies]
-test-utils = { path = "../../test-utils" }
+sir-test-utils = { path = "../../test-utils" }

@@ -60,7 +60,7 @@ pub fn parse_or_panic<'a>(source: &str, config: EmitConfig<'a>) -> EthIRProgram 
 mod tests {
     use super::*;
     use crate::emit::EmitConfig;
-    use test_utils::assert_trim_strings_eq_with_diff;
+    use sir_test_utils::assert_trim_strings_eq_with_diff;
 
     fn parse_and_display<'a>(source: &str, config: EmitConfig<'a>) -> String {
         let ir = parse_or_panic(source, config);

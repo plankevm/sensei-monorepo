@@ -321,7 +321,7 @@ mod tests {
 
     fn assert_ir_display(program: &EthIRProgram, expected: &str) {
         let actual = display_program(program);
-        test_utils::assert_trim_strings_eq_with_diff(&actual, expected, "IR display");
+        sir_test_utils::assert_trim_strings_eq_with_diff(&actual, expected, "IR display");
     }
 
     #[test]

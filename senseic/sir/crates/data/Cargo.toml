@@ -6,8 +6,8 @@ license.workspace = true
 
 [dependencies]
 alloy-primitives.workspace = true
-index_vec = "0.1.4"
+index_vec.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]
-test-utils = { path = "../../test-utils" }
+sir-test-utils = { path = "../../test-utils" }
