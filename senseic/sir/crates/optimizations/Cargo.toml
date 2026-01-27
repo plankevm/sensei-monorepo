@@ -8,3 +8,5 @@ license.workspace = true
 sir-data.workspace = true
 
 [dev-dependencies]
+sir-parser.workspace = true
+sir-test-utils = { path = "../../test-utils" }
