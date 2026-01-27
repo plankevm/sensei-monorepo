@@ -88,8 +88,8 @@ impl<const INS: usize, const OUTS: usize> AllocatedIns<INS, OUTS> {
     }
 
     pub fn get_inputs<'ir>(&self, ir: &'ir EthIRProgram) -> &'ir [LocalId] {
-        let ins_start = self.ins_start.get() as usize;
-        &ir.locals.raw[ins_start..ins_start + INS]
+        let ins_start = self.ins_start.idx();
+        &ir.locals.as_raw_slice()[ins_start..ins_start + INS]
     }
 }
 
@@ -268,12 +268,12 @@ impl InternalCallData {
     }
 
     pub fn get_inputs<'ir>(&self, ir: &'ir EthIRProgram) -> &'ir [LocalId] {
-        ir.locals[self.ins_start..self.outs_start].as_raw_slice()
+        &ir.locals[self.ins_start..self.outs_start]
     }
 
     pub fn get_outputs<'ir>(&self, ir: &'ir EthIRProgram) -> &'ir [LocalId] {
         let fn_output_count = ir.functions[self.function].outputs;
-        ir.locals[self.outs_start..self.outs_start + fn_output_count].as_raw_slice()
+        &ir.locals[self.outs_start..self.outs_start + fn_output_count]
     }
 }
 

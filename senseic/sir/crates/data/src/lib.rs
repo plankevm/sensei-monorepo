@@ -14,16 +14,16 @@ pub struct EthIRProgram {
     pub init_entry: FunctionId,
     pub main_entry: Option<FunctionId>,
     // IR Statements
-    pub functions: IndexVec<FunctionId, Function>,
-    pub basic_blocks: IndexVec<BasicBlockId, BasicBlock>,
-    pub operations: IndexVec<OperationIndex, Operation>,
-    pub data_segments_start: IndexVec<DataId, DataOffset>,
+    pub functions: IndexVec<FunctionIdMarker, Function>,
+    pub basic_blocks: IndexVec<BasicBlockIdMarker, BasicBlock>,
+    pub operations: IndexVec<OperationIndexMarker, Operation>,
+    pub data_segments_start: IndexVec<DataIdMarker, DataOffset>,
     // IR Data
-    pub locals: IndexVec<LocalIndex, LocalId>,
-    pub data_bytes: IndexVec<DataOffset, u8>,
-    pub large_consts: IndexVec<LargeConstId, U256>,
-    pub cases: IndexVec<CasesId, Cases>,
-    pub cases_bb_ids: IndexVec<CasesBasicBlocksIndex, BasicBlockId>,
+    pub locals: IndexVec<LocalIndexMarker, LocalId>,
+    pub data_bytes: IndexVec<DataOffsetMarker, u8>,
+    pub large_consts: IndexVec<LargeConstIdMarker, U256>,
+    pub cases: IndexVec<CasesIdMarker, Cases>,
+    pub cases_bb_ids: IndexVec<CasesBasicBlocksIndexMarker, BasicBlockId>,
     // Codegeneration helpers
     pub next_free_local_id: LocalId,
     pub next_static_alloc_id: StaticAllocId,
@@ -114,7 +114,7 @@ impl Function {
         self.entry_bb_id
     }
 
-    pub fn get_inputs(&self, basic_blocks: &IndexVec<BasicBlockId, BasicBlock>) -> u32 {
+    pub fn get_inputs(&self, basic_blocks: &IndexVec<BasicBlockIdMarker, BasicBlock>) -> u32 {
         let inputs = basic_blocks[self.entry()].inputs.clone();
         inputs.end - inputs.start
     }
@@ -214,17 +214,19 @@ pub struct Cases {
 
 impl Cases {
     pub fn get_values<'ir>(
-        &'ir self,
+        &self,
         ir: &'ir EthIRProgram,
-    ) -> &'ir IndexSlice<LargeConstId, [U256]> {
-        &ir.large_consts[self.values_start_id..self.values_start_id + self.cases_count]
+    ) -> RelSlice<'ir, LargeConstIdMarker, U256> {
+        ir.large_consts
+            .rel_slice_range(self.values_start_id..self.values_start_id + self.cases_count)
     }
 
     pub fn get_bb_ids<'ir>(
-        &'ir self,
+        &self,
         ir: &'ir EthIRProgram,
-    ) -> &'ir IndexSlice<CasesBasicBlocksIndex, [BasicBlockId]> {
-        &ir.cases_bb_ids[self.targets_start_id..self.targets_start_id + self.cases_count]
+    ) -> RelSlice<'ir, CasesBasicBlocksIndexMarker, BasicBlockId> {
+        ir.cases_bb_ids
+            .rel_slice_range(self.targets_start_id..self.targets_start_id + self.cases_count)
     }
 }
 
@@ -248,7 +250,7 @@ impl Control {
                 Some(branch.non_zero_target),
             ),
             Control::Switch(switch) => OutgoingConnectionsIter::new(
-                &ir.cases[switch.cases].get_bb_ids(ir).raw,
+                ir.cases[switch.cases].get_bb_ids(ir).as_raw_slice(),
                 switch.fallback,
             ),
         }

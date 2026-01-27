@@ -8,7 +8,7 @@ impl<M> IncIterable for X32<M> {
     #[inline(always)]
     fn get_and_inc(&mut self) -> Self {
         let current = *self;
-        *self = *self + 1;
+        *self += 1;
         current
     }
 }

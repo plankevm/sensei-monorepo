@@ -79,6 +79,20 @@ impl<M> std::ops::Sub<u32> for X32<M> {
     }
 }
 
+impl<M> std::ops::Sub<X32<M>> for X32<M> {
+    type Output = u32;
+
+    fn sub(self, rhs: X32<M>) -> Self::Output {
+        self.get() - rhs.get()
+    }
+}
+
+impl<M> std::ops::AddAssign<u32> for X32<M> {
+    fn add_assign(&mut self, rhs: u32) {
+        *self = *self + rhs;
+    }
+}
+
 impl<M> TryFrom<usize> for X32<M> {
     type Error = ();
 
@@ -109,6 +123,12 @@ impl<M> Hash for X32<M> {
 impl<M> std::fmt::Debug for X32<M> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}({})", std::any::type_name::<M>(), self.get())
+    }
+}
+
+impl<M> std::fmt::Display for X32<M> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.get())
     }
 }
 

@@ -1,10 +1,16 @@
 pub mod bigint;
+pub mod dense_index_set;
 pub mod index;
 pub mod index_vec;
 pub mod must_use;
 pub mod span;
 
-pub use crate::{index::X32, index_vec::IndexVec, span::Span};
+pub use crate::{
+    dense_index_set::DenseIndexSet,
+    index::X32,
+    index_vec::{IndexVec, RelIndexBox, RelSlice, RelSliceMut},
+    span::{IncIterable, Span},
+};
 
 /// Alias denoting an arena allocated `T`.
 pub type ABox<'arena, T> = &'arena mut T;

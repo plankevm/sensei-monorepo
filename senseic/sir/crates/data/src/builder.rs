@@ -1,6 +1,6 @@
 use crate::*;
 use alloy_primitives::U256;
-use index_vec::IndexVec;
+use sensei_core::span::IncIterable;
 use std::ops::Range;
 
 #[derive(Debug, thiserror::Error)]
@@ -16,17 +16,17 @@ pub struct EthIRBuilder {
     next_local_id: LocalId,
     next_alloc_id: StaticAllocId,
     // IR Statements
-    pub(crate) functions: IndexVec<FunctionId, Function>,
-    pub(crate) basic_blocks: IndexVec<BasicBlockId, BasicBlock>,
-    pub(crate) operations: IndexVec<OperationIndex, Operation>,
-    pub(crate) data_segments_start: IndexVec<DataId, DataOffset>,
+    pub(crate) functions: IndexVec<FunctionIdMarker, Function>,
+    pub(crate) basic_blocks: IndexVec<BasicBlockIdMarker, BasicBlock>,
+    pub(crate) operations: IndexVec<OperationIndexMarker, Operation>,
+    pub(crate) data_segments_start: IndexVec<DataIdMarker, DataOffset>,
 
     // IR Data
-    pub(crate) locals: IndexVec<LocalIndex, LocalId>,
-    pub(crate) data_bytes: IndexVec<DataOffset, u8>,
-    pub(crate) large_consts: IndexVec<LargeConstId, U256>,
-    pub(crate) cases: IndexVec<CasesId, Cases>,
-    pub(crate) cases_bb_ids: IndexVec<CasesBasicBlocksIndex, BasicBlockId>,
+    pub(crate) locals: IndexVec<LocalIndexMarker, LocalId>,
+    pub(crate) data_bytes: IndexVec<DataOffsetMarker, u8>,
+    pub(crate) large_consts: IndexVec<LargeConstIdMarker, U256>,
+    pub(crate) cases: IndexVec<CasesIdMarker, Cases>,
+    pub(crate) cases_bb_ids: IndexVec<CasesBasicBlocksIndexMarker, BasicBlockId>,
 }
 
 impl EthIRBuilder {
@@ -64,7 +64,7 @@ impl EthIRBuilder {
         }
     }
 
-    pub fn view_bb_backing(&self) -> &IndexVec<BasicBlockId, BasicBlock> {
+    pub fn view_bb_backing(&self) -> &IndexVec<BasicBlockIdMarker, BasicBlock> {
         &self.basic_blocks
     }
 
@@ -290,20 +290,20 @@ impl<'ctx, C: AsMut<EthIRBuilder>> SwitchBuilder<'ctx, C> {
     }
 }
 
-fn overwrite_range_via_copy<I: GudIndex, T: Copy>(
-    range: &mut Range<I>,
-    backing: &mut IndexVec<I, T>,
+fn overwrite_range_via_copy<M, T: Copy>(
+    range: &mut Range<X32<M>>,
+    backing: &mut IndexVec<M, T>,
     new_values: &[T],
 ) {
     let len = (range.end.get() - range.start.get()) as usize;
     if len >= new_values.len() {
-        backing[range.clone()].raw[..new_values.len()].copy_from_slice(new_values);
+        backing[range.clone()][..new_values.len()].copy_from_slice(new_values);
         range.end = range.start + new_values.len() as u32;
         return;
     }
 
     if range.end == backing.len_idx() {
-        backing[range.clone()].raw.clone_from_slice(&new_values[..len]);
+        backing[range.clone()].clone_from_slice(&new_values[..len]);
         backing.as_mut_vec().extend_from_slice(&new_values[len..]);
         range.end = backing.len_idx();
         return;
@@ -389,13 +389,13 @@ mod tests {
             assert_eq!(cases.cases_count, 3);
 
             let values = cases.get_values(&program);
-            assert_eq!(values.raw.len(), 3);
+            assert_eq!(values.len(), 3);
             assert_eq!(values[cases.values_start_id], U256::from(1));
             assert_eq!(values[cases.values_start_id + 1], U256::from(2));
             assert_eq!(values[cases.values_start_id + 2], U256::from(3));
 
             let targets = cases.get_bb_ids(&program);
-            assert_eq!(targets.raw.len(), 3);
+            assert_eq!(targets.len(), 3);
             assert_eq!(targets[cases.targets_start_id], bb0);
             assert_eq!(targets[cases.targets_start_id + 1], bb1);
             assert_eq!(targets[cases.targets_start_id + 2], bb2);

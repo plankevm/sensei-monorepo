@@ -6,7 +6,7 @@ license.workspace = true
 
 [dependencies]
 alloy-primitives.workspace = true
-index_vec.workspace = true
+sensei-core.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]

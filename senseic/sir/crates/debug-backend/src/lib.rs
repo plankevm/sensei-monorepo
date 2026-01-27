@@ -1,6 +1,7 @@
+use sensei_core::{DenseIndexSet, IncIterable};
 use sir_assembler::{AsmReference, Assembly, MarkId, MarkReference, Span, op};
 use sir_data::{
-    BasicBlockId, Control, DataId, DenseIndexSet, EthIRProgram, FunctionId, GudIndex, LocalId,
+    BasicBlockId, BasicBlockIdMarker, Control, DataId, EthIRProgram, FunctionId, LocalId,
 };
 
 use crate::static_memory_layout::StaticMemoryLayout;
@@ -67,7 +68,7 @@ pub(crate) struct Translator<'ir> {
     pub ir: &'ir EthIRProgram,
     pub memory_layout: StaticMemoryLayout,
     pub mark_map: MarkMap,
-    pub translated_bbs: DenseIndexSet<BasicBlockId>,
+    pub translated_bbs: DenseIndexSet<BasicBlockIdMarker>,
     pub bbs_to_be_translated: Vec<(FunctionId, BasicBlockId)>,
     pub translating_init_code: bool,
     pub asm: Assembly,
@@ -147,14 +148,14 @@ impl<'ir> Translator<'ir> {
             let basic_block = self.ir.basic_blocks[bb_id].clone();
             self.memory_layout.emit_transfer_basic_block_outputs(
                 &mut self.asm,
-                self.ir.locals[basic_block.inputs].as_raw_slice(),
+                &self.ir.locals[basic_block.inputs],
             );
             for op in &self.ir.operations[basic_block.operations] {
                 operations::translate_operation(self, op.clone());
             }
             self.memory_layout.emit_copy_for_basic_block_inputs(
                 &mut self.asm,
-                self.ir.locals[basic_block.outputs].as_raw_slice(),
+                &self.ir.locals[basic_block.outputs],
             );
 
             self.bbs_to_be_translated
@@ -221,8 +222,8 @@ pub fn ir_to_bytecode(ir: &EthIRProgram, result: &mut Vec<u8>) {
         translator.translate_basic_blocks_from_entry_point(main_entry);
     }
 
-    for data_id in DataId::ZERO.iter_to(ir.data_segments_start.len_idx()) {
-        let bytes = ir.data_bytes[ir.get_segment_range(data_id)].as_raw_slice();
+    for data_id in sensei_core::Span::new(DataId::ZERO, ir.data_segments_start.len_idx()).iter() {
+        let bytes = &ir.data_bytes[ir.get_segment_range(data_id)];
         let mark = translator.mark_map.get_data_mark(data_id);
         translator.asm.push_mark(mark);
         translator.asm.push_data(bytes);

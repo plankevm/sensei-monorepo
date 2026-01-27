@@ -5,6 +5,7 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+sensei-core.workspace = true
 sir-data.workspace = true
 sir-assembler.workspace = true
 alloy-primitives.workspace = true

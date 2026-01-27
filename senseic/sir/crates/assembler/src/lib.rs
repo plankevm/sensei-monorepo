@@ -1,14 +1,15 @@
 use alloy_primitives::U256;
-use sir_data::{IndexVec, index_vec, newtype_index};
+use sensei_core::{IndexVec, X32, index_vec};
 pub mod op;
 
 const ASSUMED_MARK_COUNT_WITHOUT_HINT: usize = 128;
 const MAX_ASSEMBLER_CONVERGENCE_ITERS: usize = 1024;
 
-newtype_index! {
-    pub struct MarkId;
-    pub struct AsmBytesIndex;
-}
+pub enum MarkIdMarker {}
+pub type MarkId = X32<MarkIdMarker>;
+
+pub enum AsmBytesIndexMarker {}
+pub type AsmBytesIndex = X32<AsmBytesIndexMarker>;
 
 #[derive(Debug, Clone, Copy)]
 pub struct Span<T> {
@@ -126,7 +127,7 @@ impl StoredAsmSection {
         }
     }
 
-    fn size(&self, mark_map: &IndexVec<MarkId, u32>) -> Option<u32> {
+    fn size(&self, mark_map: &IndexVec<MarkIdMarker, u32>) -> Option<u32> {
         match (*self).into() {
             AsmSection::Mark(_) => Some(0),
             AsmSection::Ops(bytes_span) | AsmSection::Data(bytes_span) => {
@@ -196,7 +197,7 @@ const _ASSERT_STORED_ASM_SECTION_MEM_SIZE: () = const {
 
 #[derive(Debug, Clone)]
 pub struct Assembly {
-    bytes: IndexVec<AsmBytesIndex, u8>,
+    bytes: IndexVec<AsmBytesIndexMarker, u8>,
     sections: Vec<StoredAsmSection>,
 }
 
@@ -290,12 +291,12 @@ impl Assembly {
         match self.sections.last_mut() {
             Some(StoredAsmSection::Data(bytes_span)) => {
                 debug_assert!(bytes_span.end == self.bytes.len_idx(), "span out of sync");
-                self.bytes.raw.extend_from_slice(data);
+                self.bytes.extend_from_slice(data);
                 bytes_span.end = self.bytes.len_idx();
             }
             _ => {
                 let start = self.bytes.len_idx();
-                self.bytes.raw.extend_from_slice(data);
+                self.bytes.extend_from_slice(data);
                 let end = self.bytes.len_idx();
                 self.sections.push(StoredAsmSection::Data(Span { start, end }));
             }
@@ -337,8 +338,8 @@ impl Assembly {
         &self,
         result: &mut Vec<u8>,
         mark_id_count_hint: Option<usize>,
-    ) -> Result<IndexVec<MarkId, u32>, AssembleError> {
-        let mut mark_to_offset =
+    ) -> Result<IndexVec<MarkIdMarker, u32>, AssembleError> {
+        let mut mark_to_offset: IndexVec<MarkIdMarker, u32> =
             index_vec![0; mark_id_count_hint.unwrap_or(ASSUMED_MARK_COUNT_WITHOUT_HINT)];
         let mut min_size = 0;
         for section in self.sections.iter() {
@@ -346,7 +347,8 @@ impl Assembly {
                 let size_for_id = usize::try_from(id.get()).unwrap() + 1;
                 let additional_to_reserve = size_for_id.saturating_sub(mark_to_offset.len());
                 mark_to_offset.reserve(additional_to_reserve);
-                mark_to_offset.resize(mark_to_offset.raw.capacity(), 0);
+                let cap = mark_to_offset.capacity();
+                mark_to_offset.resize(cap, 0);
                 mark_to_offset[id] = min_size;
             }
             min_size += section.min_compiled_size();
@@ -376,7 +378,7 @@ impl Assembly {
                 match (*stored_section).into() {
                     AsmSection::Mark(_) => { /* Marks are sizeless */ }
                     AsmSection::Ops(bytes) | AsmSection::Data(bytes) => {
-                        result.extend_from_slice(self.bytes[bytes.start..bytes.end].as_raw_slice());
+                        result.extend_from_slice(&self.bytes[bytes.start..bytes.end]);
                     }
                     AsmSection::MarkRef(mark_ref) => {
                         let value = match mark_ref.mark_ref {
@@ -416,7 +418,7 @@ impl Assembly {
 #[cfg(test)]
 mod tests {
     use alloy_primitives::hex;
-    use sir_data::GudIndex;
+    use sensei_core::IncIterable;
 
     use super::*;
 
