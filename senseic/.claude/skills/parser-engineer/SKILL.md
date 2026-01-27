@@ -18,49 +18,6 @@ The parser must consume all input regardless of how malformed it is. When encoun
 
 The parser should never panic, return early, or leave tokens unconsumed due to syntax errors.
 
-## Never Consume Recovery Tokens in the Wrong Context
-
-Recovery tokens signal "stop parsing this construct, let the parent handle it." Consuming them causes cascading errors.
-
-**Anti-pattern:**
-```rust
-let value = self.parse_expr().unwrap_or_else(|| self.advance_with_error());
-```
-
-This blindly consumes any token on parse failure, even recovery tokens like `init`, `}`, or `;`. If the user wrote `const x = \n init { ... }` (missing value and semicolon), `advance_with_error()` eats `init`, then every subsequent token triggers "unexpected" errors.
-
-**Correct approach:** Check recovery tokens before advancing:
-```rust
-if let Some(expr) = self.parse_expr() {
-    expr
-} else if self.at_any(RECOVERY_SET) {
-    self.emit_error();
-    self.synthetic_error_node()  // No advance—let parent handle recovery token
-} else {
-    self.advance_with_error()  // Only consume non-recovery tokens
-}
-```
-
-## Recovery Sets
-
-Define recovery sets per context level containing:
-- **Follow set**: Tokens that can legally follow this construct
-- **Ancestor follow sets**: Tokens that start sibling/parent constructs
-
-When inside a loop, decide between:
-- **Skip**: Consume unexpected token, stay in loop (token not in recovery set)
-- **Break**: Exit loop, let parent handle (token IS in recovery set)
-
-The key insight: recovery sets form a hierarchy. Top-level parsers should not consume tokens that belong to their siblings or ancestors.
-
-## Every Loop Must Make Progress
-
-Any loop that doesn't consume at least one token per iteration will hang. The fuel mechanism catches this during development—every `peek` decrements fuel, every `advance` restores it. Zero fuel = panic indicating a bug.
-
-Ensure every loop iteration either:
-1. Calls a sub-parser that consumes tokens, OR
-2. Calls `advance_with_error()` to skip one token, OR
-3. Breaks out of the loop
 
 ## Guards Before Parsing
 
@@ -73,14 +30,36 @@ if self.at(Token::LeftParen) {
 
 This reduces cascading. The missing `(` is reported once, but we don't enter `parse_param_list` in a broken state where it might consume tokens it shouldn't.
 
-## Homogeneous Tree Structure
+## Avoid Recursion
 
-The CST uses a linked-list tree (`first_child` → `next_sibling` chains) rather than typed AST nodes. This allows:
-- Error nodes to appear anywhere as siblings
-- No fixed schema—malformed trees are representable
-- Valid prefixes are always captured
+When possible model the parsing of syntatical constructs as parsing variable
+length lists of sub-productions rather than recursively. Recursion in the parser
+consumes the stack and artificially limits how large/nested certain constructs
+can become.
 
-The parser should produce a useful tree even from broken code, localizing errors to where they occur.
+## Tree Representation
+
+We use a homogenous Concrete Syntax Tree (CST) to represent the input source
+file. The primary purpose of this data structure is:
+- faithfully represent the entire input source file, even when it contains
+  incomplete constructs or extra tokens
+- memory dense for better cache performance
+- nodes should be created such that the final tree is stored as close to pre-order
+  traversal as possible without compromising the parser's top-down, constant
+  lookahead (e.g. parsing post-fix operator expressions such as `(3 + x).b` cannot easily have its nodes generated in pre-order without an uncapped lookahead)
+
+To achieve this children are stored as a linked list, with siblings holding
+indices to their next sibling and to their first child.
+
+**Defining New Syntax Constructors**
+
+When defining parsers & node kinds for new syntax constructs the child count of a node should only
+vary for **one** reason, this ensures that variations and details of nodes can easily be retrieved
+with intricate introspection of children.
+- ❌ Bad: `If`-node with variable number of `ElseIfBranch` nodes **and** an
+  optional else `Block` (`If` could have 3 child nodes for several reasons)
+- ✅ Good: `If`-node with guaranteed `ElseIfBranchList` child node but
+  optional else `Block` (`If` child count only varies for a single reason)
 
 ## Robust Expected Token Set Tracking
 
