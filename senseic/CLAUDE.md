@@ -6,7 +6,7 @@ Neosen is a compiler frontend for the Sensei programming language.
 
 ```bash
 cargo test -p <crate name> # Run during work on a specific crate for validation
-cargo test # Run all tests at end of task
+./run-all-tests.sh # Run all tests at end of task
 
 # Run formatter & linter at the end of a task
 cargo +nightly fmt --all
