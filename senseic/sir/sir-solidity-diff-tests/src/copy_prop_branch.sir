@@ -6,18 +6,16 @@ fn init:
         y = calldataload c32
         a = copy x
         b = copy y
-        c = copy a
-        result = add c b
-        cond = copy result
-        => cond ? @nonzero : @zero
+        cond = copy a
+        => cond ? @ret_x : @ret_y
     }
-    nonzero {
+    ret_x {
         buf1 = sallocany 32
-        mstore256 buf1 result
+        mstore256 buf1 a
         return buf1 c32
     }
-    zero {
+    ret_y {
         buf2 = sallocany 32
-        mstore256 buf2 c0
+        mstore256 buf2 b
         return buf2 c32
     }

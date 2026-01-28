@@ -6,12 +6,11 @@ contract CopyPropBranch {
         assembly ("memory-safe") {
             let x := calldataload(0)
             let y := calldataload(32)
-            let result := add(x, y)
-            if result {
-                mstore(0, result)
+            if x {
+                mstore(0, x)
                 return(0, 32)
             }
-            mstore(0, 0)
+            mstore(0, y)
             return(0, 32)
         }
     }

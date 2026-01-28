@@ -1,13 +1,17 @@
 use std::collections::HashMap;
 
 use sir_data::{
-    Control, EthIRProgram, LocalId, LocalIdMarker, X32,
-    operation::{InlineOperands, OpVisitorMut},
+    Control, EthIRProgram, LocalId, LocalIdMarker, LocalIndex, LocalIndexMarker, Operation,
+    RelSliceMut, Span, X32,
+    operation::{
+        AllocatedIns, InlineOperands, InternalCallData, MemoryLoadData, MemoryStoreData,
+        OpVisitorMut, SetDataOffsetData, SetLargeConstData, SetSmallConstData, StaticAllocData,
+    },
 };
 
 struct CopyReplacer<'a> {
     copy_map: &'a HashMap<LocalId, LocalId>,
-    locals: &'a mut [LocalId],
+    locals: RelSliceMut<'a, LocalIndexMarker, LocalId>,
 }
 
 fn replace_if_copied(input: &mut X32<LocalIdMarker>, copy_map: &HashMap<LocalId, LocalId>) {
@@ -28,36 +32,33 @@ impl OpVisitorMut<()> for CopyReplacer<'_> {
 
     fn visit_allocated_ins_mut<const INS: usize, const OUTS: usize>(
         &mut self,
-        data: &mut sir_data::operation::AllocatedIns<INS, OUTS>,
+        data: &mut AllocatedIns<INS, OUTS>,
     ) {
-        let start = data.ins_start.idx();
-        for i in start..start + INS {
-            replace_if_copied(&mut self.locals[i], &self.copy_map);
+        for idx in Span::new(data.ins_start, data.ins_start + INS as u32).iter() {
+            replace_if_copied(&mut self.locals[idx], &self.copy_map);
         }
     }
 
-    fn visit_static_alloc_mut(&mut self, _data: &mut sir_data::operation::StaticAllocData) {}
+    fn visit_static_alloc_mut(&mut self, _data: &mut StaticAllocData) {}
 
-    fn visit_memory_load_mut(&mut self, data: &mut sir_data::operation::MemoryLoadData) {
+    fn visit_memory_load_mut(&mut self, data: &mut MemoryLoadData) {
         replace_if_copied(&mut data.ptr, &self.copy_map);
     }
 
-    fn visit_memory_store_mut(&mut self, data: &mut sir_data::operation::MemoryStoreData) {
+    fn visit_memory_store_mut(&mut self, data: &mut MemoryStoreData) {
         replace_if_copied(&mut data.ptr, &self.copy_map);
         replace_if_copied(&mut data.value, &self.copy_map);
     }
 
-    fn visit_set_small_const_mut(&mut self, _data: &mut sir_data::operation::SetSmallConstData) {}
+    fn visit_set_small_const_mut(&mut self, _data: &mut SetSmallConstData) {}
 
-    fn visit_set_large_const_mut(&mut self, _data: &mut sir_data::operation::SetLargeConstData) {}
+    fn visit_set_large_const_mut(&mut self, _data: &mut SetLargeConstData) {}
 
-    fn visit_set_data_offset_mut(&mut self, _data: &mut sir_data::operation::SetDataOffsetData) {}
+    fn visit_set_data_offset_mut(&mut self, _data: &mut SetDataOffsetData) {}
 
-    fn visit_icall_mut(&mut self, data: &mut sir_data::operation::InternalCallData) {
-        let start = data.ins_start.idx();
-        let end = data.outs_start.idx();
-        for i in start..end {
-            replace_if_copied(&mut self.locals[i], &self.copy_map);
+    fn visit_icall_mut(&mut self, data: &mut InternalCallData) {
+        for idx in Span::new(data.ins_start, data.outs_start).iter() {
+            replace_if_copied(&mut self.locals[idx], &self.copy_map);
         }
     }
 
@@ -67,26 +68,27 @@ impl OpVisitorMut<()> for CopyReplacer<'_> {
 pub fn run(program: &mut EthIRProgram) {
     let mut copy_map: HashMap<LocalId, LocalId> = HashMap::new();
     for bb in program.basic_blocks.iter_mut() {
-        let ops_range = bb.operations.clone();
         copy_map.clear();
 
+        let ops_range = bb.operations.clone();
         for op in &mut program.operations[ops_range.clone()] {
-            if let sir_data::Operation::SetCopy(InlineOperands { ins: [src], outs: [dst] }) = op {
+            if let Operation::SetCopy(InlineOperands { ins: [src], outs: [dst] }) = op {
                 let resolved_src = copy_map.get(src).unwrap_or(src);
-                copy_map.insert(*dst, *resolved_src);
+                let prev = copy_map.insert(*dst, *resolved_src);
+                debug_assert!(prev.is_none(), "SSA violation: {:?} defined twice", dst);
             }
         }
 
-        let locals = program.locals.as_raw_slice_mut();
+        let span = Span::new(LocalIndex::new(0), program.locals.len_idx());
+        let locals = program.locals.rel_slice_mut(span);
         let mut replacer = CopyReplacer { copy_map: &copy_map, locals };
         for op in &mut program.operations[ops_range] {
             op.visit_data_mut(&mut replacer);
         }
 
-        let outputs_range = bb.outputs.clone();
-        for index in outputs_range.start.idx()..outputs_range.end.idx() {
-            let local = &mut locals[index];
-            replace_if_copied(local, &copy_map);
+        let mut locals = program.locals.rel_slice_mut(span);
+        for idx in Span::new(bb.outputs.start, bb.outputs.end).iter() {
+            replace_if_copied(&mut locals[idx], &copy_map);
         }
 
         match &mut bb.control {
