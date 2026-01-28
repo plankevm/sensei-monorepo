@@ -1,6 +1,6 @@
 use std::marker::PhantomData;
 
-use crate::{Span, index::X32, span::IncIterable};
+use crate::{index::X32, span::IncIterable, Span};
 use allocator_api2::{
     alloc::{Allocator, Global},
     vec::Vec,
@@ -219,98 +219,6 @@ impl<'a, I, T> IntoIterator for RelSliceMut<'a, I, T> {
 
     fn into_iter(self) -> Self::IntoIter {
         self.data.iter_mut()
-    }
-}
-
-/// An owned slice with an associated offset index for absolute indexing.
-///
-/// This type stores the offset inline and owns the slice data, allowing it to be
-/// passed around and stored without lifetime constraints.
-pub struct RelIndexBox<I, T> {
-    offset: u32,
-    data: Box<[T]>,
-    _marker: PhantomData<I>,
-}
-
-impl<I, T> RelIndexBox<I, T> {
-    /// Creates a new `RelIndexBox` from an offset and boxed slice.
-    pub fn new(offset: X32<I>, data: Box<[T]>) -> Self {
-        Self { offset: offset.get(), data, _marker: PhantomData }
-    }
-
-    /// Returns the starting offset index.
-    #[inline]
-    pub fn start_idx(&self) -> X32<I> {
-        X32::new(self.offset)
-    }
-
-    /// Returns a reference to the underlying slice.
-    #[inline]
-    pub fn as_raw_slice(&self) -> &[T] {
-        &self.data
-    }
-
-    /// Returns a mutable reference to the underlying slice.
-    #[inline]
-    pub fn as_raw_slice_mut(&mut self) -> &mut [T] {
-        &mut self.data
-    }
-
-    /// Returns the number of elements.
-    #[inline]
-    pub fn len(&self) -> usize {
-        self.data.len()
-    }
-
-    /// Returns `true` if empty.
-    #[inline]
-    pub fn is_empty(&self) -> bool {
-        self.data.is_empty()
-    }
-
-    /// Returns an immutable `RelSlice` view.
-    #[inline]
-    pub fn as_rel_slice(&self) -> RelSlice<'_, I, T> {
-        RelSlice { offset: self.offset, data: &self.data, _marker: PhantomData }
-    }
-
-    /// Returns a mutable `RelSliceMut` view.
-    #[inline]
-    pub fn as_rel_slice_mut(&mut self) -> RelSliceMut<'_, I, T> {
-        RelSliceMut { offset: self.offset, data: &mut self.data, _marker: PhantomData }
-    }
-}
-
-impl<I, T> std::ops::Index<X32<I>> for RelIndexBox<I, T> {
-    type Output = T;
-
-    #[inline]
-    fn index(&self, index: X32<I>) -> &Self::Output {
-        let relative = index.get() - self.offset;
-        &self.data[relative as usize]
-    }
-}
-
-impl<I, T> std::ops::IndexMut<X32<I>> for RelIndexBox<I, T> {
-    #[inline]
-    fn index_mut(&mut self, index: X32<I>) -> &mut Self::Output {
-        let relative = index.get() - self.offset;
-        &mut self.data[relative as usize]
-    }
-}
-
-impl<I, T: std::fmt::Debug> std::fmt::Debug for RelIndexBox<I, T> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("RelIndexBox")
-            .field("offset", &self.offset)
-            .field("data", &&*self.data)
-            .finish()
-    }
-}
-
-impl<I, T: Clone> Clone for RelIndexBox<I, T> {
-    fn clone(&self) -> Self {
-        Self { offset: self.offset, data: self.data.clone(), _marker: PhantomData }
     }
 }
 

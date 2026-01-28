@@ -1,6 +1,4 @@
-pub use sensei_core::{
-    DenseIndexSet, IndexVec, RelIndexBox, RelSlice, RelSliceMut, Span, X32, index_vec,
-};
+pub use sensei_core::{index_vec, DenseIndexSet, IndexVec, RelSlice, RelSliceMut, Span, X32};
 
 pub enum CasesBasicBlocksIndexMarker {}
 pub enum FunctionIdMarker {}

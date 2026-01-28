@@ -8,7 +8,7 @@ pub mod span;
 pub use crate::{
     dense_index_set::DenseIndexSet,
     index::X32,
-    index_vec::{IndexVec, RelIndexBox, RelSlice, RelSliceMut},
+    index_vec::{IndexVec, RelSlice, RelSliceMut},
     span::{IncIterable, Span},
 };
 
