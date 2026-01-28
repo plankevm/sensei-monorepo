@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use sir_data::{
-    BasicBlockId, Control, EthIRProgram, LocalId,
+    Control, EthIRProgram, LocalId, LocalIdMarker, X32,
     operation::{InlineOperands, OpVisitorMut},
 };
 
@@ -10,15 +10,19 @@ struct CopyReplacer<'a> {
     locals: &'a mut [LocalId],
 }
 
+fn replace_if_copied(input: &mut X32<LocalIdMarker>, copy_map: &HashMap<LocalId, LocalId>) {
+    if let Some(replacement) = copy_map.get(input) {
+        *input = *replacement;
+    }
+}
+
 impl OpVisitorMut<()> for CopyReplacer<'_> {
     fn visit_inline_operands_mut<const INS: usize, const OUTS: usize>(
         &mut self,
         data: &mut InlineOperands<INS, OUTS>,
     ) {
         for input in &mut data.ins {
-            if let Some(&replacement) = self.copy_map.get(input) {
-                *input = replacement;
-            }
+            replace_if_copied(input, &self.copy_map);
         }
     }
 
@@ -28,27 +32,19 @@ impl OpVisitorMut<()> for CopyReplacer<'_> {
     ) {
         let start = data.ins_start.idx();
         for i in start..start + INS {
-            if let Some(&replacement) = self.copy_map.get(&self.locals[i]) {
-                self.locals[i] = replacement;
-            }
+            replace_if_copied(&mut self.locals[i], &self.copy_map);
         }
     }
 
     fn visit_static_alloc_mut(&mut self, _data: &mut sir_data::operation::StaticAllocData) {}
 
     fn visit_memory_load_mut(&mut self, data: &mut sir_data::operation::MemoryLoadData) {
-        if let Some(&replacement) = self.copy_map.get(&data.ptr) {
-            data.ptr = replacement;
-        }
+        replace_if_copied(&mut data.ptr, &self.copy_map);
     }
 
     fn visit_memory_store_mut(&mut self, data: &mut sir_data::operation::MemoryStoreData) {
-        if let Some(&r) = self.copy_map.get(&data.ptr) {
-            data.ptr = r;
-        }
-        if let Some(&r) = self.copy_map.get(&data.value) {
-            data.value = r;
-        }
+        replace_if_copied(&mut data.ptr, &self.copy_map);
+        replace_if_copied(&mut data.value, &self.copy_map);
     }
 
     fn visit_set_small_const_mut(&mut self, _data: &mut sir_data::operation::SetSmallConstData) {}
@@ -61,9 +57,7 @@ impl OpVisitorMut<()> for CopyReplacer<'_> {
         let start = data.ins_start.idx();
         let end = data.outs_start.idx();
         for i in start..end {
-            if let Some(&replacement) = self.copy_map.get(&self.locals[i]) {
-                self.locals[i] = replacement;
-            }
+            replace_if_copied(&mut self.locals[i], &self.copy_map);
         }
     }
 
@@ -71,10 +65,10 @@ impl OpVisitorMut<()> for CopyReplacer<'_> {
 }
 
 pub fn run(program: &mut EthIRProgram) {
-    for idx in 0..program.basic_blocks.len() {
-        let block_idx = BasicBlockId::new(idx as u32);
-        let ops_range = program.basic_blocks[block_idx].operations.clone();
-        let mut copy_map: HashMap<LocalId, LocalId> = HashMap::new();
+    let mut copy_map: HashMap<LocalId, LocalId> = HashMap::new();
+    for bb in program.basic_blocks.iter_mut() {
+        let ops_range = bb.operations.clone();
+        copy_map.clear();
 
         for op in &mut program.operations[ops_range.clone()] {
             if let sir_data::Operation::SetCopy(InlineOperands { ins: [src], outs: [dst] }) = op {
@@ -89,24 +83,18 @@ pub fn run(program: &mut EthIRProgram) {
             op.visit_data_mut(&mut replacer);
         }
 
-        let outputs_range = program.basic_blocks[block_idx].outputs.clone();
+        let outputs_range = bb.outputs.clone();
         for index in outputs_range.start.idx()..outputs_range.end.idx() {
             let local = &mut locals[index];
-            if let Some(&replacement) = copy_map.get(local) {
-                *local = replacement;
-            }
+            replace_if_copied(local, &copy_map);
         }
 
-        match &mut program.basic_blocks[block_idx].control {
+        match &mut bb.control {
             Control::Branches(branch) => {
-                if let Some(&r) = copy_map.get(&branch.condition) {
-                    branch.condition = r;
-                }
+                replace_if_copied(&mut branch.condition, &copy_map);
             }
             Control::Switch(switch) => {
-                if let Some(&r) = copy_map.get(&switch.condition) {
-                    switch.condition = r;
-                }
+                replace_if_copied(&mut switch.condition, &copy_map);
             }
             _ => {}
         }

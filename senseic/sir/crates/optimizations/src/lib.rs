@@ -6,14 +6,10 @@ pub enum Optimization {
     CopyPropagation,
 }
 
-pub trait CompilerOptimization {
-    fn apply(&mut self, optimization: Optimization);
-}
-
-impl CompilerOptimization for EthIRProgram {
-    fn apply(&mut self, optimization: Optimization) {
-        match optimization {
-            Optimization::CopyPropagation => copy_propagation::run(self),
+impl Optimization {
+    pub fn apply(&self, ir: &mut EthIRProgram) {
+        match self {
+            Optimization::CopyPropagation => copy_propagation::run(ir),
         }
     }
 }

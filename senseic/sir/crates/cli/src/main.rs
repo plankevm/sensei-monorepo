@@ -1,5 +1,5 @@
 use clap::Parser;
-use sir_optimizations::{CompilerOptimization, Optimization};
+use sir_optimizations::Optimization;
 use sir_parser::{EmitConfig, parse_or_panic};
 use std::{
     fs,
@@ -70,7 +70,7 @@ fn main() {
     let mut program = parse_or_panic(&source, config);
 
     if cli.copy_propagation {
-        program.apply(Optimization::CopyPropagation);
+        Optimization::CopyPropagation.apply(&mut program);
     }
 
     let mut bytecode = Vec::with_capacity(0x6000);
