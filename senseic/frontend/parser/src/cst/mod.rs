@@ -79,6 +79,7 @@ pub enum NodeKind {
     AssignStmt,
     ExprStmt,
     WhileStmt,
+    InlineWhileStmt,
 
     // Expressions
     BinaryExpr(BinaryOp),
@@ -114,7 +115,12 @@ pub enum NodeKind {
 impl NodeKind {
     pub fn expr_requires_semi_as_stmt(&self) -> Option<bool> {
         match self {
-            Self::ComptimeBlock | Self::Block | Self::If | Self::Error => Some(false),
+            Self::ComptimeBlock
+            | Self::Block
+            | Self::If
+            | Self::WhileStmt
+            | Self::InlineWhileStmt
+            | Self::Error => Some(false),
             Self::BinaryExpr(_)
             | Self::UnaryExpr(_)
             | Self::ParenExpr

@@ -465,7 +465,42 @@ where
 
     // ========================== STATEMENT PARSING ==========================
 
+    fn try_parse_while(&mut self) -> Option<NodeIdx> {
+        let while_start = self.current_token_idx;
+
+        let is_inline = self.eat(Token::Inline);
+
+        if is_inline {
+            self.expect(Token::While);
+        } else if !self.eat(Token::While) {
+            return None;
+        }
+
+        let kind = if is_inline { NodeKind::InlineWhileStmt } else { NodeKind::WhileStmt };
+
+        let mut while_stmt = self.alloc_node_from(while_start, kind);
+
+        let condition = self.parse_expr(ParseExprMode::CondExpr);
+        self.push_child(&mut while_stmt, condition);
+
+        let body = self.parse_block(self.current_token_idx, NodeKind::Block);
+        self.push_child(&mut while_stmt, body);
+
+        Some(self.close_node(while_stmt))
+    }
+
     fn try_parse_stmt(&mut self) -> Option<StmtResult> {
+        self.skip_trivia();
+
+        if let Some(r#while) = self.try_parse_while() {
+            return Some(StmtResult::Statement(r#while));
+        }
+
+        if self.check(Token::While) {
+            let while_stmt = self.try_parse_while()?;
+            return Some(StmtResult::MaybeEndExpr(while_stmt));
+        }
+
         let stmt_start = self.current_token_idx;
         let expr = self.try_parse_expr(ParseExprMode::AllowAll)?;
 

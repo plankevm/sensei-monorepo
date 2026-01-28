@@ -1589,23 +1589,25 @@ fn test_while_basic() {
                 "init"
                 " "
                 "{"
-                " "
-                WhileStmt
-                    "while"
+                StatementsList
                     " "
-                    Identifier
-                        "x"
+                    WhileStmt
+                        "while"
+                        " "
+                        Identifier
+                            "x"
+                        " "
+                        Block
+                            "{"
+                            StatementsList
+                                " "
+                                ExprStmt
+                                    Identifier
+                                        "y"
+                                    ";"
+                                " "
+                            "}"
                     " "
-                    Block
-                        "{"
-                        " "
-                        ExprStmt
-                            Identifier
-                                "y"
-                            ";"
-                        " "
-                        "}"
-                " "
                 "}"
         "#,
     );
@@ -1621,25 +1623,27 @@ fn test_while_inline() {
                 "init"
                 " "
                 "{"
-                " "
-                WhileStmt
-                    "inline"
+                StatementsList
                     " "
-                    "while"
-                    " "
-                    Identifier
-                        "x"
-                    " "
-                    Block
-                        "{"
+                    InlineWhileStmt
+                        "inline"
                         " "
-                        ExprStmt
-                            Identifier
-                                "y"
-                            ";"
+                        "while"
                         " "
-                        "}"
-                " "
+                        Identifier
+                            "x"
+                        " "
+                        Block
+                            "{"
+                            StatementsList
+                                " "
+                                ExprStmt
+                                    Identifier
+                                        "y"
+                                    ";"
+                                " "
+                            "}"
+                    " "
                 "}"
         "#,
     );
