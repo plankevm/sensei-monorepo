@@ -23,20 +23,23 @@ Cargo workspace with general-purpose crates in `crates/` and frontend crates in 
     - `span.rs`: Range-like start, end with a more convenient API
     - `bigint.rs`: Arena allocated big int with parsing helpers
 - **sensei-parser** (`frontend/parser`):
-  - `lexer.rs`: Token lexer using the `logos` crate
-  - `cst.rs`: Homogeneous syntax tree that stores well-formed nodes & errors
-  - `parser.rs`: LSP-grade error resilient parser
+    - `lexer.rs`: Token lexer using the `logos` crate
+    - `cst.rs`: Homogeneous syntax tree that stores well-formed nodes & errors
+    - `parser.rs`: LSP-grade error resilient parser
 
 
 ## Coding Style
 
 ### Comments
-Do NOT add inline comments that describe what the code does 
-(e.g., "// Parse next element"). The code should be self-documenting. 
+Do NOT add inline comments that describe *what* the code does
+(e.g., "// Parse next element"). The code should be self-documenting.
 Only add comments for non-obvious *why* decisions.
 
 ### Type Driven Development
 - Always prefer a compile-time, type-level check over a runtime check
 - Liberally use panic-triggering asserts (`assert!`, `assert_eq!`, `.unwrap()`,
-  `.expect(comment on what this assert is check)`) but only for invariants &
-  assumptions that **CANNOT BE ENFORCED VIA THE TYPE SYSTEM**
+    `.expect(comment on what this assert is check)`) but only for invariants &
+    assumptions that **CANNOT BE ENFORCED VIA THE TYPE SYSTEM**
+- Always use the most precise type possible, favor the new typed indices,
+    IndexVec and RelSlice type variants instead of the general purpose u32/usize,
+    Vec & [T] alternatives.
