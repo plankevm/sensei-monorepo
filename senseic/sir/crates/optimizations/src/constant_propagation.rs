@@ -1,8 +1,12 @@
 use std::collections::HashMap;
 
 use sir_data::{
-    BasicBlockId, EthIRProgram, LargeConstId, LocalId, Operation,
-    operation::{InlineOperands, SetLargeConstData, SetSmallConstData},
+    BasicBlockId, EthIRProgram, LargeConstId, LocalId, LocalIdMarker, LocalIndexMarker, Operation,
+    RelSliceMut, Span, X32,
+    operation::{
+        AllocatedIns, InlineOperands, InternalCallData, MemoryLoadData, MemoryStoreData,
+        OpVisitorMut, SetDataOffsetData, SetLargeConstData, SetSmallConstData, StaticAllocData,
+    },
 };
 
 #[derive(PartialEq, Clone, Eq, Hash)]
@@ -261,7 +265,73 @@ pub fn run(program: &mut EthIRProgram) {
         &mut replacements,
     );
 
+    let locals = program.locals.as_rel_slice_mut();
+    let mut replacer =
+        ConstantReplacer { constant_map: &constant_map, first_occurence: &first_occurence, locals };
     for bb in program.basic_blocks.iter() {
-        for op in &program.operations[bb.operations] {}
+        for op in &mut program.operations[bb.operations] {
+            op.visit_data_mut(&mut replacer);
+        }
     }
+}
+
+fn replace_constant(
+    input: &mut X32<LocalIdMarker>,
+    constant_map: &HashMap<LocalId, ConstValue>,
+    first_occurence: &HashMap<ConstValue, LocalId>,
+) {
+    if let Some(replacement) = constant_map.get(input) {
+        *input = first_occurence[replacement];
+    }
+}
+
+struct ConstantReplacer<'a> {
+    constant_map: &'a HashMap<LocalId, ConstValue>,
+    first_occurence: &'a HashMap<ConstValue, LocalId>,
+    locals: RelSliceMut<'a, LocalIndexMarker, LocalId>,
+}
+
+impl OpVisitorMut<()> for ConstantReplacer<'_> {
+    fn visit_inline_operands_mut<const INS: usize, const OUTS: usize>(
+        &mut self,
+        data: &mut InlineOperands<INS, OUTS>,
+    ) -> () {
+        for input in &mut data.ins {
+            replace_constant(input, &self.constant_map, &self.first_occurence);
+        }
+    }
+
+    fn visit_allocated_ins_mut<const INS: usize, const OUTS: usize>(
+        &mut self,
+        data: &mut AllocatedIns<INS, OUTS>,
+    ) -> () {
+        for idx in Span::new(data.ins_start, data.ins_start + INS as u32).iter() {
+            replace_constant(&mut self.locals[idx], &self.constant_map, &self.first_occurence);
+        }
+    }
+
+    fn visit_static_alloc_mut(&mut self, _data: &mut StaticAllocData) -> () {}
+
+    fn visit_memory_load_mut(&mut self, data: &mut MemoryLoadData) -> () {
+        replace_constant(&mut data.ptr, &self.constant_map, &self.first_occurence);
+    }
+
+    fn visit_memory_store_mut(&mut self, data: &mut MemoryStoreData) -> () {
+        replace_constant(&mut data.ptr, &self.constant_map, &self.first_occurence);
+        replace_constant(&mut data.value, &self.constant_map, &self.first_occurence);
+    }
+
+    fn visit_set_small_const_mut(&mut self, _data: &mut SetSmallConstData) -> () {}
+
+    fn visit_set_large_const_mut(&mut self, _data: &mut SetLargeConstData) -> () {}
+
+    fn visit_set_data_offset_mut(&mut self, _data: &mut SetDataOffsetData) -> () {}
+
+    fn visit_icall_mut(&mut self, data: &mut InternalCallData) -> () {
+        for idx in Span::new(data.ins_start, data.outs_start).iter() {
+            replace_constant(&mut self.locals[idx], &self.constant_map, &self.first_occurence);
+        }
+    }
+
+    fn visit_void_mut(&mut self) -> () {}
 }
