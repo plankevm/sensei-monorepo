@@ -167,6 +167,37 @@ fn test_member_access_single() {
 }
 
 #[test]
+fn test_member_priority() {
+    assert_parses_to_cst_no_errors_dedented(
+        "const x = 3 * a.b;",
+        r#"
+        File
+            ConstDecl
+                "const"
+                " "
+                Identifier
+                    "x"
+                " "
+                "="
+                BinaryExpr(Star)
+                    " "
+                    LiteralExpr
+                        "3"
+                    " "
+                    "*"
+                    MemberExpr
+                        " "
+                        Identifier
+                            "a"
+                        "."
+                        Identifier
+                            "b"
+                ";"
+        "#,
+    );
+}
+
+#[test]
 fn test_member_access_chain() {
     assert_parses_to_cst_no_errors_dedented(
         "const x = a.b.c;",

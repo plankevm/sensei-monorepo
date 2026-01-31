@@ -89,7 +89,7 @@ where
     D: DiagnosticsContext,
 {
     const UNARY_PRIORITY: OpPriority = OpPriority(19);
-    const _MEMBER_PRIORITY: OpPriority = OpPriority(21);
+    const MEMBER_PRIORITY: OpPriority = OpPriority(21);
 
     fn new(
         arena: &'ast Bump,
@@ -426,7 +426,7 @@ where
         };
 
         loop {
-            if self.eat(Token::Dot) {
+            if Self::MEMBER_PRIORITY > min_bp && self.eat(Token::Dot) {
                 let mut member = self.alloc_node_from(start, NodeKind::MemberExpr);
                 self.push_child(&mut member, expr);
                 let access_name = if self.expect(Token::Identifier) {
