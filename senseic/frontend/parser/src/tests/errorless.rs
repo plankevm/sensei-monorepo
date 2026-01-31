@@ -641,10 +641,9 @@ fn test_if_expr_if_else() {
                         "{"
                         StatementsList
                             " "
-                            ExprStmt
-                                Identifier
-                                    "b"
-                                ";"
+                            Identifier
+                                "b"
+                            ";"
                             " "
                         "}"
                     ElseIfBranchList
@@ -655,10 +654,9 @@ fn test_if_expr_if_else() {
                         "{"
                         StatementsList
                             " "
-                            ExprStmt
-                                Identifier
-                                    "c"
-                                ";"
+                            Identifier
+                                "c"
+                            ";"
                             " "
                         "}"
                 ";"
@@ -690,10 +688,9 @@ fn test_if_expr_if_elseif_else() {
                         "{"
                         StatementsList
                             " "
-                            ExprStmt
-                                Identifier
-                                    "b"
-                                ";"
+                            Identifier
+                                "b"
+                            ";"
                             " "
                         "}"
                     ElseIfBranchList
@@ -710,10 +707,9 @@ fn test_if_expr_if_elseif_else() {
                                 "{"
                                 StatementsList
                                     " "
-                                    ExprStmt
-                                        Identifier
-                                            "d"
-                                        ";"
+                                    Identifier
+                                        "d"
+                                    ";"
                                     " "
                                 "}"
                         " "
@@ -723,10 +719,9 @@ fn test_if_expr_if_elseif_else() {
                         "{"
                         StatementsList
                             " "
-                            ExprStmt
-                                Identifier
-                                    "e"
-                                ";"
+                            Identifier
+                                "e"
+                            ";"
                             " "
                         "}"
                 ";"
@@ -1032,10 +1027,9 @@ fn test_fn_def_full() {
                     Block
                         "{"
                         " "
-                        ExprStmt
-                            Identifier
-                                "x"
-                            ";"
+                        Identifier
+                            "x"
+                        ";"
                         " "
                         "}"
                 ";"
@@ -1345,10 +1339,9 @@ fn test_block_atom_expr_stmt() {
                 "{"
                 StatementsList
                     " "
-                    ExprStmt
-                        LiteralExpr
-                            "34"
-                        ";"
+                    LiteralExpr
+                        "34"
+                    ";"
                     " "
                 "}"
         "#,
@@ -1367,15 +1360,13 @@ fn test_block_end_expr() {
                 "{"
                 StatementsList
                     " "
-                    ExprStmt
-                        LiteralExpr
-                            "34"
-                        ";"
+                    LiteralExpr
+                        "34"
+                    ";"
                     " "
-                    ExprStmt
-                        LiteralExpr
-                            "35"
-                        ";"
+                    LiteralExpr
+                        "35"
+                    ";"
                     " "
                 Identifier
                     "bob"
@@ -1520,35 +1511,23 @@ fn test_let_full() {
 #[test]
 fn test_return_stmt() {
     assert_parses_to_cst_no_errors_dedented(
-        "const f = fn() { return 42; };",
+        "init { return 42; }",
         r#"
         File
-            ConstDecl
-                "const"
+            InitBlock
+                "init"
                 " "
-                Identifier
-                    "f"
-                " "
-                "="
-                FnDef
+                "{"
+                StatementsList
                     " "
-                    "fn"
-                    "("
-                    ParamList
-                    ")"
+                    ReturnStmt
+                        "return"
+                        " "
+                        LiteralExpr
+                            "42"
+                        ";"
                     " "
-                    Block
-                        "{"
-                        " "
-                        ReturnStmt
-                            "return"
-                            " "
-                            LiteralExpr
-                                "42"
-                            ";"
-                        " "
-                        "}"
-                ";"
+                "}"
         "#,
     );
 }
@@ -1601,10 +1580,9 @@ fn test_while_basic() {
                             "{"
                             StatementsList
                                 " "
-                                ExprStmt
-                                    Identifier
-                                        "y"
-                                    ";"
+                                Identifier
+                                    "y"
+                                ";"
                                 " "
                             "}"
                     " "
@@ -1637,10 +1615,9 @@ fn test_while_inline() {
                             "{"
                             StatementsList
                                 " "
-                                ExprStmt
-                                    Identifier
-                                        "y"
-                                    ";"
+                                Identifier
+                                    "y"
+                                ";"
                                 " "
                             "}"
                     " "
@@ -1671,10 +1648,9 @@ fn test_if_stmt_if_only() {
                         "{"
                         StatementsList
                             " "
-                            ExprStmt
-                                Identifier
-                                    "y"
-                                ";"
+                            Identifier
+                                "y"
+                            ";"
                             " "
                         "}"
                     ElseIfBranchList
@@ -1715,10 +1691,9 @@ fn test_if_stmt_if_elseif() {
                         "{"
                         StatementsList
                             "\n        "
-                            ExprStmt
-                                Identifier
-                                    "b"
-                                ";"
+                            Identifier
+                                "b"
+                            ";"
                             "\n    "
                         "}"
                     ElseIfBranchList
@@ -1735,10 +1710,9 @@ fn test_if_stmt_if_elseif() {
                                 "{"
                                 StatementsList
                                     "\n        "
-                                    ExprStmt
-                                        Identifier
-                                            "d"
-                                        ";"
+                                    Identifier
+                                        "d"
+                                    ";"
                                     "\n    "
                                 "}"
                         "\n"

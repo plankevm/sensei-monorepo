@@ -77,7 +77,6 @@ pub enum NodeKind {
     LetStmt,
     ReturnStmt,
     AssignStmt,
-    ExprStmt,
     WhileStmt,
     InlineWhileStmt,
 

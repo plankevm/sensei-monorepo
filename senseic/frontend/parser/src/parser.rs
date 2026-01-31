@@ -24,8 +24,8 @@ enum ParseExprMode {
 
 enum StmtResult {
     Statement(NodeIdx),
-    MaybeEndExpr(NodeIdx),
-    ForcedEndExpr(NodeIdx),
+    EndExprOrStmt(NodeIdx),
+    EndExpr(NodeIdx),
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -496,19 +496,20 @@ where
             return Some(StmtResult::Statement(r#while));
         }
 
-        if self.check(Token::While) {
-            let while_stmt = self.try_parse_while()?;
-            return Some(StmtResult::MaybeEndExpr(while_stmt));
+        let stmt_start = self.current_token_idx;
+
+        if self.eat(Token::Return) {
+            let mut r#return = self.alloc_node_from(stmt_start, NodeKind::ReturnStmt);
+            let return_expr = self.parse_expr(ParseExprMode::AllowAll);
+            self.push_child(&mut r#return, return_expr);
+            self.expect(Token::Semicolon);
+            let r#return = self.close_node(r#return);
+            return Some(StmtResult::Statement(r#return));
         }
 
-        let stmt_start = self.current_token_idx;
         let expr = self.try_parse_expr(ParseExprMode::AllowAll)?;
-
         if self.eat(Token::Semicolon) {
-            let mut expr_stmt = self.alloc_node_from(stmt_start, NodeKind::ExprStmt);
-            self.push_child(&mut expr_stmt, expr);
-            let expr_stmt = self.close_node(expr_stmt);
-            return Some(StmtResult::Statement(expr_stmt));
+            return Some(StmtResult::Statement(expr));
         }
 
         let expr_kind = self.nodes[expr].kind;
@@ -517,9 +518,9 @@ where
             .unwrap_or_else(|| panic!("`try_parse_expr` returned non-expr node {:?}", expr_kind));
 
         if requires_semi {
-            Some(StmtResult::ForcedEndExpr(expr))
+            Some(StmtResult::EndExpr(expr))
         } else {
-            Some(StmtResult::MaybeEndExpr(expr))
+            Some(StmtResult::EndExprOrStmt(expr))
         }
     }
 
@@ -543,8 +544,8 @@ where
 
             match result {
                 StmtResult::Statement(stmt) => self.push_child(&mut statements_list, stmt),
-                StmtResult::MaybeEndExpr(expr) => end_expr = Some(expr),
-                StmtResult::ForcedEndExpr(expr) => {
+                StmtResult::EndExprOrStmt(expr) => end_expr = Some(expr),
+                StmtResult::EndExpr(expr) => {
                     end_expr = Some(expr);
                     break;
                 }
