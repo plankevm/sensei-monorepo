@@ -300,6 +300,15 @@ where
         None
     }
 
+    fn expect_ident(&mut self) -> NodeIdx {
+        if self.expect(Token::Identifier) {
+            self.alloc_last_token_as_node(NodeKind::Identifier)
+        } else {
+            let error = self.alloc_node(NodeKind::Error);
+            self.close_node(error)
+        }
+    }
+
     // ========================== EXPRESSION PARSING ==========================
 
     fn try_parse_conditional(&mut self) -> Option<NodeIdx> {
@@ -429,12 +438,7 @@ where
             if Self::MEMBER_PRIORITY > min_bp && self.eat(Token::Dot) {
                 let mut member = self.alloc_node_from(start, NodeKind::MemberExpr);
                 self.push_child(&mut member, expr);
-                let access_name = if self.expect(Token::Identifier) {
-                    self.alloc_last_token_as_node(NodeKind::Identifier)
-                } else {
-                    let error = self.alloc_node(NodeKind::Error);
-                    self.close_node(error)
-                };
+                let access_name = self.expect_ident();
                 self.push_child(&mut member, access_name);
                 expr = self.close_node(member);
                 continue;
@@ -465,9 +469,7 @@ where
 
     // ========================== STATEMENT PARSING ==========================
 
-    fn try_parse_while(&mut self) -> Option<NodeIdx> {
-        let while_start = self.current_token_idx;
-
+    fn try_parse_while(&mut self, while_start: TokenIdx) -> Option<NodeIdx> {
         let is_inline = self.eat(Token::Inline);
 
         if is_inline {
@@ -490,13 +492,13 @@ where
     }
 
     fn try_parse_stmt(&mut self) -> Option<StmtResult> {
+        let stmt_start = self.current_token_idx;
+
         self.skip_trivia();
 
-        if let Some(r#while) = self.try_parse_while() {
+        if let Some(r#while) = self.try_parse_while(stmt_start) {
             return Some(StmtResult::Statement(r#while));
         }
-
-        let stmt_start = self.current_token_idx;
 
         if self.eat(Token::Return) {
             let mut r#return = self.alloc_node_from(stmt_start, NodeKind::ReturnStmt);
@@ -596,19 +598,13 @@ where
         let start = self.current_token_idx;
         assert!(self.expect(Token::Const));
 
-        let mut r#const = self.alloc_node_from(start, NodeKind::ConstDecl);
-
-        let name = if self.expect(Token::Identifier) {
-            self.alloc_last_token_as_node(NodeKind::Identifier)
-        } else {
-            let error = self.alloc_node(NodeKind::Error);
-            self.close_node(error)
-        };
+        let mut r#const = self.alloc_node_from(start, NodeKind::ConstDecl { typed: false });
+        let name = self.expect_ident();
         self.push_child(&mut r#const, name);
 
         // Optional type annotation
         if self.eat(Token::Colon) {
-            self.update_kind(r#const, NodeKind::TypedConstDecl);
+            self.update_kind(r#const, NodeKind::ConstDecl { typed: true });
             let type_expr = self.parse_expr(ParseExprMode::TypeExpr);
             self.push_child(&mut r#const, type_expr);
         }

@@ -17,7 +17,7 @@ fn test_literal_bool_true() {
         "const x = true;",
         r#"
         File
-            ConstDecl
+            ConstDecl { typed: false }
                 "const"
                 " "
                 Identifier
@@ -38,7 +38,7 @@ fn test_literal_bool_false() {
         "const x = false;",
         r#"
         File
-            ConstDecl
+            ConstDecl { typed: false }
                 "const"
                 " "
                 Identifier
@@ -59,7 +59,7 @@ fn test_literal_hex() {
         "const x = 0xFF;",
         r#"
         File
-            ConstDecl
+            ConstDecl { typed: false }
                 "const"
                 " "
                 Identifier
@@ -80,7 +80,7 @@ fn test_literal_binary() {
         "const x = 0b1010;",
         r#"
         File
-            ConstDecl
+            ConstDecl { typed: false }
                 "const"
                 " "
                 Identifier
@@ -101,7 +101,7 @@ fn test_literal_decimal() {
         "const x = 3469;",
         r#"
         File
-            ConstDecl
+            ConstDecl { typed: false }
                 "const"
                 " "
                 Identifier
@@ -126,7 +126,7 @@ fn test_ident_simple() {
         "const x = foo;",
         r#"
         File
-            ConstDecl
+            ConstDecl { typed: false }
                 "const"
                 " "
                 Identifier
@@ -147,7 +147,7 @@ fn test_member_access_single() {
         "const x = a.b;",
         r#"
         File
-            ConstDecl
+            ConstDecl { typed: false }
                 "const"
                 " "
                 Identifier
@@ -172,7 +172,7 @@ fn test_member_priority() {
         "const x = 3 * a.b;",
         r#"
         File
-            ConstDecl
+            ConstDecl { typed: false }
                 "const"
                 " "
                 Identifier
@@ -203,7 +203,7 @@ fn test_member_access_chain() {
         "const x = a.b.c;",
         r#"
         File
-            ConstDecl
+            ConstDecl { typed: false }
                 "const"
                 " "
                 Identifier
@@ -236,7 +236,7 @@ fn test_paren_expr_simple() {
         "const x = (42);",
         r#"
         File
-            ConstDecl
+            ConstDecl { typed: false }
                 "const"
                 " "
                 Identifier
@@ -260,7 +260,7 @@ fn test_paren_expr_nested() {
         "const x = ((a));",
         r#"
         File
-            ConstDecl
+            ConstDecl { typed: false }
                 "const"
                 " "
                 Identifier
@@ -291,7 +291,7 @@ fn test_unary_minus() {
         "const x = -a;",
         r#"
         File
-            ConstDecl
+            ConstDecl { typed: false }
                 "const"
                 " "
                 Identifier
@@ -314,7 +314,7 @@ fn test_unary_not() {
         "const x = !a;",
         r#"
         File
-            ConstDecl
+            ConstDecl { typed: false }
                 "const"
                 " "
                 Identifier
@@ -337,7 +337,7 @@ fn test_unary_tilde() {
         "const x = ~a;",
         r#"
         File
-            ConstDecl
+            ConstDecl { typed: false }
                 "const"
                 " "
                 Identifier
@@ -360,7 +360,7 @@ fn test_unary_nested() {
         "const x = -~a;",
         r#"
         File
-            ConstDecl
+            ConstDecl { typed: false }
                 "const"
                 " "
                 Identifier
@@ -389,7 +389,7 @@ fn test_binary_plus() {
         "const x = a + b;",
         r#"
         File
-            ConstDecl
+            ConstDecl { typed: false }
                 "const"
                 " "
                 Identifier
@@ -416,7 +416,7 @@ fn test_binary_minus() {
         "const x = a - b;",
         r#"
         File
-            ConstDecl
+            ConstDecl { typed: false }
                 "const"
                 " "
                 Identifier
@@ -443,7 +443,7 @@ fn test_binary_double_equals() {
         "const x = a == b;",
         r#"
         File
-            ConstDecl
+            ConstDecl { typed: false }
                 "const"
                 " "
                 Identifier
@@ -470,7 +470,7 @@ fn test_binary_not_equals() {
         "const x = a != b;",
         r#"
         File
-            ConstDecl
+            ConstDecl { typed: false }
                 "const"
                 " "
                 Identifier
@@ -497,7 +497,7 @@ fn test_binary_greater_than() {
         "const x = a > b;",
         r#"
         File
-            ConstDecl
+            ConstDecl { typed: false }
                 "const"
                 " "
                 Identifier
@@ -524,7 +524,7 @@ fn test_binary_and() {
         "const x = a and b;",
         r#"
         File
-            ConstDecl
+            ConstDecl { typed: false }
                 "const"
                 " "
                 Identifier
@@ -551,7 +551,7 @@ fn test_binary_ampersand() {
         "const x = a & b;",
         r#"
         File
-            ConstDecl
+            ConstDecl { typed: false }
                 "const"
                 " "
                 Identifier
@@ -578,7 +578,7 @@ fn test_binary_precedence_mul_add() {
         "const x = 1 + 2 * 3;",
         r#"
         File
-            ConstDecl
+            ConstDecl { typed: false }
                 "const"
                 " "
                 Identifier
@@ -611,7 +611,7 @@ fn test_binary_precedence_cmp_and() {
         "const x = a < b and c > d;",
         r#"
         File
-            ConstDecl
+            ConstDecl { typed: false }
                 "const"
                 " "
                 Identifier
@@ -654,7 +654,7 @@ fn test_if_expr_if_else() {
         "const x = if a { b; } else { c; };",
         r#"
         File
-            ConstDecl
+            ConstDecl { typed: false }
                 "const"
                 " "
                 Identifier
@@ -701,7 +701,7 @@ fn test_if_expr_if_elseif_else() {
         "const x = if a { b; } else if c { d; } else { e; };",
         r#"
         File
-            ConstDecl
+            ConstDecl { typed: false }
                 "const"
                 " "
                 Identifier
@@ -770,7 +770,7 @@ fn test_fn_call_zero_args() {
         "const x = f();",
         r#"
         File
-            ConstDecl
+            ConstDecl { typed: false }
                 "const"
                 " "
                 Identifier
@@ -795,7 +795,7 @@ fn test_fn_call_one_arg() {
         "const x = f(a);",
         r#"
         File
-            ConstDecl
+            ConstDecl { typed: false }
                 "const"
                 " "
                 Identifier
@@ -822,7 +822,7 @@ fn test_fn_call_two_args() {
         "const x = f(a, b);",
         r#"
         File
-            ConstDecl
+            ConstDecl { typed: false }
                 "const"
                 " "
                 Identifier
@@ -853,7 +853,7 @@ fn test_fn_call_trailing_comma() {
         "const x = f(a, b,);",
         r#"
         File
-            ConstDecl
+            ConstDecl { typed: false }
                 "const"
                 " "
                 Identifier
@@ -889,7 +889,7 @@ fn test_fn_def_zero_params() {
         "const f = fn() {};",
         r#"
         File
-            ConstDecl
+            ConstDecl { typed: false }
                 "const"
                 " "
                 Identifier
@@ -917,7 +917,7 @@ fn test_fn_def_one_param() {
         "const f = fn(x: T) {};",
         r#"
         File
-            ConstDecl
+            ConstDecl { typed: false }
                 "const"
                 " "
                 Identifier
@@ -952,7 +952,7 @@ fn test_fn_def_two_params() {
         "const f = fn(x: T, y: U) {};",
         r#"
         File
-            ConstDecl
+            ConstDecl { typed: false }
                 "const"
                 " "
                 Identifier
@@ -996,7 +996,7 @@ fn test_fn_def_with_return_type() {
         "const f = fn() -> T {};",
         r#"
         File
-            ConstDecl
+            ConstDecl { typed: false }
                 "const"
                 " "
                 Identifier
@@ -1029,7 +1029,7 @@ fn test_fn_def_full() {
         "const f = fn(x: T) -> U { x; };",
         r#"
         File
-            ConstDecl
+            ConstDecl { typed: false }
                 "const"
                 " "
                 Identifier
@@ -1078,7 +1078,7 @@ fn test_struct_def_zero_fields() {
         "const S = struct {};",
         r#"
         File
-            ConstDecl
+            ConstDecl { typed: false }
                 "const"
                 " "
                 Identifier
@@ -1103,7 +1103,7 @@ fn test_struct_def_one_field() {
         "const S = struct { x: T };",
         r#"
         File
-            ConstDecl
+            ConstDecl { typed: false }
                 "const"
                 " "
                 Identifier
@@ -1137,7 +1137,7 @@ fn test_struct_def_two_fields() {
         "const S = struct { x: T, y: U };",
         r#"
         File
-            ConstDecl
+            ConstDecl { typed: false }
                 "const"
                 " "
                 Identifier
@@ -1180,7 +1180,7 @@ fn test_struct_def_trailing_comma() {
         "const S = struct { x: T, };",
         r#"
         File
-            ConstDecl
+            ConstDecl { typed: false }
                 "const"
                 " "
                 Identifier
@@ -1219,7 +1219,7 @@ fn test_struct_lit_zero_fields() {
         "const s = S {};",
         r#"
         File
-            ConstDecl
+            ConstDecl { typed: false }
                 "const"
                 " "
                 Identifier
@@ -1245,7 +1245,7 @@ fn test_struct_lit_one_field() {
         "const s = S { x: 1 };",
         r#"
         File
-            ConstDecl
+            ConstDecl { typed: false }
                 "const"
                 " "
                 Identifier
@@ -1280,7 +1280,7 @@ fn test_struct_lit_two_fields() {
         "const s = S { x: 1, y: 2 };",
         r#"
         File
-            ConstDecl
+            ConstDecl { typed: false }
                 "const"
                 " "
                 Identifier
@@ -1324,7 +1324,7 @@ fn test_struct_lit_trailing_comma() {
         "const s = S { x: 1, };",
         r#"
         File
-            ConstDecl
+            ConstDecl { typed: false }
                 "const"
                 " "
                 Identifier
@@ -1803,7 +1803,7 @@ fn test_untyped_const_decl() {
         "const x = 42;",
         r#"
         File
-            ConstDecl
+            ConstDecl { typed: false }
                 "const"
                 " "
                 Identifier
@@ -1824,7 +1824,7 @@ fn test_typed_const_decl() {
         "const y: comptime_int = 67;",
         r#"
         File
-            TypedConstDecl
+            ConstDecl { typed: true }
                 "const"
                 " "
                 Identifier
@@ -1849,7 +1849,7 @@ fn test_empty_block_expr() {
         "const x = {};",
         r#"
         File
-            ConstDecl
+            ConstDecl { typed: false }
                 "const"
                 " "
                 Identifier

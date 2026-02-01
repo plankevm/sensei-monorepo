@@ -66,8 +66,7 @@ pub enum NodeKind {
     File,
 
     // Declarations
-    ConstDecl,
-    TypedConstDecl,
+    ConstDecl { typed: bool },
     InitBlock,
     RunBlock,
 
