@@ -509,6 +509,31 @@ where
             return Some(StmtResult::Statement(r#return));
         }
 
+        if self.eat(Token::Let) {
+            let mutable = self.eat(Token::Mut);
+            let mut r#let =
+                self.alloc_node_from(stmt_start, NodeKind::LetStmt { mutable, typed: false });
+
+            let name = self.expect_ident();
+            self.push_child(&mut r#let, name);
+
+            if self.eat(Token::Colon) {
+                self.update_kind(r#let, NodeKind::LetStmt { mutable, typed: true });
+                let type_expr = self.parse_expr(ParseExprMode::TypeExpr);
+                self.push_child(&mut r#let, type_expr);
+            }
+
+            self.expect(Token::Equals);
+
+            let assign = self.parse_expr(ParseExprMode::AllowAll);
+            self.push_child(&mut r#let, assign);
+
+            self.expect(Token::Semicolon);
+
+            let r#let = self.close_node(r#let);
+            return Some(StmtResult::Statement(r#let));
+        }
+
         let expr = self.try_parse_expr(ParseExprMode::AllowAll)?;
         if self.eat(Token::Semicolon) {
             return Some(StmtResult::Statement(expr));

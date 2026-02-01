@@ -73,7 +73,7 @@ pub enum NodeKind {
     // Statements
     ComptimeBlock,
     Block,
-    LetStmt,
+    LetStmt { mutable: bool, typed: bool },
     ReturnStmt,
     AssignStmt,
     WhileStmt,

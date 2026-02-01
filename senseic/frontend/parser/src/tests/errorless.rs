@@ -1421,19 +1421,20 @@ fn test_let_basic() {
                 "init"
                 " "
                 "{"
-                " "
-                LetStmt
-                    "let"
+                StatementsList
                     " "
-                    Identifier
-                        "x"
+                    LetStmt { mutable: false, typed: false }
+                        "let"
+                        " "
+                        Identifier
+                            "x"
+                        " "
+                        "="
+                        " "
+                        LiteralExpr
+                            "1"
+                        ";"
                     " "
-                    "="
-                    " "
-                    LiteralExpr
-                        "1"
-                    ";"
-                " "
                 "}"
         "#,
     );
@@ -1449,21 +1450,22 @@ fn test_let_with_mut() {
                 "init"
                 " "
                 "{"
-                " "
-                LetStmt
-                    "let"
+                StatementsList
                     " "
-                    "mut"
+                    LetStmt { mutable: true, typed: false }
+                        "let"
+                        " "
+                        "mut"
+                        " "
+                        Identifier
+                            "x"
+                        " "
+                        "="
+                        " "
+                        LiteralExpr
+                            "1"
+                        ";"
                     " "
-                    Identifier
-                        "x"
-                    " "
-                    "="
-                    " "
-                    LiteralExpr
-                        "1"
-                    ";"
-                " "
                 "}"
         "#,
     );
@@ -1479,23 +1481,24 @@ fn test_let_with_type() {
                 "init"
                 " "
                 "{"
-                " "
-                LetStmt
-                    "let"
+                StatementsList
                     " "
-                    Identifier
-                        "x"
-                    ":"
+                    LetStmt { mutable: false, typed: true }
+                        "let"
+                        " "
+                        Identifier
+                            "x"
+                        ":"
+                        " "
+                        Identifier
+                            "T"
+                        " "
+                        "="
+                        " "
+                        LiteralExpr
+                            "1"
+                        ";"
                     " "
-                    Identifier
-                        "T"
-                    " "
-                    "="
-                    " "
-                    LiteralExpr
-                        "1"
-                    ";"
-                " "
                 "}"
         "#,
     );
@@ -1511,25 +1514,26 @@ fn test_let_full() {
                 "init"
                 " "
                 "{"
-                " "
-                LetStmt
-                    "let"
+                StatementsList
                     " "
-                    "mut"
+                    LetStmt { mutable: true, typed: true }
+                        "let"
+                        " "
+                        "mut"
+                        " "
+                        Identifier
+                            "x"
+                        ":"
+                        " "
+                        Identifier
+                            "T"
+                        " "
+                        "="
+                        " "
+                        LiteralExpr
+                            "1"
+                        ";"
                     " "
-                    Identifier
-                        "x"
-                    ":"
-                    " "
-                    Identifier
-                        "T"
-                    " "
-                    "="
-                    " "
-                    LiteralExpr
-                        "1"
-                    ";"
-                " "
                 "}"
         "#,
     );
@@ -1542,7 +1546,11 @@ fn test_let_full() {
 #[test]
 fn test_return_stmt() {
     assert_parses_to_cst_no_errors_dedented(
-        "init { return 42; }",
+        "
+        init {
+            return 42;
+        }
+        ",
         r#"
         File
             InitBlock
@@ -1550,14 +1558,14 @@ fn test_return_stmt() {
                 " "
                 "{"
                 StatementsList
-                    " "
+                    "\n    "
                     ReturnStmt
                         "return"
                         " "
                         LiteralExpr
                             "42"
                         ";"
-                    " "
+                    "\n"
                 "}"
         "#,
     );
