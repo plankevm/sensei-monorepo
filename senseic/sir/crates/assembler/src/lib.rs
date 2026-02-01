@@ -203,14 +203,8 @@ impl Assembler {
         self.sections.iter().map(|&section| section.into())
     }
 
-    fn push(&mut self, section: StoredAsmSection) -> usize {
-        let idx = self.sections.len();
-        self.sections.push(section);
-        idx
-    }
-
-    pub fn push_mark(&mut self, mark: MarkId) -> usize {
-        self.push(StoredAsmSection::Mark(mark))
+    pub fn push_mark(&mut self, mark: MarkId) {
+        self.sections.push(StoredAsmSection::Mark(mark))
     }
 
     pub fn push_op_byte(&mut self, byte: u8) {
@@ -288,14 +282,15 @@ impl Assembler {
         }
     }
 
-    pub fn push_reference(&mut self, asm_ref: AsmReference) -> usize {
+    pub fn push_reference(&mut self, asm_ref: AsmReference) {
         let delta_span = match asm_ref.mark_ref {
             MarkReference::Direct(id) => {
-                return self.push(StoredAsmSection::DirectMarkRef(DirectMarkRef {
+                self.sections.push(StoredAsmSection::DirectMarkRef(DirectMarkRef {
                     id,
                     set_size: asm_ref.set_size,
                     pushed: asm_ref.pushed,
                 }));
+                return;
             }
             MarkReference::Delta(span) => span,
         };
@@ -316,7 +311,7 @@ impl Assembler {
                 Some(RefSize::S4) => StoredAsmSection::Size4RawDeltaRef(delta_span),
             }
         };
-        self.push(section)
+        self.sections.push(section);
     }
 
     fn converge_mark_offsets(
