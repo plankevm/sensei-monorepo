@@ -535,6 +535,16 @@ where
         }
 
         let expr = self.try_parse_expr(ParseExprMode::AllowAll)?;
+
+        if self.eat(Token::Equals) {
+            let mut assign = self.alloc_node_from(stmt_start, NodeKind::AssignStmt);
+            self.push_child(&mut assign, expr);
+            let rhs = self.parse_expr(ParseExprMode::AllowAll);
+            self.push_child(&mut assign, rhs);
+            self.expect(Token::Semicolon);
+            return Some(StmtResult::Statement(self.close_node(assign)));
+        }
+
         if self.eat(Token::Semicolon) {
             return Some(StmtResult::Statement(expr));
         }

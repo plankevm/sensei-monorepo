@@ -1581,17 +1581,86 @@ fn test_assign_stmt() {
                 "init"
                 " "
                 "{"
-                " "
-                AssignStmt
-                    Identifier
-                        "x"
+                StatementsList
                     " "
-                    "="
+                    AssignStmt
+                        Identifier
+                            "x"
+                        " "
+                        "="
+                        " "
+                        LiteralExpr
+                            "1"
+                        ";"
                     " "
-                    LiteralExpr
-                        "1"
-                    ";"
+                "}"
+        "#,
+    );
+}
+
+#[test]
+fn test_assign_stmt_member_expr() {
+    assert_parses_to_cst_no_errors_dedented(
+        "init { a.b.c = 34; }",
+        r#"
+        File
+            InitBlock
+                "init"
                 " "
+                "{"
+                StatementsList
+                    " "
+                    AssignStmt
+                        MemberExpr
+                            MemberExpr
+                                Identifier
+                                    "a"
+                                "."
+                                Identifier
+                                    "b"
+                            "."
+                            Identifier
+                                "c"
+                        " "
+                        "="
+                        " "
+                        LiteralExpr
+                            "34"
+                        ";"
+                    " "
+                "}"
+        "#,
+    );
+}
+
+#[test]
+fn test_assign_stmt_complex_rhs() {
+    assert_parses_to_cst_no_errors_dedented(
+        "init { x = a + b; }",
+        r#"
+        File
+            InitBlock
+                "init"
+                " "
+                "{"
+                StatementsList
+                    " "
+                    AssignStmt
+                        Identifier
+                            "x"
+                        " "
+                        "="
+                        BinaryExpr(Plus)
+                            " "
+                            Identifier
+                                "a"
+                            " "
+                            "+"
+                            " "
+                            Identifier
+                                "b"
+                        ";"
+                    " "
                 "}"
         "#,
     );
