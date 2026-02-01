@@ -100,32 +100,6 @@ impl From<StoredAsmSection> for AsmSection {
     }
 }
 
-impl StoredAsmSection {
-    fn size(&self, mark_map: &IndexVec<MarkIdMarker, u32>) -> Option<u32> {
-        match (*self).into() {
-            AsmSection::Mark(_) => Some(0),
-            AsmSection::Ops(bytes_span) | AsmSection::Data(bytes_span) => {
-                Some(bytes_span.end - bytes_span.start)
-            }
-            AsmSection::MarkRef(mark_ref) => {
-                let value = match mark_ref.mark_ref {
-                    MarkReference::Direct(id) => mark_map[id],
-                    MarkReference::Delta(span) => mark_map[span.end] - mark_map[span.start],
-                };
-                let ref_size = bytes_to_hold(value);
-                match (mark_ref.set_size, mark_ref.pushed) {
-                    (Some(set_size), _) if set_size < ref_size => None,
-                    (Some(set_size), true) => Some(set_size as u32 + 1),
-                    (Some(set_size), false) => Some(set_size as u32),
-                    (None, true) if value == 0 => Some(1),
-                    (None, true) => Some(1 + ref_size as u32),
-                    (None, false) => Some(ref_size as u32),
-                }
-            }
-        }
-    }
-}
-
 #[derive(Debug, Clone, Copy)]
 enum AsmSection {
     Mark(MarkId),
@@ -150,6 +124,30 @@ impl AsmSection {
                 (Some(set_size), false) => set_size as u32,
                 (None, _) => 1,
             },
+        }
+    }
+
+    fn compiled_size(&self, mark_map: &IndexVec<MarkIdMarker, u32>) -> Option<u32> {
+        match self {
+            AsmSection::Mark(_) => Some(0),
+            AsmSection::Ops(bytes_span) | AsmSection::Data(bytes_span) => {
+                Some(bytes_span.end - bytes_span.start)
+            }
+            AsmSection::MarkRef(mark_ref) => {
+                let value = match mark_ref.mark_ref {
+                    MarkReference::Direct(id) => mark_map[id],
+                    MarkReference::Delta(span) => mark_map[span.end] - mark_map[span.start],
+                };
+                let ref_size = bytes_to_hold(value);
+                match (mark_ref.set_size, mark_ref.pushed) {
+                    (Some(set_size), _) if set_size < ref_size => None,
+                    (Some(set_size), true) => Some(set_size as u32 + 1),
+                    (Some(set_size), false) => Some(set_size as u32),
+                    (None, true) if value == 0 => Some(1),
+                    (None, true) => Some(1 + ref_size as u32),
+                    (None, false) => Some(ref_size as u32),
+                }
+            }
         }
     }
 }
@@ -183,7 +181,7 @@ const _ASSERT_STORED_ASM_SECTION_MEM_SIZE: () = const {
 };
 
 #[derive(Debug, Clone)]
-pub struct Assembly {
+pub struct Assembler {
     bytes: IndexVec<AsmBytesIndex, u8>,
     sections: Vec<StoredAsmSection>,
 }
@@ -193,7 +191,7 @@ pub enum AssembleError {
     RefHasTooSmallSetSize(usize),
 }
 
-impl Assembly {
+impl Assembler {
     pub fn with_capacity(bytes_capacity: usize, sections_capacity: usize) -> Self {
         Self {
             bytes: IndexVec::with_capacity(bytes_capacity),
@@ -201,8 +199,8 @@ impl Assembly {
         }
     }
 
-    pub fn sections(&self) -> usize {
-        self.sections.len()
+    fn iter_sections(&self) -> impl Iterator<Item = AsmSection> {
+        self.sections.iter().map(|&section| section.into())
     }
 
     fn push(&mut self, section: StoredAsmSection) -> usize {
@@ -321,17 +319,15 @@ impl Assembly {
         self.push(section)
     }
 
-    pub fn assemble(
+    fn converge_mark_offsets(
         &self,
-        result: &mut Vec<u8>,
-        mark_id_count_hint: Option<usize>,
-    ) -> Result<IndexVec<MarkIdMarker, u32>, AssembleError> {
-        let mut mark_to_offset: IndexVec<MarkIdMarker, u32> =
-            index_vec![0; mark_id_count_hint.unwrap_or(ASSUMED_MARK_COUNT_WITHOUT_HINT)];
+        mark_to_offset: &mut IndexVec<MarkIdMarker, u32>,
+    ) -> Result<(), AssembleError> {
         let mut min_size = 0;
-        for section in self.sections.iter().map(|section| (*section).into()) {
+        for section in self.iter_sections() {
             if let AsmSection::Mark(id) = section {
-                let size_for_id = usize::try_from(id.get()).unwrap() + 1;
+                let size_for_id = id.get() as usize + 1;
+                // Maintain `length == capacity`.
                 let additional_to_reserve = size_for_id.saturating_sub(mark_to_offset.len());
                 mark_to_offset.reserve(additional_to_reserve);
                 let cap = mark_to_offset.capacity();
@@ -342,63 +338,75 @@ impl Assembly {
         }
 
         for _ in 0..MAX_ASSEMBLER_CONVERGENCE_ITERS {
-            let mut changed = false;
+            let mut converged = true;
             let mut current_code_offset = 0;
-            for (i, section) in self.sections.iter().enumerate() {
-                if let &StoredAsmSection::Mark(id) = section {
+            for (i, section) in self.iter_sections().enumerate() {
+                if let AsmSection::Mark(id) = section {
                     let prev_offset = mark_to_offset[id];
                     if prev_offset != current_code_offset {
-                        changed = true;
+                        converged = false;
                         mark_to_offset[id] = current_code_offset;
                     }
                 }
 
-                current_code_offset +=
-                    section.size(&mark_to_offset).ok_or(AssembleError::RefHasTooSmallSetSize(i))?;
+                current_code_offset += section
+                    .compiled_size(mark_to_offset)
+                    .ok_or(AssembleError::RefHasTooSmallSetSize(i))?;
             }
 
-            if changed {
-                continue;
+            if converged {
+                return Ok(());
             }
+        }
 
-            for stored_section in self.sections.iter() {
-                match (*stored_section).into() {
-                    AsmSection::Mark(_) => { /* Marks are sizeless */ }
-                    AsmSection::Ops(bytes) | AsmSection::Data(bytes) => {
-                        result.extend_from_slice(&self.bytes[bytes.start..bytes.end]);
-                    }
-                    AsmSection::MarkRef(mark_ref) => {
-                        let value = match mark_ref.mark_ref {
-                            MarkReference::Direct(id) => mark_to_offset[id],
-                            MarkReference::Delta(span) => {
-                                mark_to_offset[span.end] - mark_to_offset[span.start]
-                            }
-                        };
-                        if value == 0 && mark_ref.set_size.is_none() && mark_ref.pushed {
-                            result.push(op::PUSH0);
-                        } else {
-                            let ref_size = bytes_to_hold(value);
-                            assert!(
-                                mark_ref.set_size.is_none_or(|set_size| set_size >= ref_size),
-                                "reached code emission with invalid ref size"
-                            );
-                            let ref_size = mark_ref.set_size.unwrap_or(ref_size);
-                            let value_bytes = value.to_le_bytes();
-                            if mark_ref.pushed {
-                                result.push(op::PUSH1 + ref_size as u8 - 1);
-                            }
-                            for i in (0..ref_size as usize).rev() {
-                                result.push(value_bytes[i]);
-                            }
+        unreachable!("assembly didn't converge")
+    }
+
+    pub fn assemble(
+        &self,
+        result: &mut Vec<u8>,
+        mark_id_count_hint: Option<usize>,
+    ) -> Result<IndexVec<MarkIdMarker, u32>, AssembleError> {
+        let mut mark_to_offset: IndexVec<MarkIdMarker, u32> =
+            index_vec![0; mark_id_count_hint.unwrap_or(ASSUMED_MARK_COUNT_WITHOUT_HINT)];
+
+        self.converge_mark_offsets(&mut mark_to_offset)?;
+
+        for stored_section in self.iter_sections() {
+            match stored_section {
+                AsmSection::Mark(_) => { /* Marks are sizeless */ }
+                AsmSection::Ops(bytes) | AsmSection::Data(bytes) => {
+                    result.extend_from_slice(&self.bytes[bytes.start..bytes.end]);
+                }
+                AsmSection::MarkRef(mark_ref) => {
+                    let value = match mark_ref.mark_ref {
+                        MarkReference::Direct(id) => mark_to_offset[id],
+                        MarkReference::Delta(span) => {
+                            mark_to_offset[span.end] - mark_to_offset[span.start]
+                        }
+                    };
+                    if value == 0 && mark_ref.set_size.is_none() && mark_ref.pushed {
+                        result.push(op::PUSH0);
+                    } else {
+                        let ref_size = bytes_to_hold(value);
+                        assert!(
+                            mark_ref.set_size.is_none_or(|set_size| set_size >= ref_size),
+                            "reached code emission with invalid ref size"
+                        );
+                        let ref_size = mark_ref.set_size.unwrap_or(ref_size);
+                        let value_bytes = value.to_le_bytes();
+                        if mark_ref.pushed {
+                            result.push(op::PUSH1 + ref_size as u8 - 1);
+                        }
+                        for i in (0..ref_size as usize).rev() {
+                            result.push(value_bytes[i]);
                         }
                     }
                 }
             }
-
-            return Ok(mark_to_offset);
         }
 
-        unreachable!("assembly didn't converge")
+        Ok(mark_to_offset)
     }
 }
 
@@ -414,10 +422,10 @@ mod tests {
         let mut next_mark_id = MarkId::ZERO;
 
         let main = next_mark_id.get_and_inc();
-        let mut asm = Assembly::with_capacity(256, 16);
+        let mut asm = Assembler::with_capacity(256, 16);
 
         asm.push_reference(AsmReference::new_direct(main));
-        asm.push_data(&[0x11u8; 253]);
+        asm.push_data(&[0x11; 253]);
         asm.push_mark(main);
         asm.push_op_byte(op::STOP);
         asm.push_op_byte(op::STOP);
@@ -433,7 +441,7 @@ mod tests {
 
     #[test]
     fn test_pushes() {
-        let mut asm = Assembly::with_capacity(256, 16);
+        let mut asm = Assembler::with_capacity(256, 16);
 
         asm.push_minimal_u64(0);
         asm.push_minimal_u64(1);

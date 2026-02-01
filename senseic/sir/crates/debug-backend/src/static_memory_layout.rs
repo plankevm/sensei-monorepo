@@ -1,4 +1,4 @@
-use sir_assembler::{Assembly, op};
+use sir_assembler::{Assembler, op};
 use sir_data::{EthIRProgram, FunctionId, LocalId};
 
 const EVM_WORD_IN_BYTES: u32 = 0x20;
@@ -60,7 +60,7 @@ impl StaticMemoryLayout {
         self.function_return_destinations + function.get() * EVM_WORD_IN_BYTES
     }
 
-    pub fn emit_transfer_basic_block_outputs(&self, asm: &mut Assembly, input_locals: &[LocalId]) {
+    pub fn emit_transfer_basic_block_outputs(&self, asm: &mut Assembler, input_locals: &[LocalId]) {
         for (transfer_slot, &local) in input_locals.iter().enumerate() {
             let transfer_addr =
                 self.basic_block_locals_transfer + transfer_slot as u32 * EVM_WORD_IN_BYTES;
@@ -77,7 +77,7 @@ impl StaticMemoryLayout {
         self.locals_start + local.get() * EVM_WORD_IN_BYTES
     }
 
-    pub fn emit_copy_for_basic_block_inputs(&self, asm: &mut Assembly, output_locals: &[LocalId]) {
+    pub fn emit_copy_for_basic_block_inputs(&self, asm: &mut Assembler, output_locals: &[LocalId]) {
         for (transfer_slot, &local) in output_locals.iter().enumerate() {
             let transfer_addr =
                 self.basic_block_locals_transfer + transfer_slot as u32 * EVM_WORD_IN_BYTES;
@@ -90,7 +90,7 @@ impl StaticMemoryLayout {
         }
     }
 
-    pub fn emit_init_free_pointer(&self, asm: &mut Assembly) {
+    pub fn emit_init_free_pointer(&self, asm: &mut Assembler) {
         asm.push_minimal_u32(self.next_free);
         asm.push_minimal_u32(self.free_pointer);
         asm.push_op_byte(op::MSTORE);
