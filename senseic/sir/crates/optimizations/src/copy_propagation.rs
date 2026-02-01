@@ -1,12 +1,12 @@
 use std::collections::HashMap;
 
 use sir_data::{
+    Control, EthIRProgram, LocalId, LocalIdMarker, LocalIndexMarker, Operation, RelSliceMut, Span,
+    X32,
     operation::{
         AllocatedIns, InlineOperands, InternalCallData, MemoryLoadData, MemoryStoreData,
         OpVisitorMut, SetDataOffsetData, SetLargeConstData, SetSmallConstData, StaticAllocData,
     },
-    Control, EthIRProgram, LocalId, LocalIdMarker, LocalIndexMarker, Operation, RelSliceMut, Span,
-    X32,
 };
 
 struct CopyReplacer<'a> {
@@ -104,7 +104,7 @@ pub fn run(program: &mut EthIRProgram) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use sir_parser::{parse_or_panic, EmitConfig};
+    use sir_parser::{EmitConfig, parse_or_panic};
     use sir_test_utils::assert_trim_strings_eq_with_diff;
 
     fn run_copy_prop(source: &str) -> String {

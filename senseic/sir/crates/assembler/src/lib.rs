@@ -1,27 +1,15 @@
 use alloy_primitives::U256;
-use sensei_core::{IndexVec, X32, index_vec};
+use sensei_core::{IndexVec, Span, X32, index_vec};
 pub mod op;
 
 const ASSUMED_MARK_COUNT_WITHOUT_HINT: usize = 128;
 const MAX_ASSEMBLER_CONVERGENCE_ITERS: usize = 1024;
 
-pub enum MarkIdMarker {}
+pub struct MarkIdMarker;
 pub type MarkId = X32<MarkIdMarker>;
 
-pub enum AsmBytesIndexMarker {}
-pub type AsmBytesIndex = X32<AsmBytesIndexMarker>;
-
-#[derive(Debug, Clone, Copy)]
-pub struct Span<T> {
-    pub start: T,
-    pub end: T,
-}
-
-impl<T> Span<T> {
-    pub fn new(start: T, end: T) -> Self {
-        Self { start, end }
-    }
-}
+pub struct AsmBytesIndex;
+pub type AsmBytesIdx = X32<AsmBytesIndex>;
 
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -42,8 +30,8 @@ struct DirectMarkRef {
 #[derive(Debug, Clone, Copy)]
 enum StoredAsmSection {
     Mark(MarkId),
-    Ops(Span<AsmBytesIndex>),
-    Data(Span<AsmBytesIndex>),
+    Ops(Span<AsmBytesIdx>),
+    Data(Span<AsmBytesIdx>),
     DirectMarkRef(DirectMarkRef),
     UnsizedPushedDeltaRef(Span<MarkId>),
     Size1PushedDeltaRef(Span<MarkId>),
@@ -113,20 +101,6 @@ impl From<StoredAsmSection> for AsmSection {
 }
 
 impl StoredAsmSection {
-    fn min_compiled_size(&self) -> u32 {
-        match (*self).into() {
-            AsmSection::Mark(_) => 0,
-            AsmSection::Ops(bytes_span) | AsmSection::Data(bytes_span) => {
-                bytes_span.end - bytes_span.start
-            }
-            AsmSection::MarkRef(mark_ref) => match (mark_ref.set_size, mark_ref.pushed) {
-                (Some(set_size), true) => set_size as u32 + 1,
-                (Some(set_size), false) => set_size as u32,
-                (None, _) => 1,
-            },
-        }
-    }
-
     fn size(&self, mark_map: &IndexVec<MarkIdMarker, u32>) -> Option<u32> {
         match (*self).into() {
             AsmSection::Mark(_) => Some(0),
@@ -154,16 +128,29 @@ impl StoredAsmSection {
 
 #[derive(Debug, Clone, Copy)]
 enum AsmSection {
-    #[allow(dead_code)]
     Mark(MarkId),
-    Ops(Span<AsmBytesIndex>),
-    Data(Span<AsmBytesIndex>),
+    Ops(Span<AsmBytesIdx>),
+    Data(Span<AsmBytesIdx>),
     MarkRef(AsmReference),
 }
 
 impl AsmSection {
     fn delta_ref(delta_span: Span<MarkId>, pushed: bool, set_size: Option<RefSize>) -> Self {
         Self::MarkRef(AsmReference { mark_ref: MarkReference::Delta(delta_span), set_size, pushed })
+    }
+
+    fn min_compiled_size(&self) -> u32 {
+        match self {
+            AsmSection::Mark(_) => 0,
+            AsmSection::Ops(bytes_span) | AsmSection::Data(bytes_span) => {
+                bytes_span.end - bytes_span.start
+            }
+            AsmSection::MarkRef(mark_ref) => match (mark_ref.set_size, mark_ref.pushed) {
+                (Some(set_size), true) => set_size as u32 + 1,
+                (Some(set_size), false) => set_size as u32,
+                (None, _) => 1,
+            },
+        }
     }
 }
 
@@ -197,7 +184,7 @@ const _ASSERT_STORED_ASM_SECTION_MEM_SIZE: () = const {
 
 #[derive(Debug, Clone)]
 pub struct Assembly {
-    bytes: IndexVec<AsmBytesIndexMarker, u8>,
+    bytes: IndexVec<AsmBytesIndex, u8>,
     sections: Vec<StoredAsmSection>,
 }
 
@@ -342,8 +329,8 @@ impl Assembly {
         let mut mark_to_offset: IndexVec<MarkIdMarker, u32> =
             index_vec![0; mark_id_count_hint.unwrap_or(ASSUMED_MARK_COUNT_WITHOUT_HINT)];
         let mut min_size = 0;
-        for section in self.sections.iter() {
-            if let &StoredAsmSection::Mark(id) = section {
+        for section in self.sections.iter().map(|section| (*section).into()) {
+            if let AsmSection::Mark(id) = section {
                 let size_for_id = usize::try_from(id.get()).unwrap() + 1;
                 let additional_to_reserve = size_for_id.saturating_sub(mark_to_offset.len());
                 mark_to_offset.reserve(additional_to_reserve);

@@ -36,4 +36,4 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: senseic -> target
-      - run: cargo +nightly clippy --workspace --all --all-features --locked -- -D warnings
+      - run: cargo +nightly clippy --workspace --all-targets --all-features -- -D warnings

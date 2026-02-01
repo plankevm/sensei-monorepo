@@ -10,7 +10,7 @@ cargo test -p <crate name> # Run during work on a specific crate for validation
 
 # Run formatter & linter at the end of a task
 cargo +nightly fmt --all
-cargo +nightly clippy --workspace --all --all-features --locked -- -D warnings
+cargo +nightly clippy --workspace --all-targets --all-features -- -D warnings
 ```
 
 ## Workspace Structure

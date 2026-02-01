@@ -1,7 +1,7 @@
 use sensei_core::{DenseIndexSet, IncIterable};
-use sir_assembler::{AsmReference, Assembly, MarkId, MarkReference, Span, op};
+use sir_assembler::{AsmReference, Assembly, MarkId, MarkReference, op};
 use sir_data::{
-    BasicBlockId, BasicBlockIdMarker, Control, DataId, EthIRProgram, FunctionId, LocalId,
+    BasicBlockId, BasicBlockIdMarker, Control, DataId, EthIRProgram, FunctionId, LocalId, Span,
 };
 
 use crate::static_memory_layout::StaticMemoryLayout;
@@ -94,7 +94,7 @@ impl<'ir> Translator<'ir> {
         let mark_ref = if self.translating_init_code {
             MarkReference::Direct(offset_mark)
         } else {
-            MarkReference::Delta(Span { start: self.mark_map.runtime_start, end: offset_mark })
+            MarkReference::Delta(Span::new(self.mark_map.runtime_start, offset_mark))
         };
         self.asm.push_reference(AsmReference { mark_ref, set_size: None, pushed: true });
     }

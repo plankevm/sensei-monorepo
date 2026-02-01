@@ -345,7 +345,7 @@ mod tests {
         let mut bb = func.begin_basic_block();
         bb.set_inputs(&[local0, local1]);
         bb.add_operation(Operation::Add(InlineOperands { ins: [local0, local1], outs: [local2] }));
-        bb.add_operation(Operation::Stop(Default::default()));
+        bb.add_operation(Operation::Stop(()));
         bb.set_outputs(&[local2]);
         let bb_id = bb.finish(Control::InternalReturn).unwrap();
 
@@ -378,14 +378,14 @@ Basic Blocks:
         // Function 0: one block with stop
         let mut func0 = builder.begin_function();
         let mut bb0 = func0.begin_basic_block();
-        bb0.add_operation(Operation::Stop(Default::default()));
+        bb0.add_operation(Operation::Stop(()));
         let bb0_id = bb0.finish(Control::LastOpTerminates).unwrap();
         let func0_id = func0.finish(bb0_id);
 
         // Unreachable block 1
         let mut orphan1 = builder.begin_function();
         let mut bb1 = orphan1.begin_basic_block();
-        bb1.add_operation(Operation::Invalid(Default::default()));
+        bb1.add_operation(Operation::Invalid(()));
         bb1.finish(Control::LastOpTerminates).unwrap();
 
         // Function 1: one block with setcopy
@@ -402,7 +402,7 @@ Basic Blocks:
         // Unreachable block 2
         let mut orphan2 = builder.begin_function();
         let mut bb3 = orphan2.begin_basic_block();
-        bb3.add_operation(Operation::Stop(Default::default()));
+        bb3.add_operation(Operation::Stop(()));
         bb3.finish(Control::LastOpTerminates).unwrap();
 
         let program = builder.build(func0_id, None);
@@ -463,7 +463,7 @@ Basic Blocks:
             sets: local1,
             segment_id: data_segment_1,
         }));
-        bb.add_operation(Operation::Stop(Default::default()));
+        bb.add_operation(Operation::Stop(()));
         let bb_id = bb.finish(Control::LastOpTerminates).unwrap();
 
         let func_id = func.finish(bb_id);
