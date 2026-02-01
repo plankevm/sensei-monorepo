@@ -1,12 +1,12 @@
 use std::collections::HashMap;
 
 use sir_data::{
-    Control, EthIRProgram, LocalId, LocalIdMarker, LocalIndexMarker, Operation, RelSliceMut, Span,
-    X32,
     operation::{
         AllocatedIns, InlineOperands, InternalCallData, MemoryLoadData, MemoryStoreData,
         OpVisitorMut, SetDataOffsetData, SetLargeConstData, SetSmallConstData, StaticAllocData,
     },
+    Control, EthIRProgram, LocalId, LocalIdMarker, LocalIndexMarker, Operation, RelSliceMut, Span,
+    X32,
 };
 
 struct CopyReplacer<'a> {
@@ -26,7 +26,7 @@ impl OpVisitorMut<()> for CopyReplacer<'_> {
         data: &mut InlineOperands<INS, OUTS>,
     ) {
         for input in &mut data.ins {
-            replace_if_copied(input, &self.copy_map);
+            replace_if_copied(input, self.copy_map);
         }
     }
 
@@ -35,19 +35,19 @@ impl OpVisitorMut<()> for CopyReplacer<'_> {
         data: &mut AllocatedIns<INS, OUTS>,
     ) {
         for idx in Span::new(data.ins_start, data.ins_start + INS as u32).iter() {
-            replace_if_copied(&mut self.locals[idx], &self.copy_map);
+            replace_if_copied(&mut self.locals[idx], self.copy_map);
         }
     }
 
     fn visit_static_alloc_mut(&mut self, _data: &mut StaticAllocData) {}
 
     fn visit_memory_load_mut(&mut self, data: &mut MemoryLoadData) {
-        replace_if_copied(&mut data.ptr, &self.copy_map);
+        replace_if_copied(&mut data.ptr, self.copy_map);
     }
 
     fn visit_memory_store_mut(&mut self, data: &mut MemoryStoreData) {
-        replace_if_copied(&mut data.ptr, &self.copy_map);
-        replace_if_copied(&mut data.value, &self.copy_map);
+        replace_if_copied(&mut data.ptr, self.copy_map);
+        replace_if_copied(&mut data.value, self.copy_map);
     }
 
     fn visit_set_small_const_mut(&mut self, _data: &mut SetSmallConstData) {}
@@ -58,7 +58,7 @@ impl OpVisitorMut<()> for CopyReplacer<'_> {
 
     fn visit_icall_mut(&mut self, data: &mut InternalCallData) {
         for idx in Span::new(data.ins_start, data.outs_start).iter() {
-            replace_if_copied(&mut self.locals[idx], &self.copy_map);
+            replace_if_copied(&mut self.locals[idx], self.copy_map);
         }
     }
 
@@ -104,7 +104,7 @@ pub fn run(program: &mut EthIRProgram) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use sir_parser::{EmitConfig, parse_or_panic};
+    use sir_parser::{parse_or_panic, EmitConfig};
     use sir_test_utils::assert_trim_strings_eq_with_diff;
 
     fn run_copy_prop(source: &str) -> String {
