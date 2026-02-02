@@ -981,8 +981,8 @@ fn test_fn_def_two_params() {
                                     "void"
                                 ")"
                         ","
-                        " "
                         Parameter
+                            " "
                             Identifier
                                 "y"
                             ":"
@@ -1078,6 +1078,149 @@ fn test_fn_def_full() {
                                 "x"
                             ";"
                             " "
+                        "}"
+                ";"
+        "#,
+    );
+}
+
+#[test]
+fn test_fn_def_one_comptime_param() {
+    assert_parses_to_cst_no_errors_dedented(
+        "const f = fn(comptime T: type) void {};",
+        r#"
+        File
+            ConstDecl { typed: false }
+                "const"
+                " "
+                Identifier
+                    "f"
+                " "
+                "="
+                " "
+                FnDef
+                    "fn"
+                    "("
+                    ParamList
+                        ComptimeParameter
+                            "comptime"
+                            " "
+                            Identifier
+                                "T"
+                            ":"
+                            " "
+                            Identifier
+                                "type"
+                    ")"
+                    " "
+                    Identifier
+                        "void"
+                    " "
+                    Block
+                        "{"
+                        StatementsList
+                        "}"
+                ";"
+        "#,
+    );
+}
+
+#[test]
+fn test_fn_def_two_comptime_params() {
+    assert_parses_to_cst_no_errors_dedented(
+        "const f = fn(comptime T: type, comptime U: type) void {};",
+        r#"
+        File
+            ConstDecl { typed: false }
+                "const"
+                " "
+                Identifier
+                    "f"
+                " "
+                "="
+                " "
+                FnDef
+                    "fn"
+                    "("
+                    ParamList
+                        ComptimeParameter
+                            "comptime"
+                            " "
+                            Identifier
+                                "T"
+                            ":"
+                            " "
+                            Identifier
+                                "type"
+                        ","
+                        ComptimeParameter
+                            " "
+                            "comptime"
+                            " "
+                            Identifier
+                                "U"
+                            ":"
+                            " "
+                            Identifier
+                                "type"
+                    ")"
+                    " "
+                    Identifier
+                        "void"
+                    " "
+                    Block
+                        "{"
+                        StatementsList
+                        "}"
+                ";"
+        "#,
+    );
+}
+
+#[test]
+fn test_fn_def_mixed_comptime_and_runtime_params() {
+    assert_parses_to_cst_no_errors_dedented(
+        "const f = fn(comptime T: type, x: T) T {};",
+        r#"
+        File
+            ConstDecl { typed: false }
+                "const"
+                " "
+                Identifier
+                    "f"
+                " "
+                "="
+                " "
+                FnDef
+                    "fn"
+                    "("
+                    ParamList
+                        ComptimeParameter
+                            "comptime"
+                            " "
+                            Identifier
+                                "T"
+                            ":"
+                            " "
+                            Identifier
+                                "type"
+                        ","
+                        Parameter
+                            " "
+                            Identifier
+                                "x"
+                            ":"
+                            " "
+                            Identifier
+                                "T"
+                    ")"
+                    " "
+                    Identifier
+                        "T"
+                    " "
+                    Block
+                        "{"
+                        StatementsList
                         "}"
                 ";"
         "#,

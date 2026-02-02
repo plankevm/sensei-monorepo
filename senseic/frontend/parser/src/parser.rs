@@ -312,13 +312,18 @@ where
         None
     }
 
+    fn try_parse_ident(&mut self) -> Option<NodeIdx> {
+        if self.eat(Token::Identifier) {
+            return Some(self.alloc_last_token_as_node(NodeKind::Identifier));
+        }
+        None
+    }
+
     fn expect_ident(&mut self) -> NodeIdx {
-        if self.expect(Token::Identifier) {
-            self.alloc_last_token_as_node(NodeKind::Identifier)
-        } else {
+        self.try_parse_ident().unwrap_or_else(|| {
             let error = self.alloc_node(NodeKind::Error);
             self.close_node(error)
-        }
+        })
     }
 
     // ========================== EXPRESSION PARSING ==========================
@@ -385,8 +390,8 @@ where
             return Some(self.alloc_last_token_as_node(NodeKind::LiteralExpr));
         }
 
-        if self.eat(Token::Identifier) {
-            return Some(self.alloc_last_token_as_node(NodeKind::Identifier));
+        if let Some(identifier) = self.try_parse_ident() {
+            return Some(identifier);
         }
 
         if self.eat(Token::LeftRound) {
@@ -422,10 +427,24 @@ where
         self.expect(Token::LeftRound);
 
         let mut parameter_list = self.alloc_node(NodeKind::ParamList);
-        while self.check(Token::Identifier) {
-            let mut parameter = self.alloc_node(NodeKind::Parameter);
-            let identifier = self.expect_ident();
-            self.push_child(&mut parameter, identifier);
+        loop {
+            let parameter_start = self.current_token_idx;
+            let mut parameter = if self.eat(Token::Comptime) {
+                let mut parameter =
+                    self.alloc_node_from(parameter_start, NodeKind::ComptimeParameter);
+                let name = self.expect_ident();
+                self.push_child(&mut parameter, name);
+                parameter
+            } else {
+                if !self.eat(Token::Identifier) {
+                    break;
+                }
+                let mut parameter = self.alloc_node_from(parameter_start, NodeKind::Parameter);
+                let name = self.alloc_last_token_as_node(NodeKind::Identifier);
+                self.push_child(&mut parameter, name);
+                parameter
+            };
+
             self.expect(Token::Colon);
             let r#type = self.parse_expr(ParseExprMode::TypeExpr);
             self.push_child(&mut parameter, r#type);

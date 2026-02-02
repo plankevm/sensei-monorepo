@@ -100,6 +100,7 @@ pub enum NodeKind {
 
     // Misc
     Parameter,
+    ComptimeParameter,
     FieldDef,
     ParamList,
     FieldAssign,
