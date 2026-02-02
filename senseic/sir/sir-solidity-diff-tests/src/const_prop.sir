@@ -1,0 +1,33 @@
+fn init:
+    entry {
+        c0 = const 0
+        c32 = const 32
+        cond = calldataload c0
+
+        caller1 = caller
+        caller2 = caller
+        evm_eq = eq caller1 caller2
+
+        => cond ? @branch_a : @branch_b
+    }
+    branch_a -> chain_a offset_a {
+        chain_a = chainid
+        offset_a = const 10
+        => @merge
+    }
+    branch_b -> chain_b offset_b {
+        chain_b = chainid
+        offset_b = const 20
+        => @merge
+    }
+    merge val offset {
+        first_chainid = chainid
+        phi_eq = eq val first_chainid
+
+        sum = add evm_eq phi_eq
+        result = add sum offset
+
+        buf = sallocany 32
+        mstore256 buf result
+        return buf c32
+    }
