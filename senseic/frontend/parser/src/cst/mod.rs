@@ -102,7 +102,7 @@ pub enum NodeKind {
     Parameter,
     FieldDef,
     ParamList,
-    FieldList,
+    FieldAssign,
     StatementsList,
 
     // Errors

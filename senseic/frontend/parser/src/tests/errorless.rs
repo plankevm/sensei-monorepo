@@ -1248,7 +1248,6 @@ fn test_struct_lit_zero_fields() {
                         "S"
                     " "
                     "{"
-                    FieldList
                     "}"
                 ";"
         "#,
@@ -1274,18 +1273,80 @@ fn test_struct_lit_one_field() {
                         "S"
                     " "
                     "{"
-                    FieldList
+                    " "
+                    FieldAssign
+                        Identifier
+                            "x"
+                        ":"
                         " "
-                        FieldDef
-                            Identifier
-                                "x"
-                            ":"
-                            " "
-                            LiteralExpr
-                                "1"
-                            " "
+                        LiteralExpr
+                            "1"
+                        " "
                     "}"
                 ";"
+        "#,
+    );
+}
+
+#[test]
+fn test_struct_lit_in_parenthesized_if() {
+    assert_parses_to_cst_no_errors_dedented(
+        "
+        init {
+            if (S { b: false }.b) {
+                wow();
+            }
+        }
+        ",
+        r#"
+        File
+            InitBlock
+                "init"
+                " "
+                "{"
+                StatementsList
+                    "\n    "
+                If
+                    "if"
+                    " "
+                    ParenExpr
+                        "("
+                        MemberExpr
+                            StructLit
+                                Identifier
+                                    "S"
+                                " "
+                                "{"
+                                " "
+                                FieldAssign
+                                    Identifier
+                                        "b"
+                                    ":"
+                                    " "
+                                    LiteralExpr
+                                        "false"
+                                    " "
+                                "}"
+                            "."
+                            Identifier
+                                "b"
+                        ")"
+                    " "
+                    Block
+                        "{"
+                        StatementsList
+                            "\n        "
+                            CallExpr
+                                Identifier
+                                    "wow"
+                                "("
+                                ")"
+                            ";"
+                            "\n    "
+                        "}"
+                    ElseIfBranchList
+                        "\n"
+                "}"
         "#,
     );
 }
@@ -1309,25 +1370,24 @@ fn test_struct_lit_two_fields() {
                         "S"
                     " "
                     "{"
-                    FieldList
+                    " "
+                    FieldAssign
+                        Identifier
+                            "x"
+                        ":"
                         " "
-                        FieldDef
-                            Identifier
-                                "x"
-                            ":"
-                            " "
-                            LiteralExpr
-                                "1"
-                        ","
+                        LiteralExpr
+                            "1"
+                    ","
+                    " "
+                    FieldAssign
+                        Identifier
+                            "y"
+                        ":"
                         " "
-                        FieldDef
-                            Identifier
-                                "y"
-                            ":"
-                            " "
-                            LiteralExpr
-                                "2"
-                            " "
+                        LiteralExpr
+                            "2"
+                        " "
                     "}"
                 ";"
         "#,
@@ -1353,17 +1413,16 @@ fn test_struct_lit_trailing_comma() {
                         "S"
                     " "
                     "{"
-                    FieldList
+                    " "
+                    FieldAssign
+                        Identifier
+                            "x"
+                        ":"
                         " "
-                        FieldDef
-                            Identifier
-                                "x"
-                            ":"
-                            " "
-                            LiteralExpr
-                                "1"
-                        ","
-                        " "
+                        LiteralExpr
+                            "1"
+                    ","
+                    " "
                     "}"
                 ";"
         "#,

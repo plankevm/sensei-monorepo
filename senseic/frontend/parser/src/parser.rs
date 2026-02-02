@@ -19,7 +19,17 @@ impl OpPriority {
 enum ParseExprMode {
     AllowAll,
     CondExpr,
+    ReturnTypeExpr,
     TypeExpr,
+}
+
+impl ParseExprMode {
+    fn allows_struct_literal(self) -> bool {
+        match self {
+            ParseExprMode::AllowAll | ParseExprMode::TypeExpr => true,
+            ParseExprMode::ReturnTypeExpr | ParseExprMode::CondExpr => false,
+        }
+    }
 }
 
 enum StmtResult {
@@ -91,6 +101,7 @@ where
     const UNARY_PRIORITY: OpPriority = OpPriority(19);
     const MEMBER_PRIORITY: OpPriority = OpPriority(21);
     const FN_CALL_PRIORITY: OpPriority = OpPriority(21);
+    const STRUCT_LITERAL_PRIORITY: OpPriority = OpPriority(21);
 
     fn new(
         arena: &'ast Bump,
@@ -362,7 +373,7 @@ where
         Some(self.close_node(conditional))
     }
 
-    fn try_parse_standalone_expr(&mut self, _mode: ParseExprMode) -> Option<NodeIdx> {
+    fn try_parse_standalone_expr(&mut self) -> Option<NodeIdx> {
         let start = self.current_token_idx;
 
         if self.eat(Token::DecimalLiteral)
@@ -431,7 +442,7 @@ where
 
         self.expect(Token::RightRound);
 
-        let return_type = self.parse_expr(ParseExprMode::TypeExpr);
+        let return_type = self.parse_expr(ParseExprMode::ReturnTypeExpr);
         self.push_child(&mut function, return_type);
 
         let body = self.parse_block(self.current_token_idx, NodeKind::Block);
@@ -470,7 +481,7 @@ where
             self.push_child(&mut unary, expr);
             self.close_node(unary)
         } else {
-            self.try_parse_standalone_expr(mode)?
+            self.try_parse_standalone_expr()?
         };
 
         loop {
@@ -495,6 +506,34 @@ where
                 }
                 self.expect(Token::RightRound);
                 expr = self.close_node(call);
+                continue;
+            }
+
+            if mode.allows_struct_literal()
+                && Self::STRUCT_LITERAL_PRIORITY > min_bp
+                && self.eat(Token::LeftCurly)
+            {
+                let mut struct_literal = self.alloc_node_from(start, NodeKind::StructLit);
+                self.push_child(&mut struct_literal, expr);
+
+                while self.check(Token::Identifier) {
+                    let mut field = self.alloc_node(NodeKind::FieldAssign);
+                    let name = self.expect_ident();
+                    self.push_child(&mut field, name);
+                    self.expect(Token::Colon);
+                    let value = self.parse_expr(ParseExprMode::AllowAll);
+                    self.push_child(&mut field, value);
+
+                    let field = self.close_node(field);
+                    self.push_child(&mut struct_literal, field);
+
+                    if !self.eat(Token::Comma) {
+                        break;
+                    }
+                }
+
+                self.expect(Token::RightCurly);
+                expr = self.close_node(struct_literal);
                 continue;
             }
 
