@@ -234,9 +234,19 @@ pub fn run(program: &mut EthIRProgram) {
         first_occurrence: &first_occurrence,
         locals,
     };
-    for bb in program.basic_blocks.iter() {
+    for bb in program.basic_blocks.iter_mut() {
         for op in &mut program.operations[bb.operations] {
             op.visit_data_mut(&mut replacer);
+        }
+
+        match &mut bb.control {
+            sir_data::Control::Branches(branch) => {
+                dedupe_const(&mut branch.condition, &constant_map, &first_occurrence);
+            }
+            sir_data::Control::Switch(switch) => {
+                dedupe_const(&mut switch.condition, &constant_map, &first_occurrence);
+            }
+            _ => {}
         }
     }
 }
@@ -340,17 +350,31 @@ Basic Blocks:
         "#;
 
         let actual = run_const_prop(input);
-        assert_trim_strings_eq_with_diff(&actual, expected, "duplicate small constants deduplicated");
+        assert_trim_strings_eq_with_diff(
+            &actual,
+            expected,
+            "duplicate small constants deduplicated",
+        );
     }
 
     #[test]
-    fn test_duplicate_evm_constants_deduplicated() {
+    fn test_evm_constant_in_branch_and_operations() {
         let input = r#"
             fn init:
+                entry {
+                    stop
+                }
+            fn test:
                 entry {
                     a = caller
                     b = caller
                     c = eq a b
+                    => b ? @nonzero : @zero
+                }
+                nonzero {
+                    stop
+                }
+                zero {
                     stop
                 }
         "#;
@@ -358,18 +382,119 @@ Basic Blocks:
         let expected = r#"
 Functions:
     fn @0 -> entry @0  (outputs: 0)
+    fn @1 -> entry @1  (outputs: 0)
 
 Basic Blocks:
     @0 {
+        stop
+    }
+
+    @1 {
         $0 = caller
         $1 = caller
         $2 = eq $0 $0
+        => $0 ? @2 : @3
+    }
+
+    @2 {
+        stop
+    }
+
+    @3 {
         stop
     }
         "#;
 
         let actual = run_const_prop(input);
-        assert_trim_strings_eq_with_diff(&actual, expected, "duplicate evm constants deduplicated");
+        assert_trim_strings_eq_with_diff(
+            &actual,
+            expected,
+            "evm constant in branch and operations",
+        );
+    }
+
+    #[test]
+    fn test_switch_dedupes_constant_from_block_input() {
+        let input = r#"
+            fn init:
+                entry {
+                    stop
+                }
+            fn test:
+                entry x {
+                    => x ? @block_a : @block_b
+                }
+                block_a -> val_a {
+                    val_a = chainid
+                    => @merge
+                }
+                block_b -> val_b {
+                    val_b = chainid
+                    => @merge
+                }
+                merge val {
+                    first_chainid = chainid
+                    switch val {
+                        1 => @case_one
+                        default => @case_default
+                    }
+                }
+                case_one {
+                    stop
+                }
+                case_default {
+                    stop
+                }
+        "#;
+
+        let expected = r#"
+Functions:
+    fn @0 -> entry @0  (outputs: 0)
+    fn @1 -> entry @1  (outputs: 0)
+
+Basic Blocks:
+    @0 {
+        stop
+    }
+
+    @1 $0 {
+        => $0 ? @2 : @3
+    }
+
+    @2 -> $1 {
+        $1 = chainid
+        => @4
+    }
+
+    @3 -> $2 {
+        $2 = chainid
+        => @4
+    }
+
+    @4 $3 {
+        $4 = chainid
+        switch $1 {
+            1 => @5,
+            else => @6
+        }
+
+    }
+
+    @5 {
+        stop
+    }
+
+    @6 {
+        stop
+    }
+        "#;
+
+        let actual = run_const_prop(input);
+        assert_trim_strings_eq_with_diff(
+            &actual,
+            expected,
+            "switch dedupes constant from block input",
+        );
     }
 
     #[test]
@@ -432,6 +557,10 @@ Basic Blocks:
         "#;
 
         let actual = run_const_prop(input);
-        assert_trim_strings_eq_with_diff(&actual, expected, "block inputs propagate only when predecessors agree");
+        assert_trim_strings_eq_with_diff(
+            &actual,
+            expected,
+            "block inputs propagate only when predecessors agree",
+        );
     }
 }
