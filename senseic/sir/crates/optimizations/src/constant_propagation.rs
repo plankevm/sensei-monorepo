@@ -301,3 +301,137 @@ impl OpVisitorMut<()> for ConstantReplacer<'_> {
 
     fn visit_void_mut(&mut self) {}
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use sir_parser::{EmitConfig, parse_or_panic};
+    use sir_test_utils::assert_trim_strings_eq_with_diff;
+
+    fn run_const_prop(source: &str) -> String {
+        let mut ir = parse_or_panic(source, EmitConfig::init_only());
+        run(&mut ir);
+        sir_data::display_program(&ir)
+    }
+
+    #[test]
+    fn test_duplicate_small_constants_deduplicated() {
+        let input = r#"
+            fn init:
+                entry {
+                    a = const 42
+                    b = const 42
+                    c = add b b
+                    stop
+                }
+        "#;
+
+        let expected = r#"
+Functions:
+    fn @0 -> entry @0  (outputs: 0)
+
+Basic Blocks:
+    @0 {
+        $0 = const 0x2a
+        $1 = const 0x2a
+        $2 = add $0 $0
+        stop
+    }
+        "#;
+
+        let actual = run_const_prop(input);
+        assert_trim_strings_eq_with_diff(&actual, expected, "duplicate small constants deduplicated");
+    }
+
+    #[test]
+    fn test_duplicate_evm_constants_deduplicated() {
+        let input = r#"
+            fn init:
+                entry {
+                    a = caller
+                    b = caller
+                    c = eq a b
+                    stop
+                }
+        "#;
+
+        let expected = r#"
+Functions:
+    fn @0 -> entry @0  (outputs: 0)
+
+Basic Blocks:
+    @0 {
+        $0 = caller
+        $1 = caller
+        $2 = eq $0 $0
+        stop
+    }
+        "#;
+
+        let actual = run_const_prop(input);
+        assert_trim_strings_eq_with_diff(&actual, expected, "duplicate evm constants deduplicated");
+    }
+
+    #[test]
+    fn test_block_inputs_propagate_only_when_predecessors_agree() {
+        let input = r#"
+            fn init:
+                entry {
+                    stop
+                }
+            fn test:
+                entry x {
+                    => x ? @block_a : @block_b
+                }
+                block_a -> same_a diff_a {
+                    same_a = const 42
+                    diff_a = const 10
+                    => @merge
+                }
+                block_b -> same_b diff_b {
+                    same_b = const 42
+                    diff_b = const 20
+                    => @merge
+                }
+                merge input_same input_diff {
+                    result = add input_same input_diff
+                    stop
+                }
+        "#;
+
+        let expected = r#"
+Functions:
+    fn @0 -> entry @0  (outputs: 0)
+    fn @1 -> entry @1  (outputs: 0)
+
+Basic Blocks:
+    @0 {
+        stop
+    }
+
+    @1 $0 {
+        => $0 ? @2 : @3
+    }
+
+    @2 -> $1 $2 {
+        $1 = const 0x2a
+        $2 = const 0xa
+        => @4
+    }
+
+    @3 -> $3 $4 {
+        $3 = const 0x2a
+        $4 = const 0x14
+        => @4
+    }
+
+    @4 $5 $6 {
+        $7 = add $1 $6
+        stop
+    }
+        "#;
+
+        let actual = run_const_prop(input);
+        assert_trim_strings_eq_with_diff(&actual, expected, "block inputs propagate only when predecessors agree");
+    }
+}
