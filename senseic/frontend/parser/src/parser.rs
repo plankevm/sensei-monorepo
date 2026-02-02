@@ -362,7 +362,7 @@ where
         Some(self.close_node(conditional))
     }
 
-    fn try_parse_standalone_expr(&mut self) -> Option<NodeIdx> {
+    fn try_parse_standalone_expr(&mut self, _mode: ParseExprMode) -> Option<NodeIdx> {
         let start = self.current_token_idx;
 
         if self.eat(Token::DecimalLiteral)
@@ -470,7 +470,7 @@ where
             self.push_child(&mut unary, expr);
             self.close_node(unary)
         } else {
-            self.try_parse_standalone_expr()?
+            self.try_parse_standalone_expr(mode)?
         };
 
         loop {

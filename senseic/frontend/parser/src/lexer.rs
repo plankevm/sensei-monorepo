@@ -51,11 +51,7 @@ fn lex_number_literal<const RADIX: u32>(lexer: &mut LogosLexer<Token>) -> Result
             }
         }
 
-        if malformed {
-            Err(Token::MalformedIdentError)
-        } else {
-            Ok(())
-        }
+        if malformed { Err(Token::MalformedIdentError) } else { Ok(()) }
     }
 
     inner_do_lex(lexer, inner::<RADIX>)
