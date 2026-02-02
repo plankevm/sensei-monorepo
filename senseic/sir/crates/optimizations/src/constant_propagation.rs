@@ -38,13 +38,13 @@ fn track_constant(
     first_occurrence.entry(value).or_insert(local);
 }
 
-fn analyze_program(
-    program: &EthIRProgram,
-) -> (
+type AnalysisResult = (
     HashMap<LocalId, ConstValue>,
     HashMap<ConstValue, LocalId>,
     HashMap<BasicBlockId, Vec<BasicBlockId>>,
-) {
+);
+
+fn analyze_program(program: &EthIRProgram) -> AnalysisResult {
     let mut constant_map: HashMap<LocalId, ConstValue> = HashMap::new();
     let mut first_occurrence: HashMap<ConstValue, LocalId> = HashMap::new();
     let mut predecessors: HashMap<BasicBlockId, Vec<BasicBlockId>> = HashMap::new();
@@ -200,7 +200,7 @@ fn resolve_block_inputs(
                 let pred_bb = &program.basic_blocks[*pred_id];
                 let pred_output = &program.locals[pred_bb.outputs][i];
 
-                match constant_map.get(&pred_output) {
+                match constant_map.get(pred_output) {
                     None => {
                         is_unknown = true;
                         break;
@@ -217,10 +217,8 @@ fn resolve_block_inputs(
                 }
             }
 
-            if !is_unknown {
-                if let Some(c) = const_value {
-                    constant_map.insert(*input, c);
-                }
+            if !is_unknown && let Some(c) = const_value {
+                constant_map.insert(*input, c);
             }
         }
     }
@@ -263,43 +261,43 @@ impl OpVisitorMut<()> for ConstantReplacer<'_> {
     fn visit_inline_operands_mut<const INS: usize, const OUTS: usize>(
         &mut self,
         data: &mut InlineOperands<INS, OUTS>,
-    ) -> () {
+    ) {
         for input in &mut data.ins {
-            dedupe_const(input, &self.constant_map, &self.first_occurrence);
+            dedupe_const(input, self.constant_map, self.first_occurrence);
         }
     }
 
     fn visit_allocated_ins_mut<const INS: usize, const OUTS: usize>(
         &mut self,
         data: &mut AllocatedIns<INS, OUTS>,
-    ) -> () {
+    ) {
         for idx in Span::new(data.ins_start, data.ins_start + INS as u32).iter() {
-            dedupe_const(&mut self.locals[idx], &self.constant_map, &self.first_occurrence);
+            dedupe_const(&mut self.locals[idx], self.constant_map, self.first_occurrence);
         }
     }
 
-    fn visit_static_alloc_mut(&mut self, _data: &mut StaticAllocData) -> () {}
+    fn visit_static_alloc_mut(&mut self, _data: &mut StaticAllocData) {}
 
-    fn visit_memory_load_mut(&mut self, data: &mut MemoryLoadData) -> () {
-        dedupe_const(&mut data.ptr, &self.constant_map, &self.first_occurrence);
+    fn visit_memory_load_mut(&mut self, data: &mut MemoryLoadData) {
+        dedupe_const(&mut data.ptr, self.constant_map, self.first_occurrence);
     }
 
-    fn visit_memory_store_mut(&mut self, data: &mut MemoryStoreData) -> () {
-        dedupe_const(&mut data.ptr, &self.constant_map, &self.first_occurrence);
-        dedupe_const(&mut data.value, &self.constant_map, &self.first_occurrence);
+    fn visit_memory_store_mut(&mut self, data: &mut MemoryStoreData) {
+        dedupe_const(&mut data.ptr, self.constant_map, self.first_occurrence);
+        dedupe_const(&mut data.value, self.constant_map, self.first_occurrence);
     }
 
-    fn visit_set_small_const_mut(&mut self, _data: &mut SetSmallConstData) -> () {}
+    fn visit_set_small_const_mut(&mut self, _data: &mut SetSmallConstData) {}
 
-    fn visit_set_large_const_mut(&mut self, _data: &mut SetLargeConstData) -> () {}
+    fn visit_set_large_const_mut(&mut self, _data: &mut SetLargeConstData) {}
 
-    fn visit_set_data_offset_mut(&mut self, _data: &mut SetDataOffsetData) -> () {}
+    fn visit_set_data_offset_mut(&mut self, _data: &mut SetDataOffsetData) {}
 
-    fn visit_icall_mut(&mut self, data: &mut InternalCallData) -> () {
+    fn visit_icall_mut(&mut self, data: &mut InternalCallData) {
         for idx in Span::new(data.ins_start, data.outs_start).iter() {
-            dedupe_const(&mut self.locals[idx], &self.constant_map, &self.first_occurrence);
+            dedupe_const(&mut self.locals[idx], self.constant_map, self.first_occurrence);
         }
     }
 
-    fn visit_void_mut(&mut self) -> () {}
+    fn visit_void_mut(&mut self) {}
 }
