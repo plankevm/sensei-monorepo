@@ -362,7 +362,7 @@ where
         Some(self.close_node(conditional))
     }
 
-    fn try_parse_standalone_expr(&mut self, _mode: ParseExprMode) -> Option<NodeIdx> {
+    fn try_parse_standalone_expr(&mut self) -> Option<NodeIdx> {
         let start = self.current_token_idx;
 
         if self.eat(Token::DecimalLiteral)
@@ -391,6 +391,10 @@ where
             return Some(self.parse_block(start, NodeKind::ComptimeBlock));
         }
 
+        if self.eat(Token::Fn) {
+            return Some(self.parse_function_def(start));
+        }
+
         if self.check(Token::LeftCurly) {
             return Some(self.parse_block(self.current_token_idx, NodeKind::Block));
         }
@@ -400,6 +404,40 @@ where
         }
 
         None
+    }
+
+    fn parse_function_def(&mut self, start: TokenIdx) -> NodeIdx {
+        let mut function = self.alloc_node_from(start, NodeKind::FnDef);
+        self.expect(Token::LeftRound);
+
+        let mut parameter_list = self.alloc_node(NodeKind::ParamList);
+        while self.check(Token::Identifier) {
+            let mut parameter = self.alloc_node(NodeKind::Parameter);
+            let identifier = self.expect_ident();
+            self.push_child(&mut parameter, identifier);
+            self.expect(Token::Colon);
+            let r#type = self.parse_expr(ParseExprMode::TypeExpr);
+            self.push_child(&mut parameter, r#type);
+
+            let parameter = self.close_node(parameter);
+            self.push_child(&mut parameter_list, parameter);
+
+            if !self.eat(Token::Comma) {
+                break;
+            }
+        }
+        let parameter_list = self.close_node(parameter_list);
+        self.push_child(&mut function, parameter_list);
+
+        self.expect(Token::RightRound);
+
+        let return_type = self.parse_expr(ParseExprMode::TypeExpr);
+        self.push_child(&mut function, return_type);
+
+        let body = self.parse_block(self.current_token_idx, NodeKind::Block);
+        self.push_child(&mut function, body);
+
+        self.close_node(function)
     }
 
     fn parse_expr(&mut self, mode: ParseExprMode) -> NodeIdx {
@@ -432,7 +470,7 @@ where
             self.push_child(&mut unary, expr);
             self.close_node(unary)
         } else {
-            self.try_parse_standalone_expr(mode)?
+            self.try_parse_standalone_expr()?
         };
 
         loop {

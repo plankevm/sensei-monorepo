@@ -42,7 +42,7 @@ let = "let" "mut"? IDENT (":" expr)? "=" expr
 return = "return" expr
 assign = name_path "=" expr
 
-fn_def = "fn" "(" param_def_list? ")" ("->" expr)? block
+fn_def = "fn" "(" param_def_list? ")" expr block
 param_def_list = comma_separated{"comptime"? IDENT ":" expr}
 
 struct_def = "struct" "{" comma_separated{IDENT ":" expr}? "}"

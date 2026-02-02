@@ -99,7 +99,7 @@ pub enum NodeKind {
     Identifier,
 
     // Misc
-    ParamDef,
+    Parameter,
     FieldDef,
     ParamList,
     FieldList,

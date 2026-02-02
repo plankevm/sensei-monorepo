@@ -882,7 +882,7 @@ fn test_fn_call_trailing_comma() {
 #[test]
 fn test_fn_def_zero_params() {
     assert_parses_to_cst_no_errors_dedented(
-        "const f = fn() {};",
+        "const f = fn() void {};",
         r#"
         File
             ConstDecl { typed: false }
@@ -892,15 +892,19 @@ fn test_fn_def_zero_params() {
                     "f"
                 " "
                 "="
+                " "
                 FnDef
-                    " "
                     "fn"
                     "("
                     ParamList
                     ")"
                     " "
+                    Identifier
+                        "void"
+                    " "
                     Block
                         "{"
+                        StatementsList
                         "}"
                 ";"
         "#,
@@ -910,7 +914,7 @@ fn test_fn_def_zero_params() {
 #[test]
 fn test_fn_def_one_param() {
     assert_parses_to_cst_no_errors_dedented(
-        "const f = fn(x: T) {};",
+        "const f = fn(x: T) void {};",
         r#"
         File
             ConstDecl { typed: false }
@@ -920,12 +924,12 @@ fn test_fn_def_one_param() {
                     "f"
                 " "
                 "="
+                " "
                 FnDef
-                    " "
                     "fn"
                     "("
                     ParamList
-                        ParamDef
+                        Parameter
                             Identifier
                                 "x"
                             ":"
@@ -934,8 +938,12 @@ fn test_fn_def_one_param() {
                                 "T"
                     ")"
                     " "
+                    Identifier
+                        "void"
+                    " "
                     Block
                         "{"
+                        StatementsList
                         "}"
                 ";"
         "#,
@@ -945,7 +953,7 @@ fn test_fn_def_one_param() {
 #[test]
 fn test_fn_def_two_params() {
     assert_parses_to_cst_no_errors_dedented(
-        "const f = fn(x: T, y: U) {};",
+        "const f = fn(x: T(void), y: U) void {};",
         r#"
         File
             ConstDecl { typed: false }
@@ -955,21 +963,26 @@ fn test_fn_def_two_params() {
                     "f"
                 " "
                 "="
+                " "
                 FnDef
-                    " "
                     "fn"
                     "("
                     ParamList
-                        ParamDef
+                        Parameter
                             Identifier
                                 "x"
                             ":"
-                            " "
-                            Identifier
-                                "T"
+                            CallExpr
+                                " "
+                                Identifier
+                                    "T"
+                                "("
+                                Identifier
+                                    "void"
+                                ")"
                         ","
                         " "
-                        ParamDef
+                        Parameter
                             Identifier
                                 "y"
                             ":"
@@ -978,8 +991,12 @@ fn test_fn_def_two_params() {
                                 "U"
                     ")"
                     " "
+                    Identifier
+                        "void"
+                    " "
                     Block
                         "{"
+                        StatementsList
                         "}"
                 ";"
         "#,
@@ -989,7 +1006,7 @@ fn test_fn_def_two_params() {
 #[test]
 fn test_fn_def_with_return_type() {
     assert_parses_to_cst_no_errors_dedented(
-        "const f = fn() -> T {};",
+        "const f = fn() Wow(32) {};",
         r#"
         File
             ConstDecl { typed: false }
@@ -999,20 +1016,24 @@ fn test_fn_def_with_return_type() {
                     "f"
                 " "
                 "="
+                " "
                 FnDef
-                    " "
                     "fn"
                     "("
                     ParamList
                     ")"
-                    " "
-                    "->"
-                    " "
-                    Identifier
-                        "T"
+                    CallExpr
+                        " "
+                        Identifier
+                            "Wow"
+                        "("
+                        LiteralExpr
+                            "32"
+                        ")"
                     " "
                     Block
                         "{"
+                        StatementsList
                         "}"
                 ";"
         "#,
@@ -1022,7 +1043,7 @@ fn test_fn_def_with_return_type() {
 #[test]
 fn test_fn_def_full() {
     assert_parses_to_cst_no_errors_dedented(
-        "const f = fn(x: T) -> U { x; };",
+        "const f = fn(x: T) U { x; };",
         r#"
         File
             ConstDecl { typed: false }
@@ -1032,12 +1053,12 @@ fn test_fn_def_full() {
                     "f"
                 " "
                 "="
+                " "
                 FnDef
-                    " "
                     "fn"
                     "("
                     ParamList
-                        ParamDef
+                        Parameter
                             Identifier
                                 "x"
                             ":"
@@ -1046,18 +1067,17 @@ fn test_fn_def_full() {
                                 "T"
                     ")"
                     " "
-                    "->"
-                    " "
                     Identifier
                         "U"
                     " "
                     Block
                         "{"
-                        " "
-                        Identifier
-                            "x"
-                        ";"
-                        " "
+                        StatementsList
+                            " "
+                            Identifier
+                                "x"
+                            ";"
+                            " "
                         "}"
                 ";"
         "#,
