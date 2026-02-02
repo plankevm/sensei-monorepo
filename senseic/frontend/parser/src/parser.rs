@@ -90,6 +90,7 @@ where
 {
     const UNARY_PRIORITY: OpPriority = OpPriority(19);
     const MEMBER_PRIORITY: OpPriority = OpPriority(21);
+    const FN_CALL_PRIORITY: OpPriority = OpPriority(21);
 
     fn new(
         arena: &'ast Bump,
@@ -441,6 +442,21 @@ where
                 let access_name = self.expect_ident();
                 self.push_child(&mut member, access_name);
                 expr = self.close_node(member);
+                continue;
+            }
+
+            if Self::FN_CALL_PRIORITY > min_bp && self.eat(Token::LeftRound) {
+                let mut call = self.alloc_node_from(start, NodeKind::CallExpr);
+                self.push_child(&mut call, expr);
+                while let Some(argument) = self.try_parse_expr(ParseExprMode::AllowAll) {
+                    self.push_child(&mut call, argument);
+
+                    if !self.eat(Token::Comma) {
+                        break;
+                    }
+                }
+                self.expect(Token::RightRound);
+                expr = self.close_node(call);
                 continue;
             }
 

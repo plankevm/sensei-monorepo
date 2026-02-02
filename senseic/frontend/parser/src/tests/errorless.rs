@@ -782,7 +782,6 @@ fn test_fn_call_zero_args() {
                     Identifier
                         "f"
                     "("
-                    ArgList
                     ")"
                 ";"
         "#,
@@ -807,9 +806,8 @@ fn test_fn_call_one_arg() {
                     Identifier
                         "f"
                     "("
-                    ArgList
-                        Identifier
-                            "a"
+                    Identifier
+                        "a"
                     ")"
                 ";"
         "#,
@@ -834,13 +832,12 @@ fn test_fn_call_two_args() {
                     Identifier
                         "f"
                     "("
-                    ArgList
-                        Identifier
-                            "a"
-                        ","
-                        " "
-                        Identifier
-                            "b"
+                    Identifier
+                        "a"
+                    ","
+                    " "
+                    Identifier
+                        "b"
                     ")"
                 ";"
         "#,
@@ -865,14 +862,13 @@ fn test_fn_call_trailing_comma() {
                     Identifier
                         "f"
                     "("
-                    ArgList
-                        Identifier
-                            "a"
-                        ","
-                        " "
-                        Identifier
-                            "b"
-                        ","
+                    Identifier
+                        "a"
+                    ","
+                    " "
+                    Identifier
+                        "b"
+                    ","
                     ")"
                 ";"
         "#,

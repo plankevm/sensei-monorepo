@@ -101,7 +101,6 @@ pub enum NodeKind {
     // Misc
     ParamDef,
     FieldDef,
-    ArgList,
     ParamList,
     FieldList,
     StatementsList,
