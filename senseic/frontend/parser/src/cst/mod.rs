@@ -85,7 +85,6 @@ pub enum NodeKind {
     ParenExpr,
     CallExpr,
     MemberExpr,
-    FnDef,
     StructDef,
     StructLit,
 
@@ -98,13 +97,16 @@ pub enum NodeKind {
     LiteralExpr,
     Identifier,
 
-    // Misc
+    // Function Definition
+    FnDef,
+    ParamList,
     Parameter,
     ComptimeParameter,
-    FieldDef,
-    ParamList,
-    FieldAssign,
+
+    // Misc
     StatementsList,
+    FieldDef,
+    FieldAssign,
 
     // Errors
     Error,

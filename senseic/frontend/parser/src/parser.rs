@@ -18,16 +18,14 @@ impl OpPriority {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ParseExprMode {
     AllowAll,
-    CondExpr,
-    ReturnTypeExpr,
-    TypeExpr,
+    NoPostFixCurlyBrace,
 }
 
 impl ParseExprMode {
     fn allows_struct_literal(self) -> bool {
         match self {
-            ParseExprMode::AllowAll | ParseExprMode::TypeExpr => true,
-            ParseExprMode::ReturnTypeExpr | ParseExprMode::CondExpr => false,
+            ParseExprMode::AllowAll => true,
+            ParseExprMode::NoPostFixCurlyBrace => false,
         }
     }
 }
@@ -336,7 +334,7 @@ where
 
         let mut conditional = self.alloc_node_from(condition_chain_start, NodeKind::If);
 
-        let if_condition = self.parse_expr(ParseExprMode::CondExpr);
+        let if_condition = self.parse_expr(ParseExprMode::NoPostFixCurlyBrace);
         self.push_child(&mut conditional, if_condition);
         let if_body = self.parse_block(self.current_token_idx, NodeKind::Block);
         self.push_child(&mut conditional, if_body);
@@ -358,7 +356,7 @@ where
 
             let mut else_if = self.alloc_node_from(branch_start, NodeKind::ElseIfBranch);
 
-            let else_condition = self.parse_expr(ParseExprMode::CondExpr);
+            let else_condition = self.parse_expr(ParseExprMode::NoPostFixCurlyBrace);
             self.push_child(&mut else_if, else_condition);
             let branch_body = self.parse_block(self.current_token_idx, NodeKind::Block);
             self.push_child(&mut else_if, branch_body);
@@ -411,6 +409,10 @@ where
             return Some(self.parse_function_def(start));
         }
 
+        if self.eat(Token::Struct) {
+            return Some(self.parse_struct_def(start));
+        }
+
         if self.check(Token::LeftCurly) {
             return Some(self.parse_block(self.current_token_idx, NodeKind::Block));
         }
@@ -446,7 +448,7 @@ where
             };
 
             self.expect(Token::Colon);
-            let r#type = self.parse_expr(ParseExprMode::TypeExpr);
+            let r#type = self.parse_expr(ParseExprMode::AllowAll);
             self.push_child(&mut parameter, r#type);
 
             let parameter = self.close_node(parameter);
@@ -461,13 +463,45 @@ where
 
         self.expect(Token::RightRound);
 
-        let return_type = self.parse_expr(ParseExprMode::ReturnTypeExpr);
+        let return_type = self.parse_expr(ParseExprMode::NoPostFixCurlyBrace);
         self.push_child(&mut function, return_type);
 
         let body = self.parse_block(self.current_token_idx, NodeKind::Block);
         self.push_child(&mut function, body);
 
         self.close_node(function)
+    }
+
+    fn parse_struct_def(&mut self, start: TokenIdx) -> NodeIdx {
+        let mut struct_def = self.alloc_node_from(start, NodeKind::StructDef);
+
+        let type_index = self.parse_expr(ParseExprMode::NoPostFixCurlyBrace);
+        self.push_child(&mut struct_def, type_index);
+
+        self.expect(Token::LeftCurly);
+
+        while self.check(Token::Identifier) {
+            let mut field = self.alloc_node(NodeKind::FieldDef);
+
+            let name = self.try_parse_ident().expect("read ident token, but no ident?");
+            self.push_child(&mut field, name);
+
+            self.expect(Token::Colon);
+
+            let r#type = self.parse_expr(ParseExprMode::AllowAll);
+            self.push_child(&mut field, r#type);
+
+            let field = self.close_node(field);
+            self.push_child(&mut struct_def, field);
+
+            if !self.eat(Token::Comma) {
+                break;
+            }
+        }
+
+        self.expect(Token::RightCurly);
+
+        self.close_node(struct_def)
     }
 
     fn parse_expr(&mut self, mode: ParseExprMode) -> NodeIdx {
@@ -537,7 +571,7 @@ where
 
                 while self.check(Token::Identifier) {
                     let mut field = self.alloc_node(NodeKind::FieldAssign);
-                    let name = self.expect_ident();
+                    let name = self.try_parse_ident().expect("read ident token, but no ident?");
                     self.push_child(&mut field, name);
                     self.expect(Token::Colon);
                     let value = self.parse_expr(ParseExprMode::AllowAll);
@@ -594,7 +628,7 @@ where
 
         let mut while_stmt = self.alloc_node_from(while_start, kind);
 
-        let condition = self.parse_expr(ParseExprMode::CondExpr);
+        let condition = self.parse_expr(ParseExprMode::NoPostFixCurlyBrace);
         self.push_child(&mut while_stmt, condition);
 
         let body = self.parse_block(self.current_token_idx, NodeKind::Block);
@@ -631,7 +665,7 @@ where
 
             if self.eat(Token::Colon) {
                 self.update_kind(r#let, NodeKind::LetStmt { mutable, typed: true });
-                let type_expr = self.parse_expr(ParseExprMode::TypeExpr);
+                let type_expr = self.parse_expr(ParseExprMode::AllowAll);
                 self.push_child(&mut r#let, type_expr);
             }
 
@@ -752,7 +786,7 @@ where
         // Optional type annotation
         if self.eat(Token::Colon) {
             self.update_kind(r#const, NodeKind::ConstDecl { typed: true });
-            let type_expr = self.parse_expr(ParseExprMode::TypeExpr);
+            let type_expr = self.parse_expr(ParseExprMode::AllowAll);
             self.push_child(&mut r#const, type_expr);
         }
 

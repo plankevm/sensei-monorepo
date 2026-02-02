@@ -46,7 +46,7 @@ assign = expr "=" expr
 fn_def = "fn" "(" param_def_list? ")" expr block
 param_def_list = comma_separated{"comptime"? IDENT ":" expr}
 
-struct_def = "struct" "{" comma_separated{IDENT ":" expr}? "}"
+struct_def = "struct" expr "{" comma_separated{IDENT ":" expr}? "}"
 struct_lit = expr "{" comma_separated{IDENT ":" expr}? "}"
 
 # Literals

@@ -1234,7 +1234,7 @@ fn test_fn_def_mixed_comptime_and_runtime_params() {
 #[test]
 fn test_struct_def_zero_fields() {
     assert_parses_to_cst_no_errors_dedented(
-        "const S = struct {};",
+        "const S = struct {} {};",
         r#"
         File
             ConstDecl { typed: false }
@@ -1244,12 +1244,16 @@ fn test_struct_def_zero_fields() {
                     "S"
                 " "
                 "="
+                " "
                 StructDef
-                    " "
                     "struct"
                     " "
+                    Block
+                        "{"
+                        StatementsList
+                        "}"
+                    " "
                     "{"
-                    FieldList
                     "}"
                 ";"
         "#,
@@ -1259,7 +1263,7 @@ fn test_struct_def_zero_fields() {
 #[test]
 fn test_struct_def_one_field() {
     assert_parses_to_cst_no_errors_dedented(
-        "const S = struct { x: T };",
+        "const S = struct I { x: T };",
         r#"
         File
             ConstDecl { typed: false }
@@ -1269,21 +1273,23 @@ fn test_struct_def_one_field() {
                     "S"
                 " "
                 "="
+                " "
                 StructDef
-                    " "
                     "struct"
                     " "
+                    Identifier
+                        "I"
+                    " "
                     "{"
-                    FieldList
+                    " "
+                    FieldDef
+                        Identifier
+                            "x"
+                        ":"
                         " "
-                        FieldDef
-                            Identifier
-                                "x"
-                            ":"
-                            " "
-                            Identifier
-                                "T"
-                            " "
+                        Identifier
+                            "T"
+                        " "
                     "}"
                 ";"
         "#,
@@ -1293,7 +1299,7 @@ fn test_struct_def_one_field() {
 #[test]
 fn test_struct_def_two_fields() {
     assert_parses_to_cst_no_errors_dedented(
-        "const S = struct { x: T, y: U };",
+        "const S = struct B(34) { x: T, y: U };",
         r#"
         File
             ConstDecl { typed: false }
@@ -1303,30 +1309,37 @@ fn test_struct_def_two_fields() {
                     "S"
                 " "
                 "="
+                " "
                 StructDef
-                    " "
                     "struct"
+                    CallExpr
+                        " "
+                        Identifier
+                            "B"
+                        "("
+                        LiteralExpr
+                            "34"
+                        ")"
                     " "
                     "{"
-                    FieldList
+                    " "
+                    FieldDef
+                        Identifier
+                            "x"
+                        ":"
                         " "
-                        FieldDef
-                            Identifier
-                                "x"
-                            ":"
-                            " "
-                            Identifier
-                                "T"
-                        ","
+                        Identifier
+                            "T"
+                    ","
+                    " "
+                    FieldDef
+                        Identifier
+                            "y"
+                        ":"
                         " "
-                        FieldDef
-                            Identifier
-                                "y"
-                            ":"
-                            " "
-                            Identifier
-                                "U"
-                            " "
+                        Identifier
+                            "U"
+                        " "
                     "}"
                 ";"
         "#,
@@ -1336,7 +1349,7 @@ fn test_struct_def_two_fields() {
 #[test]
 fn test_struct_def_trailing_comma() {
     assert_parses_to_cst_no_errors_dedented(
-        "const S = struct { x: T, };",
+        "const S = struct {} { x: T, };",
         r#"
         File
             ConstDecl { typed: false }
@@ -1346,22 +1359,26 @@ fn test_struct_def_trailing_comma() {
                     "S"
                 " "
                 "="
+                " "
                 StructDef
-                    " "
                     "struct"
                     " "
+                    Block
+                        "{"
+                        StatementsList
+                        "}"
+                    " "
                     "{"
-                    FieldList
+                    " "
+                    FieldDef
+                        Identifier
+                            "x"
+                        ":"
                         " "
-                        FieldDef
-                            Identifier
-                                "x"
-                            ":"
-                            " "
-                            Identifier
-                                "T"
-                        ","
-                        " "
+                        Identifier
+                            "T"
+                    ","
+                    " "
                     "}"
                 ";"
         "#,
