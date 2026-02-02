@@ -468,4 +468,38 @@ Basic Blocks:
             "block inputs propagate only when predecessors agree",
         );
     }
+
+    #[test]
+    fn test_large_constants_not_deduplicated_by_value() {
+        // Large constants are compared by LargeConstId, not by value.
+        let input = r#"
+            fn init:
+                entry {
+                    a = large_const 0x1234567890abcdef1234567890abcdef
+                    b = large_const 0x1234567890abcdef1234567890abcdef
+                    c = add a b
+                    stop
+                }
+        "#;
+
+        let expected = r#"
+Functions:
+    fn @0 -> entry @0  (outputs: 0)
+
+Basic Blocks:
+    @0 {
+        $0 = large_const 0x1234567890abcdef1234567890abcdef
+        $1 = large_const 0x1234567890abcdef1234567890abcdef
+        $2 = add $0 $1
+        stop
+    }
+        "#;
+
+        let actual = run_const_prop(input);
+        assert_trim_strings_eq_with_diff(
+            &actual,
+            expected,
+            "large constants not deduplicated by value",
+        );
+    }
 }
