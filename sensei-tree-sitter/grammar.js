@@ -7,136 +7,148 @@
 /// <reference types="tree-sitter-cli/dsl" />
 // @ts-check
 
-const PREC_MUL = 10
-const PREC_ADDITIVE = 9
-const PREC_COMPARATIVE = 3
+const PREC = {
+  OR: 1,
+  AND: 2,
+  COMPARE: 3,
+  BIT_OR: 4,
+  BIT_XOR: 5,
+  BIT_AND: 6,
+  SHIFT: 7,
+  ADDITIVE: 8,
+  MULTIPLICATIVE: 9,
+  UNARY: 10,
+}
 
 module.exports = grammar({
   name: "sensei",
 
   extras: ($) => [/\s/, $.line_comment],
   conflicts: ($) => [
-    [$._expr_no_block, $.name_path],
-    [$._expr, $._stmt]
+    [$._expr, $._stmt],
+    [$.block, $.struct_lit],
+    [$.struct_def, $.struct_lit],
+    [$.field_def, $.field_init],
   ],
 
   rules: {
-    source_file: ($) => repeat(choice(
-      $.init,
-      $.run,
-      $.const_def,
-      $.import
-    )),
+    source_file: ($) => repeat($._decl),
+
+    _decl: ($) => choice($.init, $.run, $.const_def),
 
     init: ($) => seq("init", $.block),
-    run: $ => seq("run", $.block),
-    const_def: $ => seq(optional("export"), $.const_item, ";"),
-    import: $ => seq("import", field("kind", choice($.import_all, $.import_select)), "from", field("path", $.string), ";"),
-    import_all: $ => seq("*", optional(seq("as", field("as", $.identifier)))),
-    import_select: $ => seq("{", commaSeparated($.identifier, "selection"), "}"),
+    run: ($) => seq("run", $.block),
+    const_def: ($) => seq("const", $.identifier, optional(seq(":", $._expr)), "=", $._expr, ";"),
 
-    const_item: $ => seq(
-      "const",
+    // Expressions
+    _expr: ($) => choice($.comptime_block, $.block, $.if_expr, $._expr_no_block),
+    comptime_block: ($) => seq("comptime", $.block),
+    _expr_no_block: ($) => choice(
       $.identifier,
-      optional(seq(":", $.type_expr)),
-      "=",
-      $._expr
-    ),
-
-    block: $ => seq("{", field("stmts", repeat($._stmt)), field("last_expr", optional($._expr)), "}"),
-    type_expr: $ => choice($.name_path, $.struct_def),
-    _expr: $ => choice($.block, $._expr_no_block),
-    _expr_no_block: $ => choice(
-      $.fn_call,
-      $.binary_expr,
-      $.paren_expr,
-      $.member,
-      $.type_def,
       $._literal,
-      $.identifier,
-      $.struct_lit
+      $.member,
+      $.fn_call,
+      $.fn_def,
+      $.struct_def,
+      $.struct_lit,
+      $.binary_expr,
+      $.unary_expr,
+      $.paren_expr
     ),
-    fn_call: $ => seq(
-      field("fn", $._expr),
-      "(",
-      field("params", commaSeparated($._expr)),
-      ")"
-    ),
-    binary_expr: $ => {
+
+    binary_expr: ($) => {
       /**
        * @param {number} precedence
        * @param {string[]} operators
        */
       const bin_op_variant = (precedence, operators) => prec.left(precedence, seq(
         field("lhs", $._expr),
-        field("op", choice(...operators)),
+        field("op", operators.length === 1 ? operators[0] : choice(...operators)),
         field("rhs", $._expr)
       ));
 
       return choice(
-        bin_op_variant(PREC_MUL, ["*", "*%", "/-", "/+", "/^", "/$", "%"]),
-        bin_op_variant(PREC_ADDITIVE, ["+", "+%", "-", "-%"]),
-        bin_op_variant(PREC_COMPARATIVE, ["==", "<", "<=", "!=", ">", ">="])
+        bin_op_variant(PREC.OR, ["or"]),
+        bin_op_variant(PREC.AND, ["and"]),
+        bin_op_variant(PREC.COMPARE, ["==", "!=", "<", ">", "<=", ">="]),
+        bin_op_variant(PREC.BIT_OR, ["|"]),
+        bin_op_variant(PREC.BIT_XOR, ["^"]),
+        bin_op_variant(PREC.BIT_AND, ["&"]),
+        bin_op_variant(PREC.SHIFT, ["<<", ">>"]),
+        bin_op_variant(PREC.ADDITIVE, ["+", "-", "+%", "-%"]),
+        bin_op_variant(PREC.MULTIPLICATIVE, ["*", "/", "%", "*%", "/+", "/-", "/<", "/>"]),
       )
     },
-    paren_expr: $ => seq("(", $._expr, ")"),
-    member: $ => seq($._expr, ".", $.identifier),
-    _stmt: $ => choice(
-      seq(choice($.const_item, $._expr_no_block, $.return, $.assign, $.let), ";"),
-      seq($.block, optional(";")),
-      $.cond_stmt
-    ),
-    return: $ => seq("return", $._expr),
-    let: $ => seq("let", optional("mut"), $.identifier, optional(seq(":", $.type_expr)), "=", $._expr),
-    assign: $ => seq($.name_path, "=", $._expr),
-    cond_stmt: $ => seq(
+
+    unary_expr: ($) => prec(PREC.UNARY, seq(
+      field("op", choice("-", "!", "~")),
+      field("operand", $._expr)
+    )),
+
+    paren_expr: ($) => seq("(", $._expr, ")"),
+    fn_call: ($) => seq(field("fn", $._expr), "(", commaSeparated($._expr, "args"), ")"),
+    member: ($) => seq($._expr, ".", $.identifier),
+
+    if_expr: ($) => seq(
       "if",
-      $._expr,
-      $.block,
-      repeat(seq("else", "if", $._expr, $.block)),
-      optional(seq("else", $.block))
-    ),
-    struct_lit: $ => seq($.name_path, $.struct_lit_fields),
-    struct_lit_fields: $ => seq("{", commaSeparated($.struct_lit_field), "}"),
-    struct_lit_field: $ => seq(
-      field("name", $.identifier),
-      ":",
-      $._expr
+      field("condition", $._expr),
+      field("then", $.block),
+      repeat(seq("else", "if", field("condition", $._expr), field("then", $.block))),
+      optional(seq("else", field("else", $.block)))
     ),
 
-    type_def: $ => choice($.fn_def, $.struct_def),
-    fn_def: $ => seq(
+    block: ($) => seq("{", field("stmts", repeat($._stmt)), field("last_expr", optional($._expr)), "}"),
+
+    // Statements
+    _stmt: ($) => choice(
+      seq(choice($._expr_no_block, $.return, $.assign, $.let), ";"),
+      seq($.if_expr, optional(";")),
+      $.while
+    ),
+
+    while: ($) => seq(optional("inline"), "while", field("condition", $._expr), field("body", $.block)),
+    let: ($) => seq("let", optional("mut"), $.identifier, optional(seq(":", $._expr)), "=", $._expr),
+    return: ($) => seq("return", $._expr),
+    assign: ($) => seq($._expr, "=", $._expr),
+
+    // Definitions
+    fn_def: ($) => seq(
       "fn",
       "(",
-      commaSeparated($.typed_item_def, "params"),
+      commaSeparated($.param_def, "params"),
       ")",
-      optional(seq("->", field("type", $.type_expr))),
-      field("block", $.block)
+      field("return_type", $._expr),
+      field("body", $.block)
     ),
-    struct_def: $ => seq("struct", "{", commaSeparated($.typed_item_def, "field"), "}"),
-    typed_item_def: $ => seq(
+    param_def: ($) => seq(
+      optional("comptime"),
       field("name", $.identifier),
       ":",
-      field("type", $.type_expr)
+      field("type", $._expr)
     ),
 
-    _literal: $ => choice($.bool_literal, $.hex_literal, $.bin_literal, $.dec_literal),
+    struct_def: ($) => seq("struct", field("size", $._expr), "{", commaSeparated($.field_def, "fields"), "}"),
+    field_def: ($) => seq(field("name", $.identifier), ":", field("type", $._expr)),
+
+    struct_lit: ($) => seq(field("type", $._expr), "{", commaSeparated($.field_init, "fields"), "}"),
+    field_init: ($) => seq(field("name", $.identifier), ":", field("value", $._expr)),
+
+    // Literals
+    _literal: ($) => choice($.bool_literal, $.hex_literal, $.bin_literal, $.dec_literal),
     bool_literal: (_) => choice("true", "false"),
     hex_literal: (_) => /-?0x[0-9A-Fa-f][0-9A-Fa-f_]*/,
     bin_literal: (_) => /-?0b[01][01_]*/,
     dec_literal: (_) => /-?[0-9][0-9_]*/,
 
-    name_path: $ => seq($.identifier, repeat(seq(".", $.identifier))),
+    // Helpers
     line_comment: (_) => /\/\/[^\n]*/,
     identifier: (_) => /[a-zA-Z_][a-zA-Z0-9_]*/,
-    string: (_) => /"[a-zA-Z0-9_\./-]+"/
   },
 });
 
 
 /**
  * Creates a rule that matches a comma separated list of the input rule, allowing a trailing comma.
- * Matches at least one.
  *
  * @param {RuleOrLiteral} rule
  * @param {string | null} fieldName
@@ -150,4 +162,3 @@ function commaSeparated(rule, fieldName = null) {
     return optional(seq(field(fieldName, rule), repeat(seq(",", field(fieldName, rule))), optional(",")));
   }
 }
-
