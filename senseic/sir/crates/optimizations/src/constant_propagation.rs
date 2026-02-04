@@ -51,9 +51,14 @@ define_track_constant!(
     Coinbase,
     Timestamp,
     Number,
+    Difficulty,
+    GasLimit,
     ChainId,
     BaseFee,
     BlobBaseFee,
+    RuntimeStartOffset,
+    InitEndOffset,
+    RuntimeLength,
 );
 
 pub struct ConstPropAnalysis<'a> {
