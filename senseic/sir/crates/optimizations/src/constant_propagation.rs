@@ -1,9 +1,10 @@
 use std::collections::HashMap;
 
+use alloy_primitives::U256;
 use sir_analyses::compute_predecessors;
 use sir_data::{
-    BasicBlockId, BasicBlockIdMarker, EthIRProgram, IndexVec, LargeConstId, LocalId, LocalIdMarker,
-    LocalIndexMarker, Operation, RelSliceMut, Span, X32,
+    BasicBlockId, BasicBlockIdMarker, EthIRProgram, IndexVec, LargeConstId, LargeConstIdMarker,
+    LocalId, LocalIdMarker, LocalIndexMarker, Operation, RelSliceMut, Span, X32,
     operation::{
         AllocatedIns, InlineOperands, InternalCallData, MemoryLoadData, MemoryStoreData,
         OpVisitorMut, SetDataOffsetData, SetLargeConstData, SetSmallConstData, StaticAllocData,
@@ -141,6 +142,7 @@ impl<'a> ConstPropAnalysis<'a> {
         for bb in self.program.basic_blocks.iter_mut() {
             for op in &mut self.program.operations[bb.operations] {
                 op.visit_data_mut(&mut replacer);
+                try_fold(op, &self.constant_map, &mut self.program.large_consts);
             }
 
             match &mut bb.control {
@@ -159,6 +161,95 @@ impl<'a> ConstPropAnalysis<'a> {
 pub fn run(program: &mut EthIRProgram) {
     let mut analysis = ConstPropAnalysis::new(program);
     analysis.apply();
+}
+
+fn get_const_value(
+    local: &LocalId,
+    constant_map: &HashMap<LocalId, ConstValue>,
+    large_consts: &IndexVec<LargeConstIdMarker, U256>,
+) -> Option<U256> {
+    match constant_map.get(local)? {
+        ConstValue::SmallConst(v) => Some(U256::from(*v)),
+        ConstValue::LargeConst(id) => Some(large_consts[*id]),
+        _ => None,
+    }
+}
+
+fn get_binary_const_values(
+    a: &LocalId,
+    b: &LocalId,
+    constant_map: &HashMap<LocalId, ConstValue>,
+    large_consts: &IndexVec<LargeConstIdMarker, U256>,
+) -> Option<(U256, U256)> {
+    let va = get_const_value(a, constant_map, large_consts)?;
+    let vb = get_const_value(b, constant_map, large_consts)?;
+    Some((va, vb))
+}
+
+fn fold_to_const(
+    result: U256,
+    out: LocalId,
+    large_consts: &mut IndexVec<LargeConstIdMarker, U256>,
+) -> Operation {
+    if let Ok(small) = u32::try_from(result) {
+        Operation::SetSmallConst(SetSmallConstData { sets: out, value: small })
+    } else {
+        let id = large_consts.push(result);
+        Operation::SetLargeConst(SetLargeConstData { sets: out, value: id })
+    }
+}
+
+fn try_fold(
+    op: &mut Operation,
+    constant_map: &HashMap<LocalId, ConstValue>,
+    large_consts: &mut IndexVec<LargeConstIdMarker, U256>,
+) {
+    macro_rules! fold_binary {
+        ($a:expr, $b:expr, $out:expr, $f:expr) => {
+            if let Some((va, vb)) = get_binary_const_values($a, $b, constant_map, large_consts) {
+                *op = fold_to_const($f(va, vb), *$out, large_consts);
+            }
+        };
+    }
+
+    match op {
+        Operation::Add(InlineOperands { ins: [a, b], outs: [out] }) => {
+            fold_binary!(a, b, out, U256::wrapping_add)
+        }
+        Operation::Mul(InlineOperands { ins: [a, b], outs: [out] }) => {
+            fold_binary!(a, b, out, U256::wrapping_mul)
+        }
+        Operation::Sub(InlineOperands { ins: [a, b], outs: [out] }) => {
+            fold_binary!(a, b, out, U256::wrapping_sub)
+        }
+        Operation::Div(InlineOperands { ins: [a, b], outs: [out] }) => {
+            fold_binary!(a, b, out, |va: U256, vb| va.checked_div(vb).unwrap_or(U256::ZERO))
+        }
+        Operation::SDiv(InlineOperands { ins: [a, b], outs: [out] }) => todo!(),
+        Operation::Mod(InlineOperands { ins: [a, b], outs: [out] }) => {
+            fold_binary!(a, b, out, |va: U256, vb| va.checked_rem(vb).unwrap_or(U256::ZERO))
+        }
+        Operation::SMod(InlineOperands { ins: [a, b], outs: [out] }) => todo!(),
+        Operation::AddMod(AllocatedIns { ins_start, outs: [out] }) => todo!(),
+        Operation::MulMod(AllocatedIns { ins_start, outs: [out] }) => todo!(),
+        Operation::Exp(InlineOperands { ins: [a, b], outs: [out] }) => todo!(),
+        Operation::SignExtend(InlineOperands { ins: [a, b], outs: [out] }) => todo!(),
+        Operation::Lt(InlineOperands { ins: [a, b], outs: [out] }) => todo!(),
+        Operation::Gt(InlineOperands { ins: [a, b], outs: [out] }) => todo!(),
+        Operation::SLt(InlineOperands { ins: [a, b], outs: [out] }) => todo!(),
+        Operation::SGt(InlineOperands { ins: [a, b], outs: [out] }) => todo!(),
+        Operation::Eq(InlineOperands { ins: [a, b], outs: [out] }) => todo!(),
+        Operation::And(InlineOperands { ins: [a, b], outs: [out] }) => todo!(),
+        Operation::Or(InlineOperands { ins: [a, b], outs: [out] }) => todo!(),
+        Operation::Xor(InlineOperands { ins: [a, b], outs: [out] }) => todo!(),
+        Operation::Byte(InlineOperands { ins: [a, b], outs: [out] }) => todo!(),
+        Operation::Shl(InlineOperands { ins: [a, b], outs: [out] }) => todo!(),
+        Operation::Shr(InlineOperands { ins: [a, b], outs: [out] }) => todo!(),
+        Operation::Sar(InlineOperands { ins: [a, b], outs: [out] }) => todo!(),
+        Operation::Not(InlineOperands { ins: [a], outs: [out] }) => todo!(),
+        Operation::IsZero(InlineOperands { ins: [a], outs: [out] }) => todo!(),
+        _ => {}
+    }
 }
 
 fn dedupe_const(
