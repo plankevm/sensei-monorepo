@@ -1798,6 +1798,7 @@ dependencies = [
 name = "sir-optimizations"
 version = "0.1.0"
 dependencies = [
+ "sir-analyses",
  "sir-data",
  "sir-parser",
  "sir-test-utils",

@@ -5,6 +5,7 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+sir-analyses.workspace = true
 sir-data.workspace = true
 
 [dev-dependencies]

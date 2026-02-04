@@ -1,8 +1,9 @@
 use std::collections::HashMap;
 
+use sir_analyses::compute_predecessors;
 use sir_data::{
-    BasicBlockId, EthIRProgram, LargeConstId, LocalId, LocalIdMarker, LocalIndexMarker, Operation,
-    RelSliceMut, Span, X32,
+    BasicBlockId, BasicBlockIdMarker, EthIRProgram, IndexVec, LargeConstId, LocalId, LocalIdMarker,
+    LocalIndexMarker, Operation, RelSliceMut, Span, X32,
     operation::{
         AllocatedIns, InlineOperands, InternalCallData, MemoryLoadData, MemoryStoreData,
         OpVisitorMut, SetDataOffsetData, SetLargeConstData, SetSmallConstData, StaticAllocData,
@@ -76,12 +77,9 @@ impl<'a> ConstPropAnalysis<'a> {
     }
 
     fn init(&mut self) {
-        let mut predecessors: HashMap<BasicBlockId, Vec<BasicBlockId>> = HashMap::new();
+        let predecessors = compute_predecessors(self.program);
 
-        for (id, bb) in self.program.basic_blocks.enumerate_idx() {
-            for successor in bb.control.iter_outgoing(self.program) {
-                predecessors.entry(successor).or_default().push(id);
-            }
+        for bb in self.program.basic_blocks.iter() {
             for op in &self.program.operations[bb.operations] {
                 track_constant(op, |local, value| {
                     self.constant_map.insert(local, value.clone());
@@ -93,9 +91,12 @@ impl<'a> ConstPropAnalysis<'a> {
         self.track_block_inputs(&predecessors);
     }
 
-    fn track_block_inputs(&mut self, predecessors: &HashMap<BasicBlockId, Vec<BasicBlockId>>) {
-        for (bb_id, pred_ids) in predecessors {
-            let bb = &self.program.basic_blocks[*bb_id];
+    fn track_block_inputs(
+        &mut self,
+        predecessors: &IndexVec<BasicBlockIdMarker, Vec<BasicBlockId>>,
+    ) {
+        for (bb_id, pred_ids) in predecessors.enumerate_idx() {
+            let bb = &self.program.basic_blocks[bb_id];
             let inputs = &self.program.locals[bb.inputs];
 
             for (i, input) in inputs.iter().enumerate() {
