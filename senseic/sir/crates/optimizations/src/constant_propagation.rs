@@ -3,8 +3,9 @@ use std::collections::HashMap;
 use alloy_primitives::{I256, U256, U512};
 use sir_analyses::compute_predecessors;
 use sir_data::{
-    BasicBlockId, BasicBlockIdMarker, EthIRProgram, IndexVec, LargeConstId, LargeConstIdMarker,
-    LocalId, LocalIdMarker, LocalIndexMarker, Operation, RelSliceMut, Span, X32,
+    BasicBlockId, BasicBlockIdMarker, Control, EthIRProgram, IndexVec, LargeConstId,
+    LargeConstIdMarker, LocalId, LocalIdMarker, LocalIndexMarker, Operation, RelSliceMut, Span,
+    X32,
     operation::{
         AllocatedIns, InlineOperands, InternalCallData, MemoryLoadData, MemoryStoreData,
         OpVisitorMut, SetDataOffsetData, SetLargeConstData, SetSmallConstData, StaticAllocData,
@@ -133,15 +134,13 @@ impl<'a> ConstPropAnalysis<'a> {
     }
 
     pub fn apply(&mut self) {
-        let locals = self.program.locals.as_rel_slice_mut();
-        let mut replacer = ConstantReplacer {
-            constant_map: &self.constant_map,
-            first_occurrence: &self.first_occurrence,
-            locals,
-        };
+        self.fold_operations();
+        self.simplify_control();
+    }
+
+    fn fold_operations(&mut self) {
         for bb in self.program.basic_blocks.iter_mut() {
             for op in &mut self.program.operations[bb.operations] {
-                op.visit_data_mut(&mut replacer);
                 try_fold(
                     op,
                     &self.constant_map,
@@ -149,15 +148,46 @@ impl<'a> ConstPropAnalysis<'a> {
                     &self.program.locals,
                 );
             }
+        }
+    }
 
-            match &mut bb.control {
-                sir_data::Control::Branches(branch) => {
-                    dedupe_const(&mut branch.condition, &self.constant_map, &self.first_occurrence);
+    fn simplify_control(&mut self) {
+        for i in 0..self.program.basic_blocks.len() {
+            let bb_id = BasicBlockId::new(i as u32);
+            let new_control = {
+                let bb = &self.program.basic_blocks[bb_id];
+                match &bb.control {
+                    Control::Branches(branch) => get_const_value(
+                        &branch.condition,
+                        &self.constant_map,
+                        &self.program.large_consts,
+                    )
+                    .map(|val| {
+                        if val.is_zero() { branch.zero_target } else { branch.non_zero_target }
+                    })
+                    .map(Control::ContinuesTo),
+
+                    Control::Switch(switch) => get_const_value(
+                        &switch.condition,
+                        &self.constant_map,
+                        &self.program.large_consts,
+                    )
+                    .and_then(|val| {
+                        let cases = &self.program.cases[switch.cases];
+                        cases
+                            .iter(&self.program)
+                            .find(|(case_val, _)| val == *case_val)
+                            .map(|(_, target)| target)
+                            .or(switch.fallback)
+                    })
+                    .map(Control::ContinuesTo),
+
+                    _ => None,
                 }
-                sir_data::Control::Switch(switch) => {
-                    dedupe_const(&mut switch.condition, &self.constant_map, &self.first_occurrence);
-                }
-                _ => {}
+            };
+
+            if let Some(ctrl) = new_control {
+                self.program.basic_blocks[bb_id].control = ctrl;
             }
         }
     }
