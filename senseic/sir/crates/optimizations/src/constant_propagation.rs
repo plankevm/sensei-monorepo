@@ -4,12 +4,8 @@ use alloy_primitives::{I256, U256, U512};
 use sir_analyses::compute_predecessors;
 use sir_data::{
     BasicBlockId, BasicBlockIdMarker, Control, EthIRProgram, IndexVec, LargeConstId,
-    LargeConstIdMarker, LocalId, LocalIdMarker, LocalIndexMarker, Operation, RelSliceMut, Span,
-    X32,
-    operation::{
-        AllocatedIns, InlineOperands, InternalCallData, MemoryLoadData, MemoryStoreData,
-        OpVisitorMut, SetDataOffsetData, SetLargeConstData, SetSmallConstData, StaticAllocData,
-    },
+    LargeConstIdMarker, LocalId, Operation,
+    operation::{AllocatedIns, InlineOperands, SetLargeConstData, SetSmallConstData},
 };
 
 macro_rules! define_track_constant {
@@ -67,13 +63,11 @@ define_track_constant!(
 pub struct ConstPropAnalysis<'a> {
     program: &'a mut EthIRProgram,
     constant_map: HashMap<LocalId, ConstValue>,
-    first_occurrence: HashMap<ConstValue, LocalId>,
 }
 
 impl<'a> ConstPropAnalysis<'a> {
     pub fn new(program: &'a mut EthIRProgram) -> Self {
-        let mut analysis =
-            Self { program, constant_map: HashMap::new(), first_occurrence: HashMap::new() };
+        let mut analysis = Self { program, constant_map: HashMap::new() };
         analysis.init();
         analysis
     }
@@ -85,7 +79,6 @@ impl<'a> ConstPropAnalysis<'a> {
             for op in &self.program.operations[bb.operations] {
                 track_constant(op, |local, value| {
                     self.constant_map.insert(local, value.clone());
-                    self.first_occurrence.entry(value).or_insert(local);
                 });
             }
         }
@@ -154,37 +147,38 @@ impl<'a> ConstPropAnalysis<'a> {
     fn simplify_control(&mut self) {
         for i in 0..self.program.basic_blocks.len() {
             let bb_id = BasicBlockId::new(i as u32);
-            let new_control = {
-                let bb = &self.program.basic_blocks[bb_id];
-                match &bb.control {
-                    Control::Branches(branch) => get_const_value(
-                        &branch.condition,
-                        &self.constant_map,
-                        &self.program.large_consts,
-                    )
-                    .map(|val| {
-                        if val.is_zero() { branch.zero_target } else { branch.non_zero_target }
-                    })
-                    .map(Control::ContinuesTo),
+            let new_control =
+                {
+                    let bb = &self.program.basic_blocks[bb_id];
+                    match &bb.control {
+                        Control::Branches(branch) => get_const_value(
+                            &branch.condition,
+                            &self.constant_map,
+                            &self.program.large_consts,
+                        )
+                        .map(|val| {
+                            if val.is_zero() { branch.zero_target } else { branch.non_zero_target }
+                        })
+                        .map(Control::ContinuesTo),
 
-                    Control::Switch(switch) => get_const_value(
-                        &switch.condition,
-                        &self.constant_map,
-                        &self.program.large_consts,
-                    )
-                    .and_then(|val| {
-                        let cases = &self.program.cases[switch.cases];
-                        cases
-                            .iter(&self.program)
-                            .find(|(case_val, _)| val == *case_val)
-                            .map(|(_, target)| target)
-                            .or(switch.fallback)
-                    })
-                    .map(Control::ContinuesTo),
+                        Control::Switch(switch) => get_const_value(
+                            &switch.condition,
+                            &self.constant_map,
+                            &self.program.large_consts,
+                        )
+                        .and_then(|val| {
+                            let cases = &self.program.cases[switch.cases];
+                            cases
+                                .iter(&self.program)
+                                .find(|(case_val, _)| val == *case_val)
+                                .map(|(_, target)| target)
+                                .or(switch.fallback)
+                        })
+                        .map(Control::ContinuesTo),
 
-                    _ => None,
-                }
-            };
+                        _ => None,
+                    }
+                };
 
             if let Some(ctrl) = new_control {
                 self.program.basic_blocks[bb_id].control = ctrl;
@@ -403,68 +397,6 @@ fn try_fold(
     }
 }
 
-fn dedupe_const(
-    input: &mut X32<LocalIdMarker>,
-    constant_map: &HashMap<LocalId, ConstValue>,
-    first_occurrence: &HashMap<ConstValue, LocalId>,
-) {
-    if let Some(replacement) = constant_map.get(input) {
-        // Safe: every value in constant_map has a corresponding entry in first_occurrence
-        *input = first_occurrence[replacement];
-    }
-}
-
-struct ConstantReplacer<'a> {
-    constant_map: &'a HashMap<LocalId, ConstValue>,
-    first_occurrence: &'a HashMap<ConstValue, LocalId>,
-    locals: RelSliceMut<'a, LocalIndexMarker, LocalId>,
-}
-
-impl OpVisitorMut<()> for ConstantReplacer<'_> {
-    fn visit_inline_operands_mut<const INS: usize, const OUTS: usize>(
-        &mut self,
-        data: &mut InlineOperands<INS, OUTS>,
-    ) {
-        for input in &mut data.ins {
-            dedupe_const(input, self.constant_map, self.first_occurrence);
-        }
-    }
-
-    fn visit_allocated_ins_mut<const INS: usize, const OUTS: usize>(
-        &mut self,
-        data: &mut AllocatedIns<INS, OUTS>,
-    ) {
-        for idx in Span::new(data.ins_start, data.ins_start + INS as u32).iter() {
-            dedupe_const(&mut self.locals[idx], self.constant_map, self.first_occurrence);
-        }
-    }
-
-    fn visit_static_alloc_mut(&mut self, _data: &mut StaticAllocData) {}
-
-    fn visit_memory_load_mut(&mut self, data: &mut MemoryLoadData) {
-        dedupe_const(&mut data.ptr, self.constant_map, self.first_occurrence);
-    }
-
-    fn visit_memory_store_mut(&mut self, data: &mut MemoryStoreData) {
-        dedupe_const(&mut data.ptr, self.constant_map, self.first_occurrence);
-        dedupe_const(&mut data.value, self.constant_map, self.first_occurrence);
-    }
-
-    fn visit_set_small_const_mut(&mut self, _data: &mut SetSmallConstData) {}
-
-    fn visit_set_large_const_mut(&mut self, _data: &mut SetLargeConstData) {}
-
-    fn visit_set_data_offset_mut(&mut self, _data: &mut SetDataOffsetData) {}
-
-    fn visit_icall_mut(&mut self, data: &mut InternalCallData) {
-        for idx in Span::new(data.ins_start, data.outs_start).iter() {
-            dedupe_const(&mut self.locals[idx], self.constant_map, self.first_occurrence);
-        }
-    }
-
-    fn visit_void_mut(&mut self) {}
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -475,179 +407,6 @@ mod tests {
         let mut ir = parse_or_panic(source, EmitConfig::init_only());
         run(&mut ir);
         sir_data::display_program(&ir)
-    }
-
-    #[test]
-    fn test_duplicate_small_constants_deduplicated() {
-        let input = r#"
-            fn init:
-                entry {
-                    a = const 42
-                    b = const 42
-                    c = add b b
-                    stop
-                }
-        "#;
-
-        let expected = r#"
-Functions:
-    fn @0 -> entry @0  (outputs: 0)
-
-Basic Blocks:
-    @0 {
-        $0 = const 0x2a
-        $1 = const 0x2a
-        $2 = add $0 $0
-        stop
-    }
-        "#;
-
-        let actual = run_const_prop(input);
-        assert_trim_strings_eq_with_diff(
-            &actual,
-            expected,
-            "duplicate small constants deduplicated",
-        );
-    }
-
-    #[test]
-    fn test_evm_constant_in_branch_and_operations() {
-        let input = r#"
-            fn init:
-                entry {
-                    stop
-                }
-            fn test:
-                entry {
-                    a = caller
-                    b = caller
-                    c = eq a b
-                    => b ? @nonzero : @zero
-                }
-                nonzero {
-                    stop
-                }
-                zero {
-                    stop
-                }
-        "#;
-
-        let expected = r#"
-Functions:
-    fn @0 -> entry @0  (outputs: 0)
-    fn @1 -> entry @1  (outputs: 0)
-
-Basic Blocks:
-    @0 {
-        stop
-    }
-
-    @1 {
-        $0 = caller
-        $1 = caller
-        $2 = eq $0 $0
-        => $0 ? @2 : @3
-    }
-
-    @2 {
-        stop
-    }
-
-    @3 {
-        stop
-    }
-        "#;
-
-        let actual = run_const_prop(input);
-        assert_trim_strings_eq_with_diff(
-            &actual,
-            expected,
-            "evm constant in branch and operations",
-        );
-    }
-
-    #[test]
-    fn test_switch_dedupes_constant_from_block_input() {
-        let input = r#"
-            fn init:
-                entry {
-                    stop
-                }
-            fn test:
-                entry x {
-                    => x ? @block_a : @block_b
-                }
-                block_a -> val_a {
-                    val_a = chainid
-                    => @merge
-                }
-                block_b -> val_b {
-                    val_b = chainid
-                    => @merge
-                }
-                merge val {
-                    first_chainid = chainid
-                    switch val {
-                        1 => @case_one
-                        default => @case_default
-                    }
-                }
-                case_one {
-                    stop
-                }
-                case_default {
-                    stop
-                }
-        "#;
-
-        let expected = r#"
-Functions:
-    fn @0 -> entry @0  (outputs: 0)
-    fn @1 -> entry @1  (outputs: 0)
-
-Basic Blocks:
-    @0 {
-        stop
-    }
-
-    @1 $0 {
-        => $0 ? @2 : @3
-    }
-
-    @2 -> $1 {
-        $1 = chainid
-        => @4
-    }
-
-    @3 -> $2 {
-        $2 = chainid
-        => @4
-    }
-
-    @4 $3 {
-        $4 = chainid
-        switch $1 {
-            1 => @5,
-            else => @6
-        }
-
-    }
-
-    @5 {
-        stop
-    }
-
-    @6 {
-        stop
-    }
-        "#;
-
-        let actual = run_const_prop(input);
-        assert_trim_strings_eq_with_diff(
-            &actual,
-            expected,
-            "switch dedupes constant from block input",
-        );
     }
 
     #[test]
@@ -672,7 +431,8 @@ Basic Blocks:
                     => @merge
                 }
                 merge input_same input_diff {
-                    result = add input_same input_diff
+                    result1 = add input_same input_same
+                    result2 = add input_same input_diff
                     stop
                 }
         "#;
@@ -704,7 +464,8 @@ Basic Blocks:
     }
 
     @4 $5 $6 {
-        $7 = add $1 $6
+        $7 = const 0x54
+        $8 = add $5 $6
         stop
     }
         "#;
@@ -714,40 +475,6 @@ Basic Blocks:
             &actual,
             expected,
             "block inputs propagate only when predecessors agree",
-        );
-    }
-
-    #[test]
-    fn test_large_constants_not_deduplicated_by_value() {
-        // Large constants are compared by LargeConstId, not by value.
-        let input = r#"
-            fn init:
-                entry {
-                    a = large_const 0x1234567890abcdef1234567890abcdef
-                    b = large_const 0x1234567890abcdef1234567890abcdef
-                    c = add a b
-                    stop
-                }
-        "#;
-
-        let expected = r#"
-Functions:
-    fn @0 -> entry @0  (outputs: 0)
-
-Basic Blocks:
-    @0 {
-        $0 = large_const 0x1234567890abcdef1234567890abcdef
-        $1 = large_const 0x1234567890abcdef1234567890abcdef
-        $2 = add $0 $1
-        stop
-    }
-        "#;
-
-        let actual = run_const_prop(input);
-        assert_trim_strings_eq_with_diff(
-            &actual,
-            expected,
-            "large constants not deduplicated by value",
         );
     }
 }
