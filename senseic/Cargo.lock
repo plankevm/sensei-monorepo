@@ -1751,6 +1751,7 @@ version = "0.1.0"
 dependencies = [
  "sensei-core",
  "sir-data",
+ "sir-parser",
 ]
 
 [[package]]

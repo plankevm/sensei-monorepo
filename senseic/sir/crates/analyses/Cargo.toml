@@ -7,3 +7,6 @@ license.workspace = true
 [dependencies]
 sir-data.workspace = true
 sensei-core.workspace = true
+
+[dev-dependencies]
+sir-parser.workspace = true
