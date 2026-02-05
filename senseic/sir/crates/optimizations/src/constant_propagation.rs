@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use alloy_primitives::U256;
+use alloy_primitives::{I256, U256, U512};
 use sir_analyses::compute_predecessors;
 use sir_data::{
     BasicBlockId, BasicBlockIdMarker, EthIRProgram, IndexVec, LargeConstId, LargeConstIdMarker,
@@ -142,7 +142,12 @@ impl<'a> ConstPropAnalysis<'a> {
         for bb in self.program.basic_blocks.iter_mut() {
             for op in &mut self.program.operations[bb.operations] {
                 op.visit_data_mut(&mut replacer);
-                try_fold(op, &self.constant_map, &mut self.program.large_consts);
+                try_fold(
+                    op,
+                    &self.constant_map,
+                    &mut self.program.large_consts,
+                    &self.program.locals,
+                );
             }
 
             match &mut bb.control {
@@ -203,6 +208,7 @@ fn try_fold(
     op: &mut Operation,
     constant_map: &HashMap<LocalId, ConstValue>,
     large_consts: &mut IndexVec<LargeConstIdMarker, U256>,
+    locals: &[LocalId],
 ) {
     macro_rules! fold_binary {
         ($a:expr, $b:expr, $out:expr, $f:expr) => {
@@ -225,29 +231,144 @@ fn try_fold(
         Operation::Div(InlineOperands { ins: [a, b], outs: [out] }) => {
             fold_binary!(a, b, out, |va: U256, vb| va.checked_div(vb).unwrap_or(U256::ZERO))
         }
-        Operation::SDiv(InlineOperands { ins: [a, b], outs: [out] }) => todo!(),
+        Operation::SDiv(InlineOperands { ins: [a, b], outs: [out] }) => {
+            fold_binary!(a, b, out, |va: U256, vb: U256| {
+                let sa = va.to::<I256>();
+                let sb = vb.to::<I256>();
+                sa.checked_div(sb).unwrap_or(I256::ZERO).to::<U256>()
+            })
+        }
         Operation::Mod(InlineOperands { ins: [a, b], outs: [out] }) => {
             fold_binary!(a, b, out, |va: U256, vb| va.checked_rem(vb).unwrap_or(U256::ZERO))
         }
-        Operation::SMod(InlineOperands { ins: [a, b], outs: [out] }) => todo!(),
-        Operation::AddMod(AllocatedIns { ins_start, outs: [out] }) => todo!(),
-        Operation::MulMod(AllocatedIns { ins_start, outs: [out] }) => todo!(),
-        Operation::Exp(InlineOperands { ins: [a, b], outs: [out] }) => todo!(),
-        Operation::SignExtend(InlineOperands { ins: [a, b], outs: [out] }) => todo!(),
-        Operation::Lt(InlineOperands { ins: [a, b], outs: [out] }) => todo!(),
-        Operation::Gt(InlineOperands { ins: [a, b], outs: [out] }) => todo!(),
-        Operation::SLt(InlineOperands { ins: [a, b], outs: [out] }) => todo!(),
-        Operation::SGt(InlineOperands { ins: [a, b], outs: [out] }) => todo!(),
-        Operation::Eq(InlineOperands { ins: [a, b], outs: [out] }) => todo!(),
-        Operation::And(InlineOperands { ins: [a, b], outs: [out] }) => todo!(),
-        Operation::Or(InlineOperands { ins: [a, b], outs: [out] }) => todo!(),
-        Operation::Xor(InlineOperands { ins: [a, b], outs: [out] }) => todo!(),
-        Operation::Byte(InlineOperands { ins: [a, b], outs: [out] }) => todo!(),
-        Operation::Shl(InlineOperands { ins: [a, b], outs: [out] }) => todo!(),
-        Operation::Shr(InlineOperands { ins: [a, b], outs: [out] }) => todo!(),
-        Operation::Sar(InlineOperands { ins: [a, b], outs: [out] }) => todo!(),
-        Operation::Not(InlineOperands { ins: [a], outs: [out] }) => todo!(),
-        Operation::IsZero(InlineOperands { ins: [a], outs: [out] }) => todo!(),
+        Operation::SMod(InlineOperands { ins: [a, b], outs: [out] }) => {
+            fold_binary!(a, b, out, |va: U256, vb: U256| {
+                let sa = va.to::<I256>();
+                let sb = vb.to::<I256>();
+                sa.checked_rem(sb).unwrap_or(I256::ZERO).to::<U256>()
+            })
+        }
+        Operation::AddMod(AllocatedIns { ins_start, outs: [out] }) => {
+            let idx = ins_start.get() as usize;
+            let a = locals[idx];
+            let b = locals[idx + 1];
+            let n = locals[idx + 2];
+
+            if let (Some(va), Some(vb), Some(vn)) = (
+                get_const_value(&a, constant_map, large_consts),
+                get_const_value(&b, constant_map, large_consts),
+                get_const_value(&n, constant_map, large_consts),
+            ) {
+                let result = if vn.is_zero() {
+                    U256::ZERO
+                } else {
+                    let sum = U512::from(va) + U512::from(vb);
+                    U256::from(sum % U512::from(vn))
+                };
+                *op = fold_to_const(result, *out, large_consts);
+            }
+        }
+        Operation::MulMod(AllocatedIns { ins_start, outs: [out] }) => {
+            let idx = ins_start.get() as usize;
+            let a = locals[idx];
+            let b = locals[idx + 1];
+            let n = locals[idx + 2];
+
+            if let (Some(va), Some(vb), Some(vn)) = (
+                get_const_value(&a, constant_map, large_consts),
+                get_const_value(&b, constant_map, large_consts),
+                get_const_value(&n, constant_map, large_consts),
+            ) {
+                let result = if vn.is_zero() {
+                    U256::ZERO
+                } else {
+                    let prod = U512::from(va) * U512::from(vb);
+                    U256::from(prod % U512::from(vn))
+                };
+                *op = fold_to_const(result, *out, large_consts);
+            }
+        }
+        Operation::Exp(InlineOperands { ins: [a, b], outs: [out] }) => {
+            fold_binary!(a, b, out, |va: U256, vb| va.pow(vb))
+        }
+        Operation::SignExtend(InlineOperands { ins: [b, x], outs: [out] }) => {
+            fold_binary!(b, x, out, |vb: U256, vx| {
+                if vb >= U256::from(31) {
+                    vx
+                } else {
+                    let sign_bit_pos = (vb.to::<usize>() + 1) * 8 - 1;
+                    let sign_bit_mask = U256::from(1) << sign_bit_pos;
+
+                    if (vx & sign_bit_mask) != U256::ZERO {
+                        vx | (U256::MAX << (sign_bit_pos + 1))
+                    } else {
+                        vx & ((U256::from(1) << (sign_bit_pos + 1)) - U256::from(1))
+                    }
+                }
+            })
+        }
+        Operation::Lt(InlineOperands { ins: [a, b], outs: [out] }) => {
+            fold_binary!(a, b, out, |va: U256, vb| if va < vb { U256::from(1) } else { U256::ZERO })
+        }
+        Operation::Gt(InlineOperands { ins: [a, b], outs: [out] }) => {
+            fold_binary!(a, b, out, |va: U256, vb| if va > vb { U256::from(1) } else { U256::ZERO })
+        }
+        Operation::SLt(InlineOperands { ins: [a, b], outs: [out] }) => {
+            fold_binary!(a, b, out, |va: U256, vb: U256| {
+                if va.to::<I256>() < vb.to::<I256>() { U256::from(1) } else { U256::ZERO }
+            })
+        }
+        Operation::SGt(InlineOperands { ins: [a, b], outs: [out] }) => {
+            fold_binary!(a, b, out, |va: U256, vb: U256| {
+                if va.to::<I256>() > vb.to::<I256>() { U256::from(1) } else { U256::ZERO }
+            })
+        }
+        Operation::Eq(InlineOperands { ins: [a, b], outs: [out] }) => {
+            fold_binary!(a, b, out, |va: U256, vb| if va == vb {
+                U256::from(1)
+            } else {
+                U256::ZERO
+            })
+        }
+        Operation::And(InlineOperands { ins: [a, b], outs: [out] }) => {
+            fold_binary!(a, b, out, |va: U256, vb| va & vb)
+        }
+        Operation::Or(InlineOperands { ins: [a, b], outs: [out] }) => {
+            fold_binary!(a, b, out, |va: U256, vb| va | vb)
+        }
+        Operation::Xor(InlineOperands { ins: [a, b], outs: [out] }) => {
+            fold_binary!(a, b, out, |va: U256, vb| va ^ vb)
+        }
+        Operation::Byte(InlineOperands { ins: [i, x], outs: [out] }) => {
+            fold_binary!(i, x, out, |vi: U256, vx: U256| {
+                if vi >= U256::from(32) {
+                    U256::ZERO
+                } else {
+                    U256::from(vx.byte(31 - vi.to::<usize>()))
+                }
+            })
+        }
+        Operation::Shl(InlineOperands { ins: [shift, value], outs: [out] }) => {
+            fold_binary!(shift, value, out, |vshift: U256, vvalue| vvalue << vshift)
+        }
+        Operation::Shr(InlineOperands { ins: [shift, value], outs: [out] }) => {
+            fold_binary!(shift, value, out, |vshift: U256, vvalue| vvalue >> vshift)
+        }
+        Operation::Sar(InlineOperands { ins: [shift, value], outs: [out] }) => {
+            fold_binary!(shift, value, out, |vshift: U256, vvalue: U256| {
+                vvalue.to::<I256>().asr(vshift.to::<usize>()).to::<U256>()
+            })
+        }
+        Operation::Not(InlineOperands { ins: [a], outs: [out] }) => {
+            if let Some(va) = get_const_value(a, constant_map, large_consts) {
+                *op = fold_to_const(!va, *out, large_consts);
+            }
+        }
+        Operation::IsZero(InlineOperands { ins: [a], outs: [out] }) => {
+            if let Some(va) = get_const_value(a, constant_map, large_consts) {
+                *op = fold_to_const(U256::from(va.is_zero()), *out, large_consts);
+            }
+        }
         _ => {}
     }
 }
