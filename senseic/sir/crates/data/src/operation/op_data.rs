@@ -1,5 +1,14 @@
 use crate::{EthIRProgram, builder::EthIRBuilder, index::*};
 use alloy_primitives::{U256, ruint::FromUintError};
+use smallvec::{SmallVec, smallvec};
+
+pub trait OpInputs {
+    fn inputs(&self, ir: &EthIRProgram) -> SmallVec<[LocalId; 4]>;
+}
+
+pub trait OpOutputs {
+    fn outputs(&self, ir: &EthIRProgram) -> SmallVec<[LocalId; 4]>;
+}
 
 pub(crate) trait VoidOpData {
     fn get_visited<O, V: OpVisitor<O>>(&self, visitor: &mut V) -> O;
@@ -13,6 +22,18 @@ impl VoidOpData for () {
 
     fn get_visited_mut<O, V: OpVisitorMut<O>>(&mut self, visitor: &mut V) -> O {
         visitor.visit_void_mut()
+    }
+}
+
+impl OpInputs for () {
+    fn inputs(&self, _ir: &EthIRProgram) -> SmallVec<[LocalId; 4]> {
+        smallvec![]
+    }
+}
+
+impl OpOutputs for () {
+    fn outputs(&self, _ir: &EthIRProgram) -> SmallVec<[LocalId; 4]> {
+        smallvec![]
     }
 }
 
@@ -99,6 +120,18 @@ impl<const INS: usize, const OUTS: usize> InlineOperands<INS, OUTS> {
     }
 }
 
+impl<const INS: usize, const OUTS: usize> OpInputs for InlineOperands<INS, OUTS> {
+    fn inputs(&self, _ir: &EthIRProgram) -> SmallVec<[LocalId; 4]> {
+        SmallVec::from_slice(&self.ins)
+    }
+}
+
+impl<const INS: usize, const OUTS: usize> OpOutputs for InlineOperands<INS, OUTS> {
+    fn outputs(&self, _ir: &EthIRProgram) -> SmallVec<[LocalId; 4]> {
+        SmallVec::from_slice(&self.outs)
+    }
+}
+
 impl Default for InlineOperands<0, 0> {
     fn default() -> Self {
         Self { ins: [], outs: [] }
@@ -127,6 +160,19 @@ impl<const INS: usize, const OUTS: usize> AllocatedIns<INS, OUTS> {
     }
 }
 
+impl<const INS: usize, const OUTS: usize> OpInputs for AllocatedIns<INS, OUTS> {
+    fn inputs(&self, ir: &EthIRProgram) -> SmallVec<[LocalId; 4]> {
+        let ins_start = self.ins_start.idx();
+        SmallVec::from_slice(&ir.locals.as_raw_slice()[ins_start..ins_start + INS])
+    }
+}
+
+impl<const INS: usize, const OUTS: usize> OpOutputs for AllocatedIns<INS, OUTS> {
+    fn outputs(&self, _ir: &EthIRProgram) -> SmallVec<[LocalId; 4]> {
+        SmallVec::from_slice(&self.outs)
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct StaticAllocData {
     pub size: u32,
@@ -141,6 +187,18 @@ impl StaticAllocData {
 
     pub(crate) fn get_visited_mut<O, V: OpVisitorMut<O>>(&mut self, visitor: &mut V) -> O {
         visitor.visit_static_alloc_mut(self)
+    }
+}
+
+impl OpInputs for StaticAllocData {
+    fn inputs(&self, _ir: &EthIRProgram) -> SmallVec<[LocalId; 4]> {
+        smallvec![]
+    }
+}
+
+impl OpOutputs for StaticAllocData {
+    fn outputs(&self, _ir: &EthIRProgram) -> SmallVec<[LocalId; 4]> {
+        smallvec![self.ptr_out]
     }
 }
 
@@ -245,6 +303,18 @@ impl MemoryLoadData {
     }
 }
 
+impl OpInputs for MemoryLoadData {
+    fn inputs(&self, _ir: &EthIRProgram) -> SmallVec<[LocalId; 4]> {
+        smallvec![self.ptr]
+    }
+}
+
+impl OpOutputs for MemoryLoadData {
+    fn outputs(&self, _ir: &EthIRProgram) -> SmallVec<[LocalId; 4]> {
+        smallvec![self.out]
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct MemoryStoreData {
     pub ptr: LocalId,
@@ -259,6 +329,18 @@ impl MemoryStoreData {
 
     pub(crate) fn get_visited_mut<O, V: OpVisitorMut<O>>(&mut self, visitor: &mut V) -> O {
         visitor.visit_memory_store_mut(self)
+    }
+}
+
+impl OpInputs for MemoryStoreData {
+    fn inputs(&self, _ir: &EthIRProgram) -> SmallVec<[LocalId; 4]> {
+        smallvec![self.ptr, self.value]
+    }
+}
+
+impl OpOutputs for MemoryStoreData {
+    fn outputs(&self, _ir: &EthIRProgram) -> SmallVec<[LocalId; 4]> {
+        smallvec![]
     }
 }
 
@@ -278,6 +360,18 @@ impl SetSmallConstData {
     }
 }
 
+impl OpInputs for SetSmallConstData {
+    fn inputs(&self, _ir: &EthIRProgram) -> SmallVec<[LocalId; 4]> {
+        smallvec![]
+    }
+}
+
+impl OpOutputs for SetSmallConstData {
+    fn outputs(&self, _ir: &EthIRProgram) -> SmallVec<[LocalId; 4]> {
+        smallvec![self.sets]
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct SetLargeConstData {
     pub sets: LocalId,
@@ -294,6 +388,18 @@ impl SetLargeConstData {
     }
 }
 
+impl OpInputs for SetLargeConstData {
+    fn inputs(&self, _ir: &EthIRProgram) -> SmallVec<[LocalId; 4]> {
+        smallvec![]
+    }
+}
+
+impl OpOutputs for SetLargeConstData {
+    fn outputs(&self, _ir: &EthIRProgram) -> SmallVec<[LocalId; 4]> {
+        smallvec![self.sets]
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct SetDataOffsetData {
     pub sets: LocalId,
@@ -307,6 +413,18 @@ impl SetDataOffsetData {
 
     pub(crate) fn get_visited_mut<O, V: OpVisitorMut<O>>(&mut self, visitor: &mut V) -> O {
         visitor.visit_set_data_offset_mut(self)
+    }
+}
+
+impl OpInputs for SetDataOffsetData {
+    fn inputs(&self, _ir: &EthIRProgram) -> SmallVec<[LocalId; 4]> {
+        smallvec![]
+    }
+}
+
+impl OpOutputs for SetDataOffsetData {
+    fn outputs(&self, _ir: &EthIRProgram) -> SmallVec<[LocalId; 4]> {
+        smallvec![self.sets]
     }
 }
 
@@ -336,6 +454,18 @@ impl InternalCallData {
     pub fn get_outputs<'ir>(&self, ir: &'ir EthIRProgram) -> &'ir [LocalId] {
         let fn_output_count = ir.functions[self.function].outputs;
         &ir.locals[self.outs_start..self.outs_start + fn_output_count]
+    }
+}
+
+impl OpInputs for InternalCallData {
+    fn inputs(&self, ir: &EthIRProgram) -> SmallVec<[LocalId; 4]> {
+        SmallVec::from_slice(self.get_inputs(ir))
+    }
+}
+
+impl OpOutputs for InternalCallData {
+    fn outputs(&self, ir: &EthIRProgram) -> SmallVec<[LocalId; 4]> {
+        SmallVec::from_slice(self.get_outputs(ir))
     }
 }
 

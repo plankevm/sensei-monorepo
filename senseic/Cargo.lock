@@ -1781,6 +1781,7 @@ dependencies = [
  "alloy-primitives",
  "sensei-core",
  "sir-test-utils",
+ "smallvec",
  "thiserror",
 ]
 

@@ -1,37 +1,547 @@
-use std::collections::HashMap;
-
 use alloy_primitives::{I256, U256, U512};
-use sir_analyses::compute_predecessors;
+use sir_analyses::{DefUse, UseLocation, compute_def_use, compute_predecessors};
 use sir_data::{
-    BasicBlockId, BasicBlockIdMarker, Control, EthIRProgram, IndexVec, LargeConstId,
-    LargeConstIdMarker, LocalId, Operation,
+    BasicBlockId, BasicBlockIdMarker, Control, DenseIndexSet, EthIRProgram, IndexVec,
+    LargeConstIdMarker, LocalId, LocalIdMarker, Operation, X32, index_vec,
     operation::{AllocatedIns, InlineOperands, SetLargeConstData, SetSmallConstData},
 };
 
-macro_rules! define_track_constant {
+pub fn run(program: &mut EthIRProgram) {
+    let mut sccp = SCCPAnalysis::new(program);
+    sccp.analysis();
+    sccp.get_unreachable_blocks();
+    sccp.apply();
+}
+
+pub struct SCCPAnalysis<'a> {
+    program: &'a mut EthIRProgram,
+    lattice: IndexVec<LocalIdMarker, LatticeValue>,
+    reachable: IndexVec<BasicBlockIdMarker, bool>,
+    cfg_worklist: Vec<BasicBlockId>,
+    values_worklist: Vec<LocalId>,
+    predecessors: IndexVec<BasicBlockIdMarker, Vec<BasicBlockId>>,
+    uses: DefUse,
+    unreachable_blocks: DenseIndexSet<BasicBlockIdMarker>,
+}
+
+impl<'a> SCCPAnalysis<'a> {
+    pub fn new(program: &'a mut EthIRProgram) -> Self {
+        let predecessors = compute_predecessors(program);
+        let mut reachable = index_vec![false; program.basic_blocks.len()];
+        let mut cfg_worklist = Vec::new();
+        for func in program.functions.iter() {
+            let entry = func.entry();
+            reachable[entry] = true;
+            cfg_worklist.push(entry);
+        }
+        let uses = compute_def_use(program);
+        let num_values = program.next_free_local_id.idx();
+        Self {
+            program,
+            lattice: index_vec![LatticeValue::Unknown; num_values],
+            reachable,
+            cfg_worklist,
+            values_worklist: Vec::new(),
+            predecessors,
+            uses,
+            unreachable_blocks: DenseIndexSet::new(),
+        }
+    }
+
+    pub fn analysis(&mut self) {
+        while let Some(bb_id) = self.cfg_worklist.pop() {
+            self.process_block(bb_id);
+        }
+        for i in 0..self.program.basic_blocks.len() {
+            let bb_id = BasicBlockId::new(i as u32);
+            if !self.reachable[bb_id] {
+                self.unreachable_blocks.add(bb_id);
+            }
+        }
+    }
+
+    pub fn apply(&mut self) {
+        for i in 0..self.program.basic_blocks.len() {
+            let bb_id = BasicBlockId::new(i as u32);
+            if self.reachable[bb_id] {
+                self.rewrite_constants(bb_id);
+                self.simplify_control(bb_id);
+            }
+        }
+    }
+
+    pub fn get_unreachable_blocks(&self) -> &DenseIndexSet<BasicBlockIdMarker> {
+        &self.unreachable_blocks
+    }
+
+    fn rewrite_constants(&mut self, bb_id: X32<BasicBlockIdMarker>) {
+        let ops = self.program.basic_blocks[bb_id].operations;
+        for op_idx in ops.iter() {
+            let outputs = self.program.operations[op_idx].outputs(self.program);
+            for out in outputs {
+                if let LatticeValue::Const(cv) = &self.lattice[out] {
+                    let new_op = match cv {
+                        ConstValue::SmallConst(v) => {
+                            Operation::SetSmallConst(SetSmallConstData { sets: out, value: *v })
+                        }
+                        ConstValue::LargeConst(v) => {
+                            let id = self.program.large_consts.push(*v);
+                            Operation::SetLargeConst(SetLargeConstData { sets: out, value: id })
+                        }
+                    };
+                    self.program.operations[op_idx] = new_op;
+                }
+            }
+        }
+    }
+
+    fn simplify_control(&mut self, bb_id: X32<BasicBlockIdMarker>) {
+        match &self.program.basic_blocks[bb_id].control {
+            Control::Branches(branch) => {
+                if let Some(cv) = self.const_value(branch.condition) {
+                    let target =
+                        if cv.is_zero() { branch.zero_target } else { branch.non_zero_target };
+                    self.program.basic_blocks[bb_id].control = Control::ContinuesTo(target);
+                }
+            }
+            Control::Switch(switch) => {
+                if let Some(val) = self.const_u256(switch.condition) {
+                    let target = self.program.cases[switch.cases]
+                        .iter(&self.program)
+                        .find(|(case_val, _)| val == *case_val)
+                        .map(|(_, t)| t)
+                        .or(switch.fallback);
+
+                    if let Some(t) = target {
+                        self.program.basic_blocks[bb_id].control = Control::ContinuesTo(t);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn process_inputs(&mut self, bb_id: X32<BasicBlockIdMarker>) {
+        let bb = &self.program.basic_blocks[bb_id];
+        for pred_id in &self.predecessors[bb_id] {
+            if !self.reachable[*pred_id] {
+                continue;
+            }
+            let pred_bb = &self.program.basic_blocks[*pred_id];
+            for (i, &pred_output) in self.program.locals[pred_bb.outputs].iter().enumerate() {
+                let pred_value = self.lattice[pred_output].clone();
+                let input_local = self.program.locals[bb.inputs][i];
+                if self.lattice[input_local].meet(pred_value) {
+                    self.values_worklist.push(input_local);
+                }
+            }
+        }
+    }
+
+    fn process_operations(&mut self, bb_id: X32<BasicBlockIdMarker>) {
+        let bb = &self.program.basic_blocks[bb_id];
+        for op in &self.program.operations[bb.operations] {
+            constant(op, &self.program.large_consts, |local, value| {
+                if self.lattice[local].meet(value) {
+                    self.values_worklist.push(local);
+                }
+            });
+
+            if let Some((out, result)) = self.evaluate(op) {
+                let value = if let Ok(small) = u32::try_from(result) {
+                    ConstValue::SmallConst(small)
+                } else {
+                    ConstValue::LargeConst(result)
+                };
+                if self.lattice[out].meet(LatticeValue::Const(value)) {
+                    self.values_worklist.push(out);
+                }
+            }
+        }
+    }
+
+    fn process_control(&mut self, bb_id: X32<BasicBlockIdMarker>) {
+        match &self.program.basic_blocks[bb_id].control {
+            Control::ContinuesTo(target) => {
+                self.mark_reachable(bb_id, *target);
+            }
+            Control::Branches(branch) => {
+                let (zero, non_zero, cond) =
+                    (branch.zero_target, branch.non_zero_target, branch.condition);
+                match self.const_value(cond) {
+                    Some(cv) => {
+                        let target = if cv.is_zero() { zero } else { non_zero };
+                        self.mark_reachable(bb_id, target);
+                    }
+                    None => {
+                        self.mark_reachable(bb_id, zero);
+                        self.mark_reachable(bb_id, non_zero);
+                    }
+                }
+            }
+            Control::Switch(switch) => {
+                let cases_ids = switch.cases;
+
+                match self.const_u256(switch.condition) {
+                    Some(val) => {
+                        let target = self.program.cases[cases_ids]
+                            .iter(&self.program)
+                            .find(|(case_val, _)| val == *case_val)
+                            .map(|(_, target)| target)
+                            .or(switch.fallback);
+
+                        if let Some(t) = target {
+                            self.mark_reachable(bb_id, t);
+                        }
+                    }
+                    None => {
+                        if let Some(fb) = switch.fallback {
+                            self.mark_reachable(bb_id, fb);
+                        }
+                        let targets: Vec<_> = self.program.cases[cases_ids]
+                            .iter(&self.program)
+                            .map(|(_, t)| t)
+                            .collect();
+
+                        for t in targets {
+                            self.mark_reachable(bb_id, t);
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn process_values(&mut self) {
+        while let Some(value) = self.values_worklist.pop() {
+            for UseLocation { block_id, op_id } in &self.uses[value] {
+                if !self.reachable[*block_id] {
+                    continue;
+                }
+
+                // TODO: (maybe?) there is an optimization to skip if the output is already overdefined
+                // since we have no outputs() yet and I'm not very sure inputs() has the right approach, I didn't add it
+                // there is also the alternative to exit evaluate early but there too we have the multiple tipes of operations (i.e., binary, unary, and ternary)
+                // so it might complicate the code a bit to add that check. but technically, adding it there could benefit the processing of the operation
+
+                // we ended up adding outputs for rewriting
+                let outputs = self.program.operations[*op_id].outputs(self.program);
+                if outputs.iter().all(|o| matches!(self.lattice[*o], LatticeValue::Overdefined)) {
+                    continue;
+                }
+
+                if let Some((out, result)) = self.evaluate(&self.program.operations[*op_id]) {
+                    let value = if let Ok(small) = u32::try_from(result) {
+                        ConstValue::SmallConst(small)
+                    } else {
+                        ConstValue::LargeConst(result)
+                    };
+                    if self.lattice[out].meet(LatticeValue::Const(value)) {
+                        self.values_worklist.push(out);
+                    }
+                } else {
+                    for out in outputs {
+                        if self.lattice[out].meet(LatticeValue::Overdefined) {
+                            self.values_worklist.push(out);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    fn process_block(&mut self, bb_id: X32<BasicBlockIdMarker>) {
+        self.process_inputs(bb_id);
+        self.process_operations(bb_id);
+        self.process_control(bb_id);
+        self.process_values();
+    }
+
+    fn mark_reachable(&mut self, from: BasicBlockId, to: BasicBlockId) {
+        if !self.reachable[to] {
+            self.reachable[to] = true;
+            self.cfg_worklist.push(to);
+        }
+        self.flow_outputs_to(from, to);
+    }
+
+    fn flow_outputs_to(&mut self, from: BasicBlockId, to: BasicBlockId) {
+        let from_outputs = self.program.basic_blocks[from].outputs;
+        let to_inputs = self.program.basic_blocks[to].inputs;
+        for (i, &output) in self.program.locals[from_outputs].iter().enumerate() {
+            let value = self.lattice[output].clone();
+            let input = self.program.locals[to_inputs][i];
+            if self.lattice[input].meet(value) {
+                self.values_worklist.push(input);
+            }
+        }
+    }
+
+    // TODO: (worth?) A minor optimization is to skip the evaluation if output is Overdefined
+    fn evaluate(&self, op: &Operation) -> Option<(LocalId, U256)> {
+        macro_rules! eval_binary {
+            ($a:expr, $b:expr, $out:expr, $f:expr) => {
+                if let Some((va, vb)) = self.binary_const_u256(*$a, *$b) {
+                    return Some((*$out, $f(va, vb)));
+                }
+            };
+        }
+
+        match op {
+            Operation::Add(InlineOperands { ins: [a, b], outs: [out] }) => {
+                eval_binary!(a, b, out, U256::wrapping_add)
+            }
+            Operation::Mul(InlineOperands { ins: [a, b], outs: [out] }) => {
+                eval_binary!(a, b, out, U256::wrapping_mul)
+            }
+            Operation::Sub(InlineOperands { ins: [a, b], outs: [out] }) => {
+                eval_binary!(a, b, out, U256::wrapping_sub)
+            }
+            Operation::Div(InlineOperands { ins: [a, b], outs: [out] }) => {
+                eval_binary!(a, b, out, |va: U256, vb| va.checked_div(vb).unwrap_or(U256::ZERO))
+            }
+            Operation::SDiv(InlineOperands { ins: [a, b], outs: [out] }) => {
+                eval_binary!(a, b, out, |va: U256, vb: U256| {
+                    let sa = va.to::<I256>();
+                    let sb = vb.to::<I256>();
+                    sa.checked_div(sb).unwrap_or(I256::ZERO).to::<U256>()
+                })
+            }
+            Operation::Mod(InlineOperands { ins: [a, b], outs: [out] }) => {
+                eval_binary!(a, b, out, |va: U256, vb| va.checked_rem(vb).unwrap_or(U256::ZERO))
+            }
+            Operation::SMod(InlineOperands { ins: [a, b], outs: [out] }) => {
+                eval_binary!(a, b, out, |va: U256, vb: U256| {
+                    let sa = va.to::<I256>();
+                    let sb = vb.to::<I256>();
+                    sa.checked_rem(sb).unwrap_or(I256::ZERO).to::<U256>()
+                })
+            }
+            Operation::AddMod(AllocatedIns { ins_start, outs: [out] }) => {
+                let a = self.program.locals[*ins_start];
+                let b = self.program.locals[*ins_start + 1];
+                let n = self.program.locals[*ins_start + 2];
+
+                if let (Some(va), Some(vb), Some(vn)) =
+                    (self.const_u256(a), self.const_u256(b), self.const_u256(n))
+                {
+                    let result = if vn.is_zero() {
+                        U256::ZERO
+                    } else {
+                        let sum = U512::from(va) + U512::from(vb);
+                        U256::from(sum % U512::from(vn))
+                    };
+                    return Some((*out, result));
+                }
+            }
+            Operation::MulMod(AllocatedIns { ins_start, outs: [out] }) => {
+                let a = self.program.locals[*ins_start];
+                let b = self.program.locals[*ins_start + 1];
+                let n = self.program.locals[*ins_start + 2];
+
+                if let (Some(va), Some(vb), Some(vn)) =
+                    (self.const_u256(a), self.const_u256(b), self.const_u256(n))
+                {
+                    let result = if vn.is_zero() {
+                        U256::ZERO
+                    } else {
+                        let prod = U512::from(va) * U512::from(vb);
+                        U256::from(prod % U512::from(vn))
+                    };
+                    return Some((*out, result));
+                }
+            }
+            Operation::Exp(InlineOperands { ins: [a, b], outs: [out] }) => {
+                eval_binary!(a, b, out, |va: U256, vb| va.pow(vb))
+            }
+            Operation::SignExtend(InlineOperands { ins: [b, x], outs: [out] }) => {
+                eval_binary!(b, x, out, |vb: U256, vx| {
+                    if vb >= U256::from(31) {
+                        vx
+                    } else {
+                        let sign_bit_pos = (vb.to::<usize>() + 1) * 8 - 1;
+                        let sign_bit_mask = U256::from(1) << sign_bit_pos;
+
+                        if (vx & sign_bit_mask) != U256::ZERO {
+                            vx | (U256::MAX << (sign_bit_pos + 1))
+                        } else {
+                            vx & ((U256::from(1) << (sign_bit_pos + 1)) - U256::from(1))
+                        }
+                    }
+                })
+            }
+            Operation::Lt(InlineOperands { ins: [a, b], outs: [out] }) => {
+                eval_binary!(a, b, out, |va: U256, vb| if va < vb {
+                    U256::from(1)
+                } else {
+                    U256::ZERO
+                })
+            }
+            Operation::Gt(InlineOperands { ins: [a, b], outs: [out] }) => {
+                eval_binary!(a, b, out, |va: U256, vb| if va > vb {
+                    U256::from(1)
+                } else {
+                    U256::ZERO
+                })
+            }
+            Operation::SLt(InlineOperands { ins: [a, b], outs: [out] }) => {
+                eval_binary!(a, b, out, |va: U256, vb: U256| {
+                    if va.to::<I256>() < vb.to::<I256>() { U256::from(1) } else { U256::ZERO }
+                })
+            }
+            Operation::SGt(InlineOperands { ins: [a, b], outs: [out] }) => {
+                eval_binary!(a, b, out, |va: U256, vb: U256| {
+                    if va.to::<I256>() > vb.to::<I256>() { U256::from(1) } else { U256::ZERO }
+                })
+            }
+            Operation::Eq(InlineOperands { ins: [a, b], outs: [out] }) => {
+                eval_binary!(a, b, out, |va: U256, vb| if va == vb {
+                    U256::from(1)
+                } else {
+                    U256::ZERO
+                })
+            }
+            Operation::And(InlineOperands { ins: [a, b], outs: [out] }) => {
+                eval_binary!(a, b, out, |va: U256, vb| va & vb)
+            }
+            Operation::Or(InlineOperands { ins: [a, b], outs: [out] }) => {
+                eval_binary!(a, b, out, |va: U256, vb| va | vb)
+            }
+            Operation::Xor(InlineOperands { ins: [a, b], outs: [out] }) => {
+                eval_binary!(a, b, out, |va: U256, vb| va ^ vb)
+            }
+            Operation::Byte(InlineOperands { ins: [i, x], outs: [out] }) => {
+                eval_binary!(i, x, out, |vi: U256, vx: U256| {
+                    if vi >= U256::from(32) {
+                        U256::ZERO
+                    } else {
+                        U256::from(vx.byte(31 - vi.to::<usize>()))
+                    }
+                })
+            }
+            Operation::Shl(InlineOperands { ins: [shift, value], outs: [out] }) => {
+                eval_binary!(shift, value, out, |vshift: U256, vvalue| vvalue << vshift)
+            }
+            Operation::Shr(InlineOperands { ins: [shift, value], outs: [out] }) => {
+                eval_binary!(shift, value, out, |vshift: U256, vvalue| vvalue >> vshift)
+            }
+            Operation::Sar(InlineOperands { ins: [shift, value], outs: [out] }) => {
+                eval_binary!(shift, value, out, |vshift: U256, vvalue: U256| {
+                    vvalue.to::<I256>().asr(vshift.to::<usize>()).to::<U256>()
+                })
+            }
+            Operation::Not(InlineOperands { ins: [a], outs: [out] }) => {
+                if let Some(va) = self.const_u256(*a) {
+                    return Some((*out, !va));
+                }
+            }
+            Operation::IsZero(InlineOperands { ins: [a], outs: [out] }) => {
+                if let Some(va) = self.const_u256(*a) {
+                    return Some((*out, U256::from(va.is_zero())));
+                }
+            }
+            _ => {}
+        }
+        None
+    }
+
+    fn const_u256(&self, local: LocalId) -> Option<U256> {
+        match self.const_value(local)? {
+            ConstValue::SmallConst(v) => Some(U256::from(*v)),
+            ConstValue::LargeConst(v) => Some(*v),
+        }
+    }
+
+    fn const_value(&self, local: LocalId) -> Option<&ConstValue> {
+        match &self.lattice[local] {
+            LatticeValue::Const(cv) => Some(cv),
+            _ => None,
+        }
+    }
+
+    fn binary_const_u256(&self, a: LocalId, b: LocalId) -> Option<(U256, U256)> {
+        Some((self.const_u256(a)?, self.const_u256(b)?))
+    }
+}
+
+#[derive(Clone, PartialEq)]
+enum LatticeValue {
+    Unknown,
+    Const(ConstValue),
+    EvmConst(EvmConstKind),
+    Overdefined,
+}
+
+impl LatticeValue {
+    fn meet(&mut self, other: Self) -> bool {
+        match (&*self, &other) {
+            (LatticeValue::Overdefined, _) => {}
+            (_, LatticeValue::Overdefined) => {
+                *self = LatticeValue::Overdefined;
+                return true;
+            }
+            (_, LatticeValue::Unknown) => {}
+            (LatticeValue::Unknown, _) => {
+                *self = other;
+                return true;
+            }
+            (LatticeValue::EvmConst(a), LatticeValue::EvmConst(b)) => {
+                if a != b {
+                    *self = LatticeValue::Overdefined;
+                    return true;
+                }
+            }
+            (LatticeValue::Const(a), LatticeValue::Const(b)) => {
+                if a != b {
+                    *self = LatticeValue::Overdefined;
+                    return true;
+                }
+            }
+            (LatticeValue::Const(_), LatticeValue::EvmConst(_))
+            | (LatticeValue::EvmConst(_), LatticeValue::Const(_)) => {
+                *self = LatticeValue::Overdefined;
+                return true;
+            }
+        }
+        false
+    }
+}
+
+#[derive(PartialEq, Clone, Eq, Hash)]
+enum ConstValue {
+    SmallConst(u32),
+    LargeConst(U256),
+}
+
+impl ConstValue {
+    fn is_zero(&self) -> bool {
+        match self {
+            ConstValue::SmallConst(v) => *v == 0,
+            ConstValue::LargeConst(v) => v.is_zero(),
+        }
+    }
+}
+
+macro_rules! define_consts {
     ($($name:ident),* $(,)?) => {
-        #[derive(PartialEq, Clone, Eq, Hash)]
-        enum ConstValue {
-            SmallConst(u32),
-            LargeConst(LargeConstId),
+        #[derive(PartialEq, Clone, Eq, Hash, Copy)]
+        enum EvmConstKind {
             $($name),*
         }
 
-        fn track_constant(
-            op: &Operation,
-            mut track: impl FnMut(LocalId, ConstValue),
-        ) {
+        fn constant(op: &Operation, large_consts: &IndexVec<LargeConstIdMarker, U256>, mut set: impl FnMut(LocalId, LatticeValue)) {
             match op {
                 $(
                     Operation::$name(InlineOperands { ins: [], outs: [out] }) => {
-                        track(*out, ConstValue::$name);
+                        set(*out, LatticeValue::EvmConst(EvmConstKind::$name));
                     }
                 )*
                 Operation::SetSmallConst(SetSmallConstData { sets, value }) => {
-                    track(*sets, ConstValue::SmallConst(*value));
+                    set(*sets, LatticeValue::Const(ConstValue::SmallConst(*value)));
                 }
                 Operation::SetLargeConst(SetLargeConstData { sets, value }) => {
-                    track(*sets, ConstValue::LargeConst(*value));
+                    set(*sets, LatticeValue::Const(ConstValue::LargeConst(large_consts[*value])));
                 }
                 _ => {}
             }
@@ -39,7 +549,7 @@ macro_rules! define_track_constant {
     };
 }
 
-define_track_constant!(
+define_consts!(
     Address,
     Origin,
     Caller,
@@ -59,343 +569,6 @@ define_track_constant!(
     InitEndOffset,
     RuntimeLength,
 );
-
-pub struct ConstPropAnalysis<'a> {
-    program: &'a mut EthIRProgram,
-    constant_map: HashMap<LocalId, ConstValue>,
-}
-
-impl<'a> ConstPropAnalysis<'a> {
-    pub fn new(program: &'a mut EthIRProgram) -> Self {
-        let mut analysis = Self { program, constant_map: HashMap::new() };
-        analysis.init();
-        analysis
-    }
-
-    fn init(&mut self) {
-        let predecessors = compute_predecessors(self.program);
-
-        for bb in self.program.basic_blocks.iter() {
-            for op in &self.program.operations[bb.operations] {
-                track_constant(op, |local, value| {
-                    self.constant_map.insert(local, value.clone());
-                });
-            }
-        }
-
-        self.track_block_inputs(&predecessors);
-    }
-
-    fn track_block_inputs(
-        &mut self,
-        predecessors: &IndexVec<BasicBlockIdMarker, Vec<BasicBlockId>>,
-    ) {
-        for (bb_id, pred_ids) in predecessors.enumerate_idx() {
-            let bb = &self.program.basic_blocks[bb_id];
-            let inputs = &self.program.locals[bb.inputs];
-
-            for (i, input) in inputs.iter().enumerate() {
-                let mut const_value: Option<ConstValue> = None;
-                let mut is_unknown = false;
-
-                for pred_id in pred_ids {
-                    let pred_bb = &self.program.basic_blocks[*pred_id];
-                    let pred_output = &self.program.locals[pred_bb.outputs][i];
-
-                    match self.constant_map.get(pred_output) {
-                        None => {
-                            is_unknown = true;
-                            break;
-                        }
-                        Some(c) => match &const_value {
-                            None => const_value = Some(c.clone()),
-                            Some(existing) => {
-                                if existing != c {
-                                    is_unknown = true;
-                                    break;
-                                }
-                            }
-                        },
-                    }
-                }
-
-                if !is_unknown && let Some(c) = const_value {
-                    self.constant_map.insert(*input, c);
-                }
-            }
-        }
-    }
-
-    pub fn apply(&mut self) {
-        self.fold_operations();
-        self.simplify_control();
-    }
-
-    fn fold_operations(&mut self) {
-        for bb in self.program.basic_blocks.iter_mut() {
-            for op in &mut self.program.operations[bb.operations] {
-                try_fold(
-                    op,
-                    &self.constant_map,
-                    &mut self.program.large_consts,
-                    &self.program.locals,
-                );
-            }
-        }
-    }
-
-    fn simplify_control(&mut self) {
-        for i in 0..self.program.basic_blocks.len() {
-            let bb_id = BasicBlockId::new(i as u32);
-            let new_control =
-                {
-                    let bb = &self.program.basic_blocks[bb_id];
-                    match &bb.control {
-                        Control::Branches(branch) => get_const_value(
-                            &branch.condition,
-                            &self.constant_map,
-                            &self.program.large_consts,
-                        )
-                        .map(|val| {
-                            if val.is_zero() { branch.zero_target } else { branch.non_zero_target }
-                        })
-                        .map(Control::ContinuesTo),
-
-                        Control::Switch(switch) => get_const_value(
-                            &switch.condition,
-                            &self.constant_map,
-                            &self.program.large_consts,
-                        )
-                        .and_then(|val| {
-                            let cases = &self.program.cases[switch.cases];
-                            cases
-                                .iter(&self.program)
-                                .find(|(case_val, _)| val == *case_val)
-                                .map(|(_, target)| target)
-                                .or(switch.fallback)
-                        })
-                        .map(Control::ContinuesTo),
-
-                        _ => None,
-                    }
-                };
-
-            if let Some(ctrl) = new_control {
-                self.program.basic_blocks[bb_id].control = ctrl;
-            }
-        }
-    }
-}
-
-pub fn run(program: &mut EthIRProgram) {
-    let mut analysis = ConstPropAnalysis::new(program);
-    analysis.apply();
-}
-
-fn get_const_value(
-    local: &LocalId,
-    constant_map: &HashMap<LocalId, ConstValue>,
-    large_consts: &IndexVec<LargeConstIdMarker, U256>,
-) -> Option<U256> {
-    match constant_map.get(local)? {
-        ConstValue::SmallConst(v) => Some(U256::from(*v)),
-        ConstValue::LargeConst(id) => Some(large_consts[*id]),
-        _ => None,
-    }
-}
-
-fn get_binary_const_values(
-    a: &LocalId,
-    b: &LocalId,
-    constant_map: &HashMap<LocalId, ConstValue>,
-    large_consts: &IndexVec<LargeConstIdMarker, U256>,
-) -> Option<(U256, U256)> {
-    let va = get_const_value(a, constant_map, large_consts)?;
-    let vb = get_const_value(b, constant_map, large_consts)?;
-    Some((va, vb))
-}
-
-fn fold_to_const(
-    result: U256,
-    out: LocalId,
-    large_consts: &mut IndexVec<LargeConstIdMarker, U256>,
-) -> Operation {
-    if let Ok(small) = u32::try_from(result) {
-        Operation::SetSmallConst(SetSmallConstData { sets: out, value: small })
-    } else {
-        let id = large_consts.push(result);
-        Operation::SetLargeConst(SetLargeConstData { sets: out, value: id })
-    }
-}
-
-fn try_fold(
-    op: &mut Operation,
-    constant_map: &HashMap<LocalId, ConstValue>,
-    large_consts: &mut IndexVec<LargeConstIdMarker, U256>,
-    locals: &[LocalId],
-) {
-    macro_rules! fold_binary {
-        ($a:expr, $b:expr, $out:expr, $f:expr) => {
-            if let Some((va, vb)) = get_binary_const_values($a, $b, constant_map, large_consts) {
-                *op = fold_to_const($f(va, vb), *$out, large_consts);
-            }
-        };
-    }
-
-    match op {
-        Operation::Add(InlineOperands { ins: [a, b], outs: [out] }) => {
-            fold_binary!(a, b, out, U256::wrapping_add)
-        }
-        Operation::Mul(InlineOperands { ins: [a, b], outs: [out] }) => {
-            fold_binary!(a, b, out, U256::wrapping_mul)
-        }
-        Operation::Sub(InlineOperands { ins: [a, b], outs: [out] }) => {
-            fold_binary!(a, b, out, U256::wrapping_sub)
-        }
-        Operation::Div(InlineOperands { ins: [a, b], outs: [out] }) => {
-            fold_binary!(a, b, out, |va: U256, vb| va.checked_div(vb).unwrap_or(U256::ZERO))
-        }
-        Operation::SDiv(InlineOperands { ins: [a, b], outs: [out] }) => {
-            fold_binary!(a, b, out, |va: U256, vb: U256| {
-                let sa = va.to::<I256>();
-                let sb = vb.to::<I256>();
-                sa.checked_div(sb).unwrap_or(I256::ZERO).to::<U256>()
-            })
-        }
-        Operation::Mod(InlineOperands { ins: [a, b], outs: [out] }) => {
-            fold_binary!(a, b, out, |va: U256, vb| va.checked_rem(vb).unwrap_or(U256::ZERO))
-        }
-        Operation::SMod(InlineOperands { ins: [a, b], outs: [out] }) => {
-            fold_binary!(a, b, out, |va: U256, vb: U256| {
-                let sa = va.to::<I256>();
-                let sb = vb.to::<I256>();
-                sa.checked_rem(sb).unwrap_or(I256::ZERO).to::<U256>()
-            })
-        }
-        Operation::AddMod(AllocatedIns { ins_start, outs: [out] }) => {
-            let idx = ins_start.get() as usize;
-            let a = locals[idx];
-            let b = locals[idx + 1];
-            let n = locals[idx + 2];
-
-            if let (Some(va), Some(vb), Some(vn)) = (
-                get_const_value(&a, constant_map, large_consts),
-                get_const_value(&b, constant_map, large_consts),
-                get_const_value(&n, constant_map, large_consts),
-            ) {
-                let result = if vn.is_zero() {
-                    U256::ZERO
-                } else {
-                    let sum = U512::from(va) + U512::from(vb);
-                    U256::from(sum % U512::from(vn))
-                };
-                *op = fold_to_const(result, *out, large_consts);
-            }
-        }
-        Operation::MulMod(AllocatedIns { ins_start, outs: [out] }) => {
-            let idx = ins_start.get() as usize;
-            let a = locals[idx];
-            let b = locals[idx + 1];
-            let n = locals[idx + 2];
-
-            if let (Some(va), Some(vb), Some(vn)) = (
-                get_const_value(&a, constant_map, large_consts),
-                get_const_value(&b, constant_map, large_consts),
-                get_const_value(&n, constant_map, large_consts),
-            ) {
-                let result = if vn.is_zero() {
-                    U256::ZERO
-                } else {
-                    let prod = U512::from(va) * U512::from(vb);
-                    U256::from(prod % U512::from(vn))
-                };
-                *op = fold_to_const(result, *out, large_consts);
-            }
-        }
-        Operation::Exp(InlineOperands { ins: [a, b], outs: [out] }) => {
-            fold_binary!(a, b, out, |va: U256, vb| va.pow(vb))
-        }
-        Operation::SignExtend(InlineOperands { ins: [b, x], outs: [out] }) => {
-            fold_binary!(b, x, out, |vb: U256, vx| {
-                if vb >= U256::from(31) {
-                    vx
-                } else {
-                    let sign_bit_pos = (vb.to::<usize>() + 1) * 8 - 1;
-                    let sign_bit_mask = U256::from(1) << sign_bit_pos;
-
-                    if (vx & sign_bit_mask) != U256::ZERO {
-                        vx | (U256::MAX << (sign_bit_pos + 1))
-                    } else {
-                        vx & ((U256::from(1) << (sign_bit_pos + 1)) - U256::from(1))
-                    }
-                }
-            })
-        }
-        Operation::Lt(InlineOperands { ins: [a, b], outs: [out] }) => {
-            fold_binary!(a, b, out, |va: U256, vb| if va < vb { U256::from(1) } else { U256::ZERO })
-        }
-        Operation::Gt(InlineOperands { ins: [a, b], outs: [out] }) => {
-            fold_binary!(a, b, out, |va: U256, vb| if va > vb { U256::from(1) } else { U256::ZERO })
-        }
-        Operation::SLt(InlineOperands { ins: [a, b], outs: [out] }) => {
-            fold_binary!(a, b, out, |va: U256, vb: U256| {
-                if va.to::<I256>() < vb.to::<I256>() { U256::from(1) } else { U256::ZERO }
-            })
-        }
-        Operation::SGt(InlineOperands { ins: [a, b], outs: [out] }) => {
-            fold_binary!(a, b, out, |va: U256, vb: U256| {
-                if va.to::<I256>() > vb.to::<I256>() { U256::from(1) } else { U256::ZERO }
-            })
-        }
-        Operation::Eq(InlineOperands { ins: [a, b], outs: [out] }) => {
-            fold_binary!(a, b, out, |va: U256, vb| if va == vb {
-                U256::from(1)
-            } else {
-                U256::ZERO
-            })
-        }
-        Operation::And(InlineOperands { ins: [a, b], outs: [out] }) => {
-            fold_binary!(a, b, out, |va: U256, vb| va & vb)
-        }
-        Operation::Or(InlineOperands { ins: [a, b], outs: [out] }) => {
-            fold_binary!(a, b, out, |va: U256, vb| va | vb)
-        }
-        Operation::Xor(InlineOperands { ins: [a, b], outs: [out] }) => {
-            fold_binary!(a, b, out, |va: U256, vb| va ^ vb)
-        }
-        Operation::Byte(InlineOperands { ins: [i, x], outs: [out] }) => {
-            fold_binary!(i, x, out, |vi: U256, vx: U256| {
-                if vi >= U256::from(32) {
-                    U256::ZERO
-                } else {
-                    U256::from(vx.byte(31 - vi.to::<usize>()))
-                }
-            })
-        }
-        Operation::Shl(InlineOperands { ins: [shift, value], outs: [out] }) => {
-            fold_binary!(shift, value, out, |vshift: U256, vvalue| vvalue << vshift)
-        }
-        Operation::Shr(InlineOperands { ins: [shift, value], outs: [out] }) => {
-            fold_binary!(shift, value, out, |vshift: U256, vvalue| vvalue >> vshift)
-        }
-        Operation::Sar(InlineOperands { ins: [shift, value], outs: [out] }) => {
-            fold_binary!(shift, value, out, |vshift: U256, vvalue: U256| {
-                vvalue.to::<I256>().asr(vshift.to::<usize>()).to::<U256>()
-            })
-        }
-        Operation::Not(InlineOperands { ins: [a], outs: [out] }) => {
-            if let Some(va) = get_const_value(a, constant_map, large_consts) {
-                *op = fold_to_const(!va, *out, large_consts);
-            }
-        }
-        Operation::IsZero(InlineOperands { ins: [a], outs: [out] }) => {
-            if let Some(va) = get_const_value(a, constant_map, large_consts) {
-                *op = fold_to_const(U256::from(va.is_zero()), *out, large_consts);
-            }
-        }
-        _ => {}
-    }
-}
 
 #[cfg(test)]
 mod tests {
@@ -476,5 +649,210 @@ Basic Blocks:
             expected,
             "block inputs propagate only when predecessors agree",
         );
+    }
+
+    #[test]
+    fn test_complex_constant_folding() {
+        let input = r#"
+            fn init:
+                entry {
+                    zero = const 0
+                    seven = const 7
+                    five = const 5
+                    _0x80 = const 0x80
+                    _32 = const 32
+
+                    sign_ext = signextend zero _0x80
+                    byte_oob = byte _32 _0x80
+                    sar_noop = sar zero _0x80
+                    addmod_wrap = addmod seven seven five
+                    sdiv_zero = sdiv seven zero
+
+                    stop
+                }
+        "#;
+
+        // $0-$4: constants (zero, seven, five, _0x80, _32)
+        // $5: signextend(0, 0x80) → 0xFF..FF80 (sign extend fills upper bits)
+        // $6: byte(32, 0x80) → 0 (index out of bounds)
+        // $7: sar(0, 0x80) → 0x80 (shift by 0 is no-op)
+        // $8: addmod(7, 7, 5) → 4 ((7+7) % 5)
+        // $9: sdiv(7, 0) → 0 (division by zero)
+        let expected = r#"
+Functions:
+    fn @0 -> entry @0  (outputs: 0)
+
+Basic Blocks:
+    @0 {
+        $0 = const 0x0
+        $1 = const 0x7
+        $2 = const 0x5
+        $3 = const 0x80
+        $4 = const 0x20
+        $5 = large_const 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff80
+        $6 = const 0x0
+        $7 = const 0x80
+        $8 = const 0x4
+        $9 = const 0x0
+        stop
+    }
+        "#;
+
+        let actual = run_const_prop(input);
+        assert_trim_strings_eq_with_diff(&actual, expected, "complex constant folding");
+    }
+
+    #[test]
+    fn test_branch_zero_takes_false() {
+        let input = r#"
+            fn init:
+                entry {
+                    cond = const 0
+                    => cond ? @if_true : @if_false
+                }
+                if_true { stop }
+                if_false { stop }
+        "#;
+
+        let expected = r#"
+Functions:
+    fn @0 -> entry @0  (outputs: 0)
+
+Basic Blocks:
+    @0 {
+        $0 = const 0x0
+        => @2
+    }
+
+    @1 {
+        stop
+    }
+
+    @2 {
+        stop
+    }
+        "#;
+
+        let actual = run_const_prop(input);
+        assert_trim_strings_eq_with_diff(&actual, expected, "branch zero takes false");
+    }
+
+    #[test]
+    fn test_branch_nonzero_takes_true() {
+        let input = r#"
+            fn init:
+                entry {
+                    cond = large_const 0xfffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff6
+                    => cond ? @if_true : @if_false
+                }
+                if_true { stop }
+                if_false { stop }
+        "#;
+
+        let expected = r#"
+Functions:
+    fn @0 -> entry @0  (outputs: 0)
+
+Basic Blocks:
+    @0 {
+        $0 = large_const 0xfffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff6
+        => @1
+    }
+
+    @1 {
+        stop
+    }
+
+    @2 {
+        stop
+    }
+        "#;
+
+        let actual = run_const_prop(input);
+        assert_trim_strings_eq_with_diff(&actual, expected, "branch nonzero takes true");
+    }
+
+    #[test]
+    fn test_switch_with_folded_condition() {
+        let input = r#"
+            fn init:
+                entry {
+                    a = const 7
+                    b = const 5
+                    cond = gt a b
+                    switch cond {
+                        1 => @matched
+                        default => @fallback
+                    }
+                }
+                matched { stop }
+                fallback { stop }
+        "#;
+
+        let expected = r#"
+Functions:
+    fn @0 -> entry @0  (outputs: 0)
+
+Basic Blocks:
+    @0 {
+        $0 = const 0x7
+        $1 = const 0x5
+        $2 = const 0x1
+        => @1
+    }
+
+    @1 {
+        stop
+    }
+
+    @2 {
+        stop
+    }
+        "#;
+
+        let actual = run_const_prop(input);
+        assert_trim_strings_eq_with_diff(&actual, expected, "switch with folded condition");
+    }
+
+    #[test]
+    fn test_switch_no_match_takes_default() {
+        let input = r#"
+            fn init:
+                entry {
+                    a = const 17
+                    b = const 5
+                    cond = mod a b
+                    switch cond {
+                        5 => @matched
+                        default => @fallback
+                    }
+                }
+                matched { stop }
+                fallback { stop }
+        "#;
+
+        let expected = r#"
+Functions:
+    fn @0 -> entry @0  (outputs: 0)
+
+Basic Blocks:
+    @0 {
+        $0 = const 0x11
+        $1 = const 0x5
+        $2 = const 0x2
+        => @2
+    }
+
+    @1 {
+        stop
+    }
+
+    @2 {
+        stop
+    }
+        "#;
+
+        let actual = run_const_prop(input);
+        assert_trim_strings_eq_with_diff(&actual, expected, "switch no match takes default");
     }
 }

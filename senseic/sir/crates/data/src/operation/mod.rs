@@ -4,6 +4,7 @@ mod op_fmt;
 use crate::{EthIRProgram, builder::EthIRBuilder, index::LocalId};
 pub use op_data::*;
 use op_fmt::OpFormatter;
+use smallvec::SmallVec;
 use std::fmt;
 
 macro_rules! define_operations {
@@ -50,6 +51,18 @@ macro_rules! define_operations {
                     $(OperationKind::$name => Self::$name(<$data>::try_build_op(ins, outs, extra, builder)?),)+
                 };
                 Ok(op)
+            }
+
+            pub fn inputs(&self, ir: &EthIRProgram) -> SmallVec<[LocalId; 4]> {
+                match self {
+                    $(Self::$name(data) => data.inputs(ir),)+
+                }
+            }
+
+            pub fn outputs(&self, ir: &EthIRProgram) -> SmallVec<[LocalId; 4]> {
+                match self {
+                    $(Self::$name(data) => data.outputs(ir),)+
+                }
             }
         }
 
