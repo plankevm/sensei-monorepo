@@ -107,7 +107,7 @@ impl<'a> SCCPAnalysis<'a> {
             Control::Switch(switch) => {
                 if let Some(val) = self.const_u256(switch.condition) {
                     let target = self.program.cases[switch.cases]
-                        .iter(&self.program)
+                        .iter(self.program)
                         .find(|(case_val, _)| val == *case_val)
                         .map(|(_, t)| t)
                         .or(switch.fallback);
@@ -185,7 +185,7 @@ impl<'a> SCCPAnalysis<'a> {
                 match self.const_u256(switch.condition) {
                     Some(val) => {
                         let target = self.program.cases[cases_ids]
-                            .iter(&self.program)
+                            .iter(self.program)
                             .find(|(case_val, _)| val == *case_val)
                             .map(|(_, target)| target)
                             .or(switch.fallback);
@@ -199,7 +199,7 @@ impl<'a> SCCPAnalysis<'a> {
                             self.mark_reachable(bb_id, fb);
                         }
                         let targets: Vec<_> = self.program.cases[cases_ids]
-                            .iter(&self.program)
+                            .iter(self.program)
                             .map(|(_, t)| t)
                             .collect();
 
@@ -220,10 +220,13 @@ impl<'a> SCCPAnalysis<'a> {
                     continue;
                 }
 
-                // TODO: (maybe?) there is an optimization to skip if the output is already overdefined
-                // since we have no outputs() yet and I'm not very sure inputs() has the right approach, I didn't add it
-                // there is also the alternative to exit evaluate early but there too we have the multiple tipes of operations (i.e., binary, unary, and ternary)
-                // so it might complicate the code a bit to add that check. but technically, adding it there could benefit the processing of the operation
+                // TODO: (maybe?) there is an optimization to skip if the output is already
+                // overdefined since we have no outputs() yet and I'm not very sure
+                // inputs() has the right approach, I didn't add it there is also
+                // the alternative to exit evaluate early but there too we have the multiple tipes
+                // of operations (i.e., binary, unary, and ternary) so it might
+                // complicate the code a bit to add that check. but technically, adding it there
+                // could benefit the processing of the operation
 
                 // we ended up adding outputs for rewriting
                 let outputs = self.program.operations[*op_id].outputs(self.program);
