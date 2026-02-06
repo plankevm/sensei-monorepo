@@ -165,10 +165,10 @@ impl<'t, 'ir> OpcodeTranslator<'t, 'ir> {
     }
 }
 
-impl<'t, 'ir> OpVisitor<()> for OpcodeTranslator<'t, 'ir> {
+impl<'d, 't, 'ir> OpVisitor<'d, ()> for OpcodeTranslator<'t, 'ir> {
     fn visit_inline_operands<const INS: usize, const OUTS: usize>(
         &mut self,
-        operands: &InlineOperands<INS, OUTS>,
+        operands: &'d InlineOperands<INS, OUTS>,
     ) {
         match self.op_kind {
             OperationKind::DynamicAllocZeroed | OperationKind::DynamicAllocAnyBytes => {
@@ -220,7 +220,7 @@ impl<'t, 'ir> OpVisitor<()> for OpcodeTranslator<'t, 'ir> {
 
     fn visit_allocated_ins<const INS: usize, const OUTS: usize>(
         &mut self,
-        data: &AllocatedIns<INS, OUTS>,
+        data: &'d AllocatedIns<INS, OUTS>,
     ) {
         let evm_op = self.evm_op.expect("all allocated input operand ops to be EVM");
         self.emit_simple_operation(evm_op, data.get_inputs(self.translator.ir), &data.outs);
@@ -234,11 +234,11 @@ impl<'t, 'ir> OpVisitor<()> for OpcodeTranslator<'t, 'ir> {
         };
     }
 
-    fn visit_static_alloc(&mut self, data: &StaticAllocData) {
+    fn visit_static_alloc(&mut self, data: &'d StaticAllocData) {
         self.emit_static_memory_alloc(data.size, data.ptr_out);
     }
 
-    fn visit_memory_load(&mut self, data: &MemoryLoadData) {
+    fn visit_memory_load(&mut self, data: &'d MemoryLoadData) {
         let load_size = data.size as u32;
         self.translator.emit_local_load(data.ptr);
         self.translator.asm.push_op_byte(op::MLOAD);
@@ -247,17 +247,17 @@ impl<'t, 'ir> OpVisitor<()> for OpcodeTranslator<'t, 'ir> {
         self.translator.emit_local_store(data.out);
     }
 
-    fn visit_memory_store(&mut self, data: &MemoryStoreData) {
+    fn visit_memory_store(&mut self, data: &'d MemoryStoreData) {
         let load_size = data.size as u32;
         let shift_to_clean_word = load_size * 8;
-        self.translator.emit_local_load(data.ptr); // [ptr]
+        self.translator.emit_local_load(data.ptr()); // [ptr]
         self.translator.asm.push_op_byte(op::DUP1); // [ptr, ptr]
         self.translator.asm.push_op_byte(op::MLOAD); // [current_word, ptr]
         self.translator.asm.push_minimal_u32(shift_to_clean_word); // [shift, current_word, ptr]
         self.translator.asm.push_op_byte(op::SHL); // [current_word << shift, ptr]
         self.translator.asm.push_minimal_u32(shift_to_clean_word); // [shift, current_word << shift, ptr]
         self.translator.asm.push_op_byte(op::SHR); // [cleaned_word, ptr]
-        self.translator.emit_local_load(data.value); // [value, cleaned_word, ptr]
+        self.translator.emit_local_load(data.value()); // [value, cleaned_word, ptr]
         self.translator.asm.push_minimal_u32(256 - load_size * 8); // [value_shift, value, cleaned_word, ptr]
         self.translator.asm.push_op_byte(op::SHL); // [shifted_value, cleaned_word, ptr]
         self.translator.asm.push_op_byte(op::OR); // [updated_word, ptr]
@@ -265,23 +265,23 @@ impl<'t, 'ir> OpVisitor<()> for OpcodeTranslator<'t, 'ir> {
         self.translator.asm.push_op_byte(op::MSTORE); // []
     }
 
-    fn visit_set_small_const(&mut self, data: &SetSmallConstData) {
+    fn visit_set_small_const(&mut self, data: &'d SetSmallConstData) {
         self.translator.asm.push_minimal_u32(data.value);
         self.translator.emit_local_store(data.sets);
     }
 
-    fn visit_set_large_const(&mut self, data: &SetLargeConstData) {
+    fn visit_set_large_const(&mut self, data: &'d SetLargeConstData) {
         self.translator.asm.push_minimal_u256(self.translator.ir.large_consts[data.value]);
         self.translator.emit_local_store(data.sets);
     }
 
-    fn visit_set_data_offset(&mut self, data: &SetDataOffsetData) {
+    fn visit_set_data_offset(&mut self, data: &'d SetDataOffsetData) {
         let data_offset_mark = self.translator.mark_map.get_data_mark(data.segment_id);
         self.translator.emit_code_offset_push(data_offset_mark);
         self.translator.emit_local_store(data.sets);
     }
 
-    fn visit_icall(&mut self, data: &InternalCallData) {
+    fn visit_icall(&mut self, data: &'d InternalCallData) {
         self.translator.memory_layout.emit_copy_for_basic_block_inputs(
             &mut self.translator.asm,
             data.get_inputs(self.translator.ir),

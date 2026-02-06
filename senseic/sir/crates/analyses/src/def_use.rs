@@ -15,7 +15,7 @@ pub fn compute_def_use(program: &EthIRProgram) -> DefUse {
     for (bb_id, bb) in program.basic_blocks.enumerate_idx() {
         for (op_id, op) in program.operations[bb.operations].iter().enumerate() {
             let global_index = OperationIndex::new(bb.operations.start.get() + op_id as u32);
-            for input in op.inputs(program) {
+            for &input in op.inputs(program) {
                 uses[input].push(UseLocation { block_id: bb_id, op_id: global_index });
             }
         }

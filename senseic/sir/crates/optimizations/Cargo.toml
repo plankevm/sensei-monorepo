@@ -8,6 +8,7 @@ license.workspace = true
 sir-analyses.workspace = true
 sir-data.workspace = true
 alloy-primitives.workspace = true
+smallvec.workspace = true
 
 [dev-dependencies]
 sir-parser.workspace = true

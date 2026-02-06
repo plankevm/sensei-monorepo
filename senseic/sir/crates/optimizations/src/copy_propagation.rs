@@ -20,10 +20,10 @@ fn replace_if_copied(input: &mut X32<LocalIdMarker>, copy_map: &HashMap<LocalId,
     }
 }
 
-impl OpVisitorMut<()> for CopyReplacer<'_> {
+impl<'d> OpVisitorMut<'d, ()> for CopyReplacer<'_> {
     fn visit_inline_operands_mut<const INS: usize, const OUTS: usize>(
         &mut self,
-        data: &mut InlineOperands<INS, OUTS>,
+        data: &'d mut InlineOperands<INS, OUTS>,
     ) {
         for input in &mut data.ins {
             replace_if_copied(input, self.copy_map);
@@ -32,31 +32,32 @@ impl OpVisitorMut<()> for CopyReplacer<'_> {
 
     fn visit_allocated_ins_mut<const INS: usize, const OUTS: usize>(
         &mut self,
-        data: &mut AllocatedIns<INS, OUTS>,
+        data: &'d mut AllocatedIns<INS, OUTS>,
     ) {
         for idx in Span::new(data.ins_start, data.ins_start + INS as u32).iter() {
             replace_if_copied(&mut self.locals[idx], self.copy_map);
         }
     }
 
-    fn visit_static_alloc_mut(&mut self, _data: &mut StaticAllocData) {}
+    fn visit_static_alloc_mut(&mut self, _data: &'d mut StaticAllocData) {}
 
-    fn visit_memory_load_mut(&mut self, data: &mut MemoryLoadData) {
+    fn visit_memory_load_mut(&mut self, data: &'d mut MemoryLoadData) {
         replace_if_copied(&mut data.ptr, self.copy_map);
     }
 
-    fn visit_memory_store_mut(&mut self, data: &mut MemoryStoreData) {
-        replace_if_copied(&mut data.ptr, self.copy_map);
-        replace_if_copied(&mut data.value, self.copy_map);
+    fn visit_memory_store_mut(&mut self, data: &'d mut MemoryStoreData) {
+        for input in &mut data.ins {
+            replace_if_copied(input, self.copy_map);
+        }
     }
 
-    fn visit_set_small_const_mut(&mut self, _data: &mut SetSmallConstData) {}
+    fn visit_set_small_const_mut(&mut self, _data: &'d mut SetSmallConstData) {}
 
-    fn visit_set_large_const_mut(&mut self, _data: &mut SetLargeConstData) {}
+    fn visit_set_large_const_mut(&mut self, _data: &'d mut SetLargeConstData) {}
 
-    fn visit_set_data_offset_mut(&mut self, _data: &mut SetDataOffsetData) {}
+    fn visit_set_data_offset_mut(&mut self, _data: &'d mut SetDataOffsetData) {}
 
-    fn visit_icall_mut(&mut self, data: &mut InternalCallData) {
+    fn visit_icall_mut(&mut self, data: &'d mut InternalCallData) {
         for idx in Span::new(data.ins_start, data.outs_start).iter() {
             replace_if_copied(&mut self.locals[idx], self.copy_map);
         }

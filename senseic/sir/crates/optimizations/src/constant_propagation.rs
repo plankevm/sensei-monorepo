@@ -1,10 +1,7 @@
 use alloy_primitives::{I256, U256, U512};
 use sir_analyses::{DefUse, UseLocation, compute_def_use, compute_predecessors};
-use sir_data::{
-    BasicBlockId, BasicBlockIdMarker, Control, DenseIndexSet, EthIRProgram, IndexVec,
-    LargeConstIdMarker, LocalId, LocalIdMarker, Operation, X32, index_vec,
-    operation::{AllocatedIns, InlineOperands, SetLargeConstData, SetSmallConstData},
-};
+use sir_data::{operation::*, *};
+use std::cmp::{Ordering, PartialOrd};
 
 pub fn run(program: &mut EthIRProgram) {
     let mut sccp = SCCPAnalysis::new(program);
@@ -16,7 +13,7 @@ pub fn run(program: &mut EthIRProgram) {
 pub struct SCCPAnalysis<'a> {
     program: &'a mut EthIRProgram,
     lattice: IndexVec<LocalIdMarker, LatticeValue>,
-    reachable: IndexVec<BasicBlockIdMarker, bool>,
+    reachable: DenseIndexSet<BasicBlockIdMarker>,
     cfg_worklist: Vec<BasicBlockId>,
     values_worklist: Vec<LocalId>,
     predecessors: IndexVec<BasicBlockIdMarker, Vec<BasicBlockId>>,
@@ -27,18 +24,23 @@ pub struct SCCPAnalysis<'a> {
 impl<'a> SCCPAnalysis<'a> {
     pub fn new(program: &'a mut EthIRProgram) -> Self {
         let predecessors = compute_predecessors(program);
-        let mut reachable = index_vec![false; program.basic_blocks.len()];
+        let mut reachable = DenseIndexSet::with_capacity_in_bits(program.basic_blocks.len());
         let mut cfg_worklist = Vec::new();
+        let num_values = program.next_free_local_id.idx();
+        let mut lattice = index_vec![LatticeValue::Unknown; num_values];
         for func in program.functions.iter() {
             let entry = func.entry();
-            reachable[entry] = true;
+            reachable.add(entry);
             cfg_worklist.push(entry);
+            let entry_bb = &program.basic_blocks[entry];
+            for &input in &program.locals[entry_bb.inputs] {
+                lattice[input] = LatticeValue::Overdefined;
+            }
         }
         let uses = compute_def_use(program);
-        let num_values = program.next_free_local_id.idx();
         Self {
             program,
-            lattice: index_vec![LatticeValue::Unknown; num_values],
+            lattice,
             reachable,
             cfg_worklist,
             values_worklist: Vec::new(),
@@ -54,16 +56,15 @@ impl<'a> SCCPAnalysis<'a> {
         }
         for i in 0..self.program.basic_blocks.len() {
             let bb_id = BasicBlockId::new(i as u32);
-            if !self.reachable[bb_id] {
+            if !self.reachable.contains(bb_id) {
                 self.unreachable_blocks.add(bb_id);
             }
         }
     }
 
     pub fn apply(&mut self) {
-        for i in 0..self.program.basic_blocks.len() {
-            let bb_id = BasicBlockId::new(i as u32);
-            if self.reachable[bb_id] {
+        for bb_id in self.program.basic_blocks.iter_idx() {
+            if self.reachable.contains(bb_id) {
                 self.rewrite_constants(bb_id);
                 self.simplify_control(bb_id);
             }
@@ -74,31 +75,32 @@ impl<'a> SCCPAnalysis<'a> {
         &self.unreachable_blocks
     }
 
-    fn rewrite_constants(&mut self, bb_id: X32<BasicBlockIdMarker>) {
+    fn rewrite_constants(&mut self, bb_id: BasicBlockId) {
         let ops = self.program.basic_blocks[bb_id].operations;
         for op_idx in ops.iter() {
-            let outputs = self.program.operations[op_idx].outputs(self.program);
-            for out in outputs {
-                if let LatticeValue::Const(cv) = &self.lattice[out] {
-                    let new_op = match cv {
-                        ConstValue::SmallConst(v) => {
-                            Operation::SetSmallConst(SetSmallConstData { sets: out, value: *v })
-                        }
-                        ConstValue::LargeConst(v) => {
-                            let id = self.program.large_consts.push(*v);
-                            Operation::SetLargeConst(SetLargeConstData { sets: out, value: id })
-                        }
-                    };
-                    self.program.operations[op_idx] = new_op;
-                }
-            }
+            let op = &self.program.operations[op_idx];
+            let mut outs = op.outputs(self.program).iter();
+            let out = outs.next().copied();
+            debug_assert!(
+                outs.next().is_none(),
+                "no operation with several outputs should be rewritable"
+            );
+
+            let Some(out) = out else { continue };
+            let &LatticeValue::Const(cv) = &self.lattice[out] else { continue };
+            // Heuristic: Only inline constants that fit in 4 bytes or less.
+            let new_op = match u32::try_from(cv) {
+                Ok(value) => Operation::SetSmallConst(SetSmallConstData { sets: out, value }),
+                Err(_) => continue,
+            };
+            self.program.operations[op_idx] = new_op;
         }
     }
 
-    fn simplify_control(&mut self, bb_id: X32<BasicBlockIdMarker>) {
+    fn simplify_control(&mut self, bb_id: BasicBlockId) {
         match &self.program.basic_blocks[bb_id].control {
             Control::Branches(branch) => {
-                if let Some(cv) = self.const_value(branch.condition) {
+                if let Some(cv) = self.const_u256(branch.condition) {
                     let target =
                         if cv.is_zero() { branch.zero_target } else { branch.non_zero_target };
                     self.program.basic_blocks[bb_id].control = Control::ContinuesTo(target);
@@ -110,27 +112,27 @@ impl<'a> SCCPAnalysis<'a> {
                         .iter(self.program)
                         .find(|(case_val, _)| val == *case_val)
                         .map(|(_, t)| t)
-                        .or(switch.fallback);
+                        .or(switch.fallback)
+                        .expect("illegal behavior detected");
 
-                    if let Some(t) = target {
-                        self.program.basic_blocks[bb_id].control = Control::ContinuesTo(t);
-                    }
+                    self.program.basic_blocks[bb_id].control = Control::ContinuesTo(target);
                 }
             }
             _ => {}
         }
     }
 
-    fn process_inputs(&mut self, bb_id: X32<BasicBlockIdMarker>) {
+    fn process_inputs(&mut self, bb_id: BasicBlockId) {
         let bb = &self.program.basic_blocks[bb_id];
         for pred_id in &self.predecessors[bb_id] {
-            if !self.reachable[*pred_id] {
+            if !self.reachable.contains(*pred_id) {
                 continue;
             }
             let pred_bb = &self.program.basic_blocks[*pred_id];
-            for (i, &pred_output) in self.program.locals[pred_bb.outputs].iter().enumerate() {
+            for (&pred_output, &input_local) in
+                self.program.locals[pred_bb.outputs].iter().zip(&self.program.locals[bb.inputs])
+            {
                 let pred_value = self.lattice[pred_output].clone();
-                let input_local = self.program.locals[bb.inputs][i];
                 if self.lattice[input_local].meet(pred_value) {
                     self.values_worklist.push(input_local);
                 }
@@ -138,42 +140,60 @@ impl<'a> SCCPAnalysis<'a> {
         }
     }
 
-    fn process_operations(&mut self, bb_id: X32<BasicBlockIdMarker>) {
+    fn process_operations(&mut self, bb_id: BasicBlockId) {
         let bb = &self.program.basic_blocks[bb_id];
         for op in &self.program.operations[bb.operations] {
-            constant(op, &self.program.large_consts, |local, value| {
+            if let Some((local, value)) = constant(op, &self.program.large_consts) {
+                // Will always be constant here, but detects whether it changed.
                 if self.lattice[local].meet(value) {
                     self.values_worklist.push(local);
                 }
-            });
+                continue;
+            }
 
-            if let Some((out, result)) = self.evaluate(op) {
-                let value = if let Ok(small) = u32::try_from(result) {
-                    ConstValue::SmallConst(small)
-                } else {
-                    ConstValue::LargeConst(result)
-                };
+            if let Some((out, value)) = self.evaluate(op) {
                 if self.lattice[out].meet(LatticeValue::Const(value)) {
+                    self.values_worklist.push(out);
+                }
+                continue;
+            }
+
+            // Any operation that isn't const or evaluates to a constant is overdefined (aka
+            // bottom).
+            for &out in op.outputs(self.program) {
+                if self.lattice[out].meet(LatticeValue::Overdefined) {
                     self.values_worklist.push(out);
                 }
             }
         }
     }
 
-    fn process_control(&mut self, bb_id: X32<BasicBlockIdMarker>) {
-        match &self.program.basic_blocks[bb_id].control {
-            Control::ContinuesTo(target) => {
-                self.mark_reachable(bb_id, *target);
-            }
+    fn process_control(&mut self, bb_id: BasicBlockId) {
+        let control = &self.program.basic_blocks[bb_id].control;
+        match control {
+            Control::ContinuesTo(target) => self.mark_reachable(bb_id, *target),
             Control::Branches(branch) => {
                 let (zero, non_zero, cond) =
                     (branch.zero_target, branch.non_zero_target, branch.condition);
-                match self.const_value(cond) {
-                    Some(cv) => {
+                match &self.lattice[cond] {
+                    LatticeValue::Const(cv) => {
                         let target = if cv.is_zero() { zero } else { non_zero };
                         self.mark_reachable(bb_id, target);
                     }
-                    None => {
+                    // Some more constants may be guaranteed non-zero (e.g. number,
+                    // runtime_start_offset), not including conservatively.
+                    LatticeValue::EvmConst(
+                        EvmConstKind::Address
+                        | EvmConstKind::Origin
+                        | EvmConstKind::Caller
+                        | EvmConstKind::Timestamp
+                        | EvmConstKind::GasLimit
+                        | EvmConstKind::ChainId,
+                    ) => {
+                        self.mark_reachable(bb_id, non_zero);
+                    }
+                    either => {
+                        debug_assert!(*either != LatticeValue::Unknown);
                         self.mark_reachable(bb_id, zero);
                         self.mark_reachable(bb_id, non_zero);
                     }
@@ -184,67 +204,52 @@ impl<'a> SCCPAnalysis<'a> {
 
                 match self.const_u256(switch.condition) {
                     Some(val) => {
+                        // TODO: Better error
                         let target = self.program.cases[cases_ids]
                             .iter(self.program)
                             .find(|(case_val, _)| val == *case_val)
                             .map(|(_, target)| target)
-                            .or(switch.fallback);
+                            .or(switch.fallback)
+                            .expect("illegal behavior detected");
 
-                        if let Some(t) = target {
-                            self.mark_reachable(bb_id, t);
-                        }
+                        self.mark_reachable(bb_id, target);
                     }
                     None => {
                         if let Some(fb) = switch.fallback {
                             self.mark_reachable(bb_id, fb);
                         }
-                        let targets: Vec<_> = self.program.cases[cases_ids]
-                            .iter(self.program)
-                            .map(|(_, t)| t)
-                            .collect();
-
-                        for t in targets {
-                            self.mark_reachable(bb_id, t);
+                        let cases = self.program.cases[cases_ids];
+                        for i in 0..cases.cases_count {
+                            self.mark_reachable(
+                                bb_id,
+                                self.program.cases_bb_ids[cases.targets_start_id + i],
+                            );
                         }
                     }
                 }
             }
-            _ => {}
+            Control::LastOpTerminates | Control::InternalReturn => {}
         }
     }
 
     fn process_values(&mut self) {
         while let Some(value) = self.values_worklist.pop() {
             for UseLocation { block_id, op_id } in &self.uses[value] {
-                if !self.reachable[*block_id] {
+                if !self.reachable.contains(*block_id) {
                     continue;
                 }
 
-                // TODO: (maybe?) there is an optimization to skip if the output is already
-                // overdefined since we have no outputs() yet and I'm not very sure
-                // inputs() has the right approach, I didn't add it there is also
-                // the alternative to exit evaluate early but there too we have the multiple tipes
-                // of operations (i.e., binary, unary, and ternary) so it might
-                // complicate the code a bit to add that check. but technically, adding it there
-                // could benefit the processing of the operation
-
-                // we ended up adding outputs for rewriting
                 let outputs = self.program.operations[*op_id].outputs(self.program);
                 if outputs.iter().all(|o| matches!(self.lattice[*o], LatticeValue::Overdefined)) {
                     continue;
                 }
 
-                if let Some((out, result)) = self.evaluate(&self.program.operations[*op_id]) {
-                    let value = if let Ok(small) = u32::try_from(result) {
-                        ConstValue::SmallConst(small)
-                    } else {
-                        ConstValue::LargeConst(result)
-                    };
+                if let Some((out, value)) = self.evaluate(&self.program.operations[*op_id]) {
                     if self.lattice[out].meet(LatticeValue::Const(value)) {
                         self.values_worklist.push(out);
                     }
                 } else {
-                    for out in outputs {
+                    for &out in outputs {
                         if self.lattice[out].meet(LatticeValue::Overdefined) {
                             self.values_worklist.push(out);
                         }
@@ -254,7 +259,7 @@ impl<'a> SCCPAnalysis<'a> {
         }
     }
 
-    fn process_block(&mut self, bb_id: X32<BasicBlockIdMarker>) {
+    fn process_block(&mut self, bb_id: BasicBlockId) {
         self.process_inputs(bb_id);
         self.process_operations(bb_id);
         self.process_control(bb_id);
@@ -262,8 +267,8 @@ impl<'a> SCCPAnalysis<'a> {
     }
 
     fn mark_reachable(&mut self, from: BasicBlockId, to: BasicBlockId) {
-        if !self.reachable[to] {
-            self.reachable[to] = true;
+        if !self.reachable.contains(to) {
+            self.reachable.add(to);
             self.cfg_worklist.push(to);
         }
         self.flow_outputs_to(from, to);
@@ -283,42 +288,34 @@ impl<'a> SCCPAnalysis<'a> {
 
     // TODO: (worth?) A minor optimization is to skip the evaluation if output is Overdefined
     fn evaluate(&self, op: &Operation) -> Option<(LocalId, U256)> {
-        macro_rules! eval_binary {
-            ($a:expr, $b:expr, $out:expr, $f:expr) => {
-                if let Some((va, vb)) = self.binary_const_u256(*$a, *$b) {
-                    return Some((*$out, $f(va, vb)));
-                }
-            };
-        }
-
         match op {
             Operation::Add(InlineOperands { ins: [a, b], outs: [out] }) => {
-                eval_binary!(a, b, out, U256::wrapping_add)
+                self.eval_binary(a, b, out, U256::wrapping_add)
             }
             Operation::Mul(InlineOperands { ins: [a, b], outs: [out] }) => {
-                eval_binary!(a, b, out, U256::wrapping_mul)
+                self.eval_binary(a, b, out, U256::wrapping_mul)
             }
             Operation::Sub(InlineOperands { ins: [a, b], outs: [out] }) => {
-                eval_binary!(a, b, out, U256::wrapping_sub)
+                self.eval_binary(a, b, out, U256::wrapping_sub)
             }
             Operation::Div(InlineOperands { ins: [a, b], outs: [out] }) => {
-                eval_binary!(a, b, out, |va: U256, vb| va.checked_div(vb).unwrap_or(U256::ZERO))
+                self.eval_binary(a, b, out, |va, vb| va.checked_div(vb).unwrap_or(U256::ZERO))
             }
             Operation::SDiv(InlineOperands { ins: [a, b], outs: [out] }) => {
-                eval_binary!(a, b, out, |va: U256, vb: U256| {
-                    let sa = va.to::<I256>();
-                    let sb = vb.to::<I256>();
-                    sa.checked_div(sb).unwrap_or(I256::ZERO).to::<U256>()
+                self.eval_binary(a, b, out, |va, vb| {
+                    let sa = I256::from_raw(va);
+                    let sb = I256::from_raw(vb);
+                    sa.checked_div(sb).unwrap_or(I256::ZERO).into_raw()
                 })
             }
             Operation::Mod(InlineOperands { ins: [a, b], outs: [out] }) => {
-                eval_binary!(a, b, out, |va: U256, vb| va.checked_rem(vb).unwrap_or(U256::ZERO))
+                self.eval_binary(a, b, out, |va, vb| va.checked_rem(vb).unwrap_or(U256::ZERO))
             }
             Operation::SMod(InlineOperands { ins: [a, b], outs: [out] }) => {
-                eval_binary!(a, b, out, |va: U256, vb: U256| {
-                    let sa = va.to::<I256>();
-                    let sb = vb.to::<I256>();
-                    sa.checked_rem(sb).unwrap_or(I256::ZERO).to::<U256>()
+                self.eval_binary(a, b, out, |va, vb| {
+                    let sa = I256::from_raw(va);
+                    let sb = I256::from_raw(vb);
+                    sa.checked_rem(sb).unwrap_or(I256::ZERO).into_raw()
                 })
             }
             Operation::AddMod(AllocatedIns { ins_start, outs: [out] }) => {
@@ -326,96 +323,85 @@ impl<'a> SCCPAnalysis<'a> {
                 let b = self.program.locals[*ins_start + 1];
                 let n = self.program.locals[*ins_start + 2];
 
-                if let (Some(va), Some(vb), Some(vn)) =
-                    (self.const_u256(a), self.const_u256(b), self.const_u256(n))
-                {
-                    let result = if vn.is_zero() {
-                        U256::ZERO
-                    } else {
-                        let sum = U512::from(va) + U512::from(vb);
-                        U256::from(sum % U512::from(vn))
-                    };
-                    return Some((*out, result));
-                }
+                self.const_u256(a).and_then(|va| self.const_u256(b).map(|vb| (va, vb))).and_then(
+                    |(va, vb)| {
+                        self.const_u256(n).map(|vn| {
+                            let result = if vn.is_zero() {
+                                U256::ZERO
+                            } else {
+                                let sum = U512::from(va) + U512::from(vb);
+                                U256::from(sum % U512::from(vn))
+                            };
+                            (*out, result)
+                        })
+                    },
+                )
             }
             Operation::MulMod(AllocatedIns { ins_start, outs: [out] }) => {
                 let a = self.program.locals[*ins_start];
                 let b = self.program.locals[*ins_start + 1];
                 let n = self.program.locals[*ins_start + 2];
 
-                if let (Some(va), Some(vb), Some(vn)) =
-                    (self.const_u256(a), self.const_u256(b), self.const_u256(n))
-                {
-                    let result = if vn.is_zero() {
-                        U256::ZERO
-                    } else {
-                        let prod = U512::from(va) * U512::from(vb);
-                        U256::from(prod % U512::from(vn))
-                    };
-                    return Some((*out, result));
-                }
+                let va = self.const_u256(a)?;
+                let vb = self.const_u256(b)?;
+                let vn = self.const_u256(n)?;
+                let result = if vn.is_zero() {
+                    U256::ZERO
+                } else {
+                    let prod = U512::from(va) * U512::from(vb);
+                    U256::from(prod % U512::from(vn))
+                };
+                Some((*out, result))
             }
             Operation::Exp(InlineOperands { ins: [a, b], outs: [out] }) => {
-                eval_binary!(a, b, out, |va: U256, vb| va.pow(vb))
+                self.eval_binary(a, b, out, |va, vb| va.pow(vb))
             }
             Operation::SignExtend(InlineOperands { ins: [b, x], outs: [out] }) => {
-                eval_binary!(b, x, out, |vb: U256, vx| {
+                self.eval_binary(b, x, out, |vb, vx| {
                     if vb >= U256::from(31) {
                         vx
                     } else {
                         let sign_bit_pos = (vb.to::<usize>() + 1) * 8 - 1;
-                        let sign_bit_mask = U256::from(1) << sign_bit_pos;
+                        let sign_bit_mask = U256::ONE << sign_bit_pos;
 
                         if (vx & sign_bit_mask) != U256::ZERO {
                             vx | (U256::MAX << (sign_bit_pos + 1))
                         } else {
-                            vx & ((U256::from(1) << (sign_bit_pos + 1)) - U256::from(1))
+                            vx & ((U256::ONE << (sign_bit_pos + 1)) - U256::ONE)
                         }
                     }
                 })
             }
             Operation::Lt(InlineOperands { ins: [a, b], outs: [out] }) => {
-                eval_binary!(a, b, out, |va: U256, vb| if va < vb {
-                    U256::from(1)
-                } else {
-                    U256::ZERO
-                })
+                self.eval_binary(a, b, out, |va, vb| U256::from(va < vb))
             }
             Operation::Gt(InlineOperands { ins: [a, b], outs: [out] }) => {
-                eval_binary!(a, b, out, |va: U256, vb| if va > vb {
-                    U256::from(1)
-                } else {
-                    U256::ZERO
-                })
+                self.eval_binary(a, b, out, |va, vb| U256::from(va > vb))
             }
             Operation::SLt(InlineOperands { ins: [a, b], outs: [out] }) => {
-                eval_binary!(a, b, out, |va: U256, vb: U256| {
-                    if va.to::<I256>() < vb.to::<I256>() { U256::from(1) } else { U256::ZERO }
+                self.eval_binary(a, b, out, |va, vb| {
+                    U256::from(I256::from_raw(va) < I256::from_raw(vb))
                 })
             }
             Operation::SGt(InlineOperands { ins: [a, b], outs: [out] }) => {
-                eval_binary!(a, b, out, |va: U256, vb: U256| {
-                    if va.to::<I256>() > vb.to::<I256>() { U256::from(1) } else { U256::ZERO }
+                self.eval_binary(a, b, out, |va, vb| {
+                    U256::from(I256::from_raw(va) > I256::from_raw(vb))
                 })
             }
             Operation::Eq(InlineOperands { ins: [a, b], outs: [out] }) => {
-                eval_binary!(a, b, out, |va: U256, vb| if va == vb {
-                    U256::from(1)
-                } else {
-                    U256::ZERO
-                })
+                self.eval_binary(a, b, out, |va, vb| U256::from(va == vb))
             }
             Operation::And(InlineOperands { ins: [a, b], outs: [out] }) => {
-                eval_binary!(a, b, out, |va: U256, vb| va & vb)
+                self.eval_binary(a, b, out, |va, vb| va & vb)
             }
             Operation::Or(InlineOperands { ins: [a, b], outs: [out] }) => {
-                eval_binary!(a, b, out, |va: U256, vb| va | vb)
+                self.eval_binary(a, b, out, |va, vb| va | vb)
             }
             Operation::Xor(InlineOperands { ins: [a, b], outs: [out] }) => {
-                eval_binary!(a, b, out, |va: U256, vb| va ^ vb)
+                self.eval_binary(a, b, out, |va, vb| va ^ vb)
             }
             Operation::Byte(InlineOperands { ins: [i, x], outs: [out] }) => {
-                eval_binary!(i, x, out, |vi: U256, vx: U256| {
+                self.eval_binary(i, x, out, |vi, vx| {
                     if vi >= U256::from(32) {
                         U256::ZERO
                     } else {
@@ -424,43 +410,43 @@ impl<'a> SCCPAnalysis<'a> {
                 })
             }
             Operation::Shl(InlineOperands { ins: [shift, value], outs: [out] }) => {
-                eval_binary!(shift, value, out, |vshift: U256, vvalue| vvalue << vshift)
+                self.eval_binary(shift, value, out, |vshift, vvalue| vvalue << vshift)
             }
             Operation::Shr(InlineOperands { ins: [shift, value], outs: [out] }) => {
-                eval_binary!(shift, value, out, |vshift: U256, vvalue| vvalue >> vshift)
+                self.eval_binary(shift, value, out, |vshift, vvalue| vvalue >> vshift)
             }
-            Operation::Sar(InlineOperands { ins: [shift, value], outs: [out] }) => {
-                eval_binary!(shift, value, out, |vshift: U256, vvalue: U256| {
-                    vvalue.to::<I256>().asr(vshift.to::<usize>()).to::<U256>()
-                })
-            }
+            Operation::Sar(InlineOperands { ins: [shift, value], outs: [out] }) => self
+                .eval_binary(shift, value, out, |vshift, vvalue| {
+                    I256::from_raw(vvalue).asr(vshift.to::<usize>()).to::<U256>()
+                }),
             Operation::Not(InlineOperands { ins: [a], outs: [out] }) => {
-                if let Some(va) = self.const_u256(*a) {
-                    return Some((*out, !va));
-                }
+                let va = self.const_u256(*a)?;
+                Some((*out, !va))
             }
             Operation::IsZero(InlineOperands { ins: [a], outs: [out] }) => {
-                if let Some(va) = self.const_u256(*a) {
-                    return Some((*out, U256::from(va.is_zero())));
-                }
+                let va = self.const_u256(*a)?;
+                Some((*out, U256::from(va.is_zero())))
             }
-            _ => {}
+            _ => None,
         }
-        None
     }
 
     fn const_u256(&self, local: LocalId) -> Option<U256> {
-        match self.const_value(local)? {
-            ConstValue::SmallConst(v) => Some(U256::from(*v)),
-            ConstValue::LargeConst(v) => Some(*v),
+        match &self.lattice[local] {
+            &LatticeValue::Const(cv) => Some(cv),
+            _ => None,
         }
     }
 
-    fn const_value(&self, local: LocalId) -> Option<&ConstValue> {
-        match &self.lattice[local] {
-            LatticeValue::Const(cv) => Some(cv),
-            _ => None,
-        }
+    fn eval_binary(
+        &self,
+        a: &LocalId,
+        b: &LocalId,
+        out: &LocalId,
+        op: impl FnOnce(U256, U256) -> U256,
+    ) -> Option<(LocalId, U256)> {
+        let (va, vb) = self.binary_const_u256(*a, *b)?;
+        Some((*out, op(va, vb)))
     }
 
     fn binary_const_u256(&self, a: LocalId, b: LocalId) -> Option<(U256, U256)> {
@@ -468,61 +454,38 @@ impl<'a> SCCPAnalysis<'a> {
     }
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, Eq, PartialEq, Copy)]
 enum LatticeValue {
     Unknown,
-    Const(ConstValue),
+    Const(U256),
     EvmConst(EvmConstKind),
     Overdefined,
 }
 
-impl LatticeValue {
-    fn meet(&mut self, other: Self) -> bool {
-        match (&*self, &other) {
-            (LatticeValue::Overdefined, _) => {}
-            (_, LatticeValue::Overdefined) => {
-                *self = LatticeValue::Overdefined;
-                return true;
-            }
-            (_, LatticeValue::Unknown) => {}
-            (LatticeValue::Unknown, _) => {
-                *self = other;
-                return true;
-            }
-            (LatticeValue::EvmConst(a), LatticeValue::EvmConst(b)) => {
-                if a != b {
-                    *self = LatticeValue::Overdefined;
-                    return true;
-                }
-            }
-            (LatticeValue::Const(a), LatticeValue::Const(b)) => {
-                if a != b {
-                    *self = LatticeValue::Overdefined;
-                    return true;
-                }
-            }
-            (LatticeValue::Const(_), LatticeValue::EvmConst(_))
-            | (LatticeValue::EvmConst(_), LatticeValue::Const(_)) => {
-                *self = LatticeValue::Overdefined;
-                return true;
-            }
+impl PartialOrd for LatticeValue {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        match (self, other) {
+            (x, y) if x == y => Some(Ordering::Equal),
+            (Self::Unknown, _) => Some(Ordering::Greater),
+            (Self::Overdefined, _) => Some(Ordering::Less),
+            (_, Self::Unknown) => Some(Ordering::Less),
+            (_, Self::Overdefined) => Some(Ordering::Greater),
+            _ => None,
         }
-        false
     }
 }
 
-#[derive(PartialEq, Clone, Eq, Hash)]
-enum ConstValue {
-    SmallConst(u32),
-    LargeConst(U256),
-}
-
-impl ConstValue {
-    fn is_zero(&self) -> bool {
-        match self {
-            ConstValue::SmallConst(v) => *v == 0,
-            ConstValue::LargeConst(v) => v.is_zero(),
-        }
+impl LatticeValue {
+    /// Returns whether the value was updated.
+    fn meet(&mut self, other: Self) -> bool {
+        let met = match (*self).partial_cmp(&other) {
+            None => LatticeValue::Overdefined,
+            Some(Ordering::Less | Ordering::Equal) => *self,
+            Some(Ordering::Greater) => other,
+        };
+        let changed = met != *self;
+        *self = met;
+        changed
     }
 }
 
@@ -533,20 +496,20 @@ macro_rules! define_consts {
             $($name),*
         }
 
-        fn constant(op: &Operation, large_consts: &IndexVec<LargeConstIdMarker, U256>, mut set: impl FnMut(LocalId, LatticeValue)) {
+        fn constant(op: &Operation, large_consts: &IndexVec<LargeConstIdMarker, U256>) -> Option<(LocalId, LatticeValue)> {
             match op {
                 $(
                     Operation::$name(InlineOperands { ins: [], outs: [out] }) => {
-                        set(*out, LatticeValue::EvmConst(EvmConstKind::$name));
+                        Some((*out, LatticeValue::EvmConst(EvmConstKind::$name)))
                     }
                 )*
-                Operation::SetSmallConst(SetSmallConstData { sets, value }) => {
-                    set(*sets, LatticeValue::Const(ConstValue::SmallConst(*value)));
+                Operation::SetSmallConst(SetSmallConstData { value, sets }) => {
+                    Some((*sets, LatticeValue::Const(U256::from(*value))))
                 }
-                Operation::SetLargeConst(SetLargeConstData { sets, value }) => {
-                    set(*sets, LatticeValue::Const(ConstValue::LargeConst(large_consts[*value])));
+                Operation::SetLargeConst(SetLargeConstData { value, sets }) => {
+                    Some((*sets, LatticeValue::Const(large_consts[*value])))
                 }
-                _ => {}
+                _ => None
             }
         }
     };
@@ -664,12 +627,16 @@ Basic Blocks:
                     five = const 5
                     _0x80 = const 0x80
                     _32 = const 32
+                    neg7 = large_const 0xfffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff8
+                    neg1 = large_const 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+
 
                     sign_ext = signextend zero _0x80
                     byte_oob = byte _32 _0x80
                     sar_noop = sar zero _0x80
                     addmod_wrap = addmod seven seven five
                     sdiv_zero = sdiv seven zero
+                    sdiv_one = sdiv neg7 neg1
 
                     stop
                 }
@@ -692,11 +659,14 @@ Basic Blocks:
         $2 = const 0x5
         $3 = const 0x80
         $4 = const 0x20
-        $5 = large_const 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff80
-        $6 = const 0x0
-        $7 = const 0x80
-        $8 = const 0x4
-        $9 = const 0x0
+        $5 = large_const 0xfffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff8
+        $6 = large_const 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+        $7 = signextend $0 $3
+        $8 = const 0x0
+        $9 = const 0x80
+        $10 = const 0x4
+        $11 = const 0x0
+        $12 = const 0x8
         stop
     }
         "#;
@@ -857,5 +827,58 @@ Basic Blocks:
 
         let actual = run_const_prop(input);
         assert_trim_strings_eq_with_diff(&actual, expected, "switch no match takes default");
+    }
+
+    #[test]
+    fn test_internal_function_inputs_are_overdefined() {
+        let input = r#"
+            fn init:
+                entry {
+                    stop
+                }
+
+            fn helper:
+                entry a -> a {
+                    => @next
+                }
+                next v -> c {
+                    c = const 0
+                    => v ? @end : @next
+                }
+                end _1 {
+                    stop
+                }
+        "#;
+
+        let expected = r#"
+Functions:
+    fn @0 -> entry @0  (outputs: 0)
+    fn @1 -> entry @1  (outputs: 0)
+
+Basic Blocks:
+    @0 {
+        stop
+    }
+
+    @1 $0 -> $0 {
+        => @2
+    }
+
+    @2 $1 -> $2 {
+        $2 = const 0x0
+        => $1 ? @3 : @2
+    }
+
+    @3 $3 {
+        stop
+    }
+        "#;
+
+        let actual = run_const_prop(input);
+        assert_trim_strings_eq_with_diff(
+            &actual,
+            expected,
+            "internal function inputs remain overdefined and don't propagate constants incorrectly",
+        );
     }
 }

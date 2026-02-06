@@ -1781,7 +1781,6 @@ dependencies = [
  "alloy-primitives",
  "sensei-core",
  "sir-test-utils",
- "smallvec",
  "thiserror",
 ]
 
@@ -1805,6 +1804,7 @@ dependencies = [
  "sir-data",
  "sir-parser",
  "sir-test-utils",
+ "smallvec",
 ]
 
 [[package]]
@@ -1829,6 +1829,7 @@ dependencies = [
  "bumpalo",
  "chumsky",
  "logos",
+ "pretty_assertions",
  "sir-analyses",
  "sir-data",
  "smallvec",

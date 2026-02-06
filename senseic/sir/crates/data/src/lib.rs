@@ -205,7 +205,7 @@ pub struct Switch {
 
 /// Values stored at `values_start_id..values_start_id + cases_count`, target basic block IDs stored
 /// at `targets_start_id..targets_start_id + cases_count`.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct Cases {
     pub values_start_id: LargeConstId,
     pub targets_start_id: CasesBasicBlocksIndex,

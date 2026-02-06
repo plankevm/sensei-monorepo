@@ -7,7 +7,6 @@ license.workspace = true
 [dependencies]
 alloy-primitives.workspace = true
 sensei-core.workspace = true
-smallvec.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]

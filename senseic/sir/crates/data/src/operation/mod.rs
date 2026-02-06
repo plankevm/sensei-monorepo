@@ -4,7 +4,6 @@ mod op_fmt;
 use crate::{EthIRProgram, builder::EthIRBuilder, index::LocalId};
 pub use op_data::*;
 use op_fmt::OpFormatter;
-use smallvec::SmallVec;
 use std::fmt;
 
 macro_rules! define_operations {
@@ -24,13 +23,13 @@ macro_rules! define_operations {
                 }
             }
 
-            pub fn visit_data<O, V: OpVisitor<O>>(&self, visitor: &mut V) -> O {
+            pub fn visit_data<'d, O, V: OpVisitor<'d, O>>(&'d self, visitor: &mut V) -> O {
                 match self {
                     $(Self::$name(data) => data.get_visited(visitor),)+
                 }
             }
 
-            pub fn visit_data_mut<O, V: OpVisitorMut<O>>(&mut self, visitor: &mut V) -> O {
+            pub fn visit_data_mut<'d, O, V: OpVisitorMut<'d, O>>(&'d mut self, visitor: &mut V) -> O {
                 match self {
                     $(Self::$name(data) => data.get_visited_mut(visitor),)+
                 }
@@ -51,18 +50,6 @@ macro_rules! define_operations {
                     $(OperationKind::$name => Self::$name(<$data>::try_build_op(ins, outs, extra, builder)?),)+
                 };
                 Ok(op)
-            }
-
-            pub fn inputs(&self, ir: &EthIRProgram) -> SmallVec<[LocalId; 4]> {
-                match self {
-                    $(Self::$name(data) => data.inputs(ir),)+
-                }
-            }
-
-            pub fn outputs(&self, ir: &EthIRProgram) -> SmallVec<[LocalId; 4]> {
-                match self {
-                    $(Self::$name(data) => data.outputs(ir),)+
-                }
             }
         }
 
@@ -231,6 +218,18 @@ define_operations! {
     RuntimeStartOffset(InlineOperands<0, 1>) "runtime_start_offset",
     InitEndOffset(InlineOperands<0, 1>) "init_end_offset",
     RuntimeLength(InlineOperands<0, 1>) "runtime_length",
+}
+
+use op_data::{InputsGetter, OutputsGetter};
+
+impl Operation {
+    pub fn inputs<'a>(&'a self, ir: &'a EthIRProgram) -> &'a [LocalId] {
+        self.visit_data(&mut InputsGetter { ir })
+    }
+
+    pub fn outputs<'a>(&'a self, ir: &'a EthIRProgram) -> &'a [LocalId] {
+        self.visit_data(&mut OutputsGetter { ir })
+    }
 }
 
 #[cfg(test)]
