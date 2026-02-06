@@ -132,7 +132,7 @@ impl<'a> SCCPAnalysis<'a> {
             for (&pred_output, &input_local) in
                 self.program.locals[pred_bb.outputs].iter().zip(&self.program.locals[bb.inputs])
             {
-                let pred_value = self.lattice[pred_output].clone();
+                let pred_value = self.lattice[pred_output];
                 if self.lattice[input_local].meet(pred_value) {
                     self.values_worklist.push(input_local);
                 }
@@ -278,7 +278,7 @@ impl<'a> SCCPAnalysis<'a> {
         let from_outputs = self.program.basic_blocks[from].outputs;
         let to_inputs = self.program.basic_blocks[to].inputs;
         for (i, &output) in self.program.locals[from_outputs].iter().enumerate() {
-            let value = self.lattice[output].clone();
+            let value = self.lattice[output];
             let input = self.program.locals[to_inputs][i];
             if self.lattice[input].meet(value) {
                 self.values_worklist.push(input);
