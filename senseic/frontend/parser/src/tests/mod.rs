@@ -49,15 +49,15 @@ pub fn assert_parser_errors(source: &str, expected_errors: &[&str]) {
 
 pub fn assert_parses_to_cst_no_errors(source: &str, expected: &str) {
     let arena = Bump::new();
-    let lexer = Lexer::new(&source);
+    let lexer = Lexer::new(source);
     let mut collector = ErrorCollector::default();
 
     let cst = parse(&arena, lexer, 64, &mut collector);
 
     if !collector.errors.is_empty() {
-        let line_index = LineIndex::new(&source);
+        let line_index = LineIndex::new(source);
         let errors: Vec<String> =
-            collector.errors.iter().map(|e| format_error(e, &source, &line_index)).collect();
+            collector.errors.iter().map(|e| format_error(e, source, &line_index)).collect();
         panic!(
             "Expected no parser errors, but found {}:\n\n{}",
             collector.errors.len(),
@@ -65,12 +65,12 @@ pub fn assert_parses_to_cst_no_errors(source: &str, expected: &str) {
         );
     }
 
-    let actual = format!("{}", DisplayCST::new(&cst, &source));
+    let actual = format!("{}", DisplayCST::new(&cst, source));
 
     pretty_assertions::assert_str_eq!(
         actual.trim(),
         expected.trim(),
         "Full tree:\n{}",
-        DisplayCST::new(&cst, &source).show_node_index(true).show_token_spans(true)
+        DisplayCST::new(&cst, source).show_node_index(true).show_token_spans(true)
     );
 }

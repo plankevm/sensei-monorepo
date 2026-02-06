@@ -66,18 +66,16 @@ pub enum NodeKind {
     File,
 
     // Declarations
-    ConstDecl,
-    TypedConstDecl,
+    ConstDecl { typed: bool },
     InitBlock,
     RunBlock,
 
     // Statements
     ComptimeBlock,
     Block,
-    LetStmt,
+    LetStmt { mutable: bool, typed: bool },
     ReturnStmt,
     AssignStmt,
-    ExprStmt,
     WhileStmt,
     InlineWhileStmt,
 
@@ -87,7 +85,6 @@ pub enum NodeKind {
     ParenExpr,
     CallExpr,
     MemberExpr,
-    FnDef,
     StructDef,
     StructLit,
 
@@ -100,13 +97,16 @@ pub enum NodeKind {
     LiteralExpr,
     Identifier,
 
-    // Misc
-    ParamDef,
-    FieldDef,
-    ArgList,
+    // Function Definition
+    FnDef,
     ParamList,
-    FieldList,
+    Parameter,
+    ComptimeParameter,
+
+    // Misc
     StatementsList,
+    FieldDef,
+    FieldAssign,
 
     // Errors
     Error,
@@ -115,12 +115,7 @@ pub enum NodeKind {
 impl NodeKind {
     pub fn expr_requires_semi_as_stmt(&self) -> Option<bool> {
         match self {
-            Self::ComptimeBlock
-            | Self::Block
-            | Self::If
-            | Self::WhileStmt
-            | Self::InlineWhileStmt
-            | Self::Error => Some(false),
+            Self::ComptimeBlock | Self::Block | Self::If | Self::Error => Some(false),
             Self::BinaryExpr(_)
             | Self::UnaryExpr(_)
             | Self::ParenExpr

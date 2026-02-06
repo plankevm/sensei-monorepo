@@ -112,11 +112,11 @@ mod tests {
         let mut func = builder.begin_function();
 
         let mut bb0 = func.begin_basic_block();
-        bb0.add_operation(Operation::Noop(Default::default()));
+        bb0.add_operation(Operation::Noop(()));
         let bb0_id = bb0.finish(Control::ContinuesTo(X32::new(1))).unwrap();
 
         let mut bb1 = func.begin_basic_block();
-        bb1.add_operation(Operation::Stop(Default::default()));
+        bb1.add_operation(Operation::Stop(()));
         let bb1_id = bb1.finish(Control::LastOpTerminates).unwrap();
 
         let func_id = func.finish(bb0_id);
@@ -139,13 +139,13 @@ mod tests {
 
         let mut func = builder.begin_function();
         let mut bb0 = func.begin_basic_block();
-        bb0.add_operation(Operation::Stop(Default::default()));
+        bb0.add_operation(Operation::Stop(()));
         let bb0_id = bb0.finish(Control::LastOpTerminates).unwrap();
         let func_id = func.finish(bb0_id);
 
         let mut orphan_func = builder.begin_function();
         let mut bb1 = orphan_func.begin_basic_block();
-        bb1.add_operation(Operation::Stop(Default::default()));
+        bb1.add_operation(Operation::Stop(()));
         let bb1_id = bb1.finish(Control::LastOpTerminates).unwrap();
 
         let program = builder.build(func_id, None);
@@ -165,11 +165,11 @@ mod tests {
         let mut func0 = builder.begin_function();
 
         let mut bb0 = func0.begin_basic_block();
-        bb0.add_operation(Operation::Noop(Default::default()));
+        bb0.add_operation(Operation::Noop(()));
         let bb0_id = bb0.finish(Control::LastOpTerminates).unwrap();
 
         let mut bb1 = func0.begin_basic_block();
-        bb1.add_operation(Operation::Stop(Default::default()));
+        bb1.add_operation(Operation::Stop(()));
         let bb1_id = bb1.finish(Control::LastOpTerminates).unwrap();
 
         func0.set_control(bb0_id, Control::ContinuesTo(bb1_id)).unwrap();
@@ -178,7 +178,7 @@ mod tests {
 
         let mut func1 = builder.begin_function();
         let mut bb2 = func1.begin_basic_block();
-        bb2.add_operation(Operation::Noop(Default::default()));
+        bb2.add_operation(Operation::Noop(()));
         let bb2_id = bb2.finish(Control::InternalReturn).unwrap();
         let func1_id = func1.finish(bb2_id);
 
@@ -205,7 +205,7 @@ mod tests {
         let bb2_id = func.ir_builder.next_basic_block_id() + 2;
 
         let mut bb0 = func.begin_basic_block();
-        bb0.add_operation(Operation::Noop(Default::default()));
+        bb0.add_operation(Operation::Noop(()));
         let bb0_id = bb0
             .finish(Control::Branches(Branch {
                 condition,
@@ -215,11 +215,11 @@ mod tests {
             .unwrap();
 
         let mut bb1 = func.begin_basic_block();
-        bb1.add_operation(Operation::Stop(Default::default()));
+        bb1.add_operation(Operation::Stop(()));
         let bb1_id_actual = bb1.finish(Control::LastOpTerminates).unwrap();
 
         let mut bb2 = func.begin_basic_block();
-        bb2.add_operation(Operation::Stop(Default::default()));
+        bb2.add_operation(Operation::Stop(()));
         let bb2_id_actual = bb2.finish(Control::LastOpTerminates).unwrap();
 
         assert_eq!(bb1_id, bb1_id_actual);

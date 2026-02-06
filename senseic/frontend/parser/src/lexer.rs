@@ -83,8 +83,6 @@ pub enum Token {
     RightSquare,
 
     // Operators
-    #[token("->")]
-    ThinArrow,
     #[token("=")]
     Equals,
     #[token("+")]
@@ -240,7 +238,6 @@ impl Token {
             Token::RightRound => "`)`",
             Token::LeftSquare => "`[`",
             Token::RightSquare => "`]`",
-            Token::ThinArrow => "`->`",
             Token::Equals => "`=`",
             Token::Plus => "`+`",
             Token::PlusPercent => "`+%`",
@@ -363,7 +360,6 @@ mod tests {
         assert_eq!(lex_all(")"), vec![(Token::RightRound, 0..1, ")")]);
         assert_eq!(lex_all("["), vec![(Token::LeftSquare, 0..1, "[")]);
         assert_eq!(lex_all("]"), vec![(Token::RightSquare, 0..1, "]")]);
-        assert_eq!(lex_all("->"), vec![(Token::ThinArrow, 0..2, "->")]);
         assert_eq!(lex_all("="), vec![(Token::Equals, 0..1, "=")]);
         assert_eq!(lex_all("+"), vec![(Token::Plus, 0..1, "+")]);
         assert_eq!(lex_all("+%"), vec![(Token::PlusPercent, 0..2, "+%")]);
@@ -682,17 +678,15 @@ mod tests {
 
     #[test]
     fn test_span_multi_char_operators() {
-        let results = lex_all("  ->  ==  <=  <<  ");
-        assert_eq!(results.len(), 9);
+        let results = lex_all("  ==  <=  <<  ");
+        assert_eq!(results.len(), 7);
         assert_eq!(results[0], (Token::Whitespace, 0..2, "  "));
-        assert_eq!(results[1], (Token::ThinArrow, 2..4, "->"));
+        assert_eq!(results[1], (Token::DoubleEquals, 2..4, "=="));
         assert_eq!(results[2], (Token::Whitespace, 4..6, "  "));
-        assert_eq!(results[3], (Token::DoubleEquals, 6..8, "=="));
+        assert_eq!(results[3], (Token::LessEquals, 6..8, "<="));
         assert_eq!(results[4], (Token::Whitespace, 8..10, "  "));
-        assert_eq!(results[5], (Token::LessEquals, 10..12, "<="));
+        assert_eq!(results[5], (Token::ShiftLeft, 10..12, "<<"));
         assert_eq!(results[6], (Token::Whitespace, 12..14, "  "));
-        assert_eq!(results[7], (Token::ShiftLeft, 14..16, "<<"));
-        assert_eq!(results[8], (Token::Whitespace, 16..18, "  "));
     }
 
     #[test]

@@ -1,7 +1,7 @@
 use sensei_core::{DenseIndexSet, IncIterable};
-use sir_assembler::{AsmReference, Assembly, MarkId, MarkReference, Span, op};
+use sir_assembler::{AsmReference, Assembler, MarkId, MarkReference, op};
 use sir_data::{
-    BasicBlockId, BasicBlockIdMarker, Control, DataId, EthIRProgram, FunctionId, LocalId,
+    BasicBlockId, BasicBlockIdMarker, Control, DataId, EthIRProgram, FunctionId, LocalId, Span,
 };
 
 use crate::static_memory_layout::StaticMemoryLayout;
@@ -71,7 +71,7 @@ pub(crate) struct Translator<'ir> {
     pub translated_bbs: DenseIndexSet<BasicBlockIdMarker>,
     pub bbs_to_be_translated: Vec<(FunctionId, BasicBlockId)>,
     pub translating_init_code: bool,
-    pub asm: Assembly,
+    pub asm: Assembler,
 }
 
 impl<'ir> Translator<'ir> {
@@ -94,14 +94,14 @@ impl<'ir> Translator<'ir> {
         let mark_ref = if self.translating_init_code {
             MarkReference::Direct(offset_mark)
         } else {
-            MarkReference::Delta(Span { start: self.mark_map.runtime_start, end: offset_mark })
+            MarkReference::Delta(Span::new(self.mark_map.runtime_start, offset_mark))
         };
         self.asm.push_reference(AsmReference { mark_ref, set_size: None, pushed: true });
     }
 
     fn new(ir: &'ir EthIRProgram) -> Self {
         let memory_layout = StaticMemoryLayout::new(ir);
-        let asm = Assembly::with_capacity(ASM_BYTES_CAPACITY, ASM_SECTIONS_CAPACITY);
+        let asm = Assembler::with_capacity(ASM_BYTES_CAPACITY, ASM_SECTIONS_CAPACITY);
         let translated_bbs = DenseIndexSet::with_capacity_in_bits(ir.basic_blocks.len());
         let bbs_to_be_translated = Vec::with_capacity(8);
         let mark_map = MarkMap::new(ir);

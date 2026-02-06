@@ -2,14 +2,13 @@
 Basic example
 ================================================================================
 
-const my_func = fn () struct { x: u256, y: u256 } {
+const my_func = fn () u256 {
     x = 18446744073709551616;
-
 };
 
 const IMPORTANT_NUM: u256 = 3;
 
-const ByteBuffer = struct {
+const ByteBuffer = struct 64 {
     ptr: byteptr,
     len: u256,
 };
@@ -27,79 +26,43 @@ run {
 --------------------------------------------------------------------------------
 
 (source_file
-  (const_definition
-    (const_item
+  (const_def
+    (identifier)
+    (fn_def
       (identifier)
-      (type_def
-        (fn_def
-          (type_expr
-            (type_def
-              (struct_def
-                (typed_item_def
-                  (identifier)
-                  (type_expr
-                    (name_path
-                      (identifier))))
-                (typed_item_def
-                  (identifier)
-                  (type_expr
-                    (name_path
-                      (identifier)))))))
-          (block
-            (stmt
-              (assign
-                (name_path
-                  (identifier))
-                (literal
-                  (dec_literal)))))))))
-  (const_definition
-    (const_item
-      (identifier)
-      (type_expr
-        (name_path
-          (identifier)))
-      (literal
-        (dec_literal))))
-  (const_definition
-    (const_item
-      (identifier)
-      (expr
-        (type_def
-          (struct_def
-            (typed_item_def
-              (identifier)
-              (type_expr
-                (name_path
-                  (identifier))))
-            (typed_item_def
-              (identifier)
-              (type_expr
-                (name_path
-                  (identifier)))))))))
-  (init_declaration
+      (block
+        (assign
+          (identifier)
+          (dec_literal)))))
+  (const_def
+    (identifier)
+    (identifier)
+    (dec_literal))
+  (const_def
+    (identifier)
+    (struct_def
+      (dec_literal)
+      (field_def
+        (identifier)
+        (identifier))
+      (field_def
+        (identifier)
+        (identifier))))
+  (init
     (block
-      (stmt
-        (assign
-          (name_path
-            (identifier))
-          (expr
-            (literal
-              (dec_literal)))))
-      (stmt
-        (assign
-          (name_path
-            (identifier))
-          (expr
-            (literal
-              (dec_literal)))))))
-  (run_declaration
+      (assign
+        (identifier)
+        (dec_literal))
+      (assign
+        (identifier)
+        (dec_literal))))
+  (run
     (block)))
 
 ================================================================================
 Arithmetic
 ================================================================================
 const x = {
-    {};
     3 + y * (x + 0x234)
 
 };
@@ -107,15 +70,240 @@ const x = {
 --------------------------------------------------------------------------------
 
 (source_file
-  (const_definition
-    (const_item
+  (const_def
+    (identifier)
+    (block
+      (binary_expr
+        (dec_literal)
+        (binary_expr
+          (identifier)
+          (paren_expr
+            (binary_expr
+              (identifier)
+              (hex_literal))))))))
+
+================================================================================
+If expression
+================================================================================
+const x = if true { 1 } else { 2 };
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (const_def
+    (identifier)
+    (if_expr
+      (bool_literal)
+      (block
+        (dec_literal))
+      (block
+        (dec_literal)))))
+
+================================================================================
+While loop
+================================================================================
+init {
+    while x { y = 1; }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (init
+    (block
+      (while
+        (identifier)
+        (block
+          (assign
+            (identifier)
+            (dec_literal)))))))
+
+================================================================================
+Inline while loop
+================================================================================
+init {
+    inline while x { y = 1; }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (init
+    (block
+      (while
+        (identifier)
+        (block
+          (assign
+            (identifier)
+            (dec_literal)))))))
+
+================================================================================
+Unary expressions
+================================================================================
+const x = -(1);
+const y = !true;
+const z = ~x;
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (const_def
+    (identifier)
+    (unary_expr
+      (paren_expr
+        (dec_literal))))
+  (const_def
+    (identifier)
+    (unary_expr
+      (bool_literal)))
+  (const_def
+    (identifier)
+    (unary_expr
+      (identifier))))
+
+================================================================================
+Comptime block
+================================================================================
+init {
+    let x = comptime { 1 + 2 };
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (init
+    (block
+      (let
+        (identifier)
+        (comptime_block
+          (block
+            (binary_expr
+              (dec_literal)
+              (dec_literal))))))))
+
+================================================================================
+Struct literal
+================================================================================
+const x = MyType { a: 1, b: 2 };
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (const_def
+    (identifier)
+    (struct_lit
+      (identifier)
+      (field_init
+        (identifier)
+        (dec_literal))
+      (field_init
+        (identifier)
+        (dec_literal)))))
+
+================================================================================
+Function with comptime params
+================================================================================
+const f = fn (comptime T: Type, x: T) T {
+    x
+};
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (const_def
+    (identifier)
+    (fn_def
+      (param_def
+        (identifier)
+        (identifier))
+      (param_def
+        (identifier)
+        (identifier))
       (identifier)
       (block
-        (block)
+        (identifier)))))
+
+================================================================================
+Return statement
+================================================================================
+const f = fn () u256 {
+    return 42;
+};
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (const_def
+    (identifier)
+    (fn_def
+      (identifier)
+      (block
+        (return
+          (dec_literal))))))
+
+================================================================================
+Let statement
+================================================================================
+init {
+    let x = 1;
+    let mut y: u256 = 2;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (init
+    (block
+      (let
+        (identifier)
+        (dec_literal))
+      (let
+        (identifier)
+        (identifier)
+        (dec_literal)))))
+
+================================================================================
+Binary operators
+================================================================================
+const x = a or b and c == d | e ^ f & g << h + i * j;
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (const_def
+    (identifier)
+    (binary_expr
+      (identifier)
+      (binary_expr
+        (identifier)
         (binary_expr
-          (dec_literal)
+          (identifier)
           (binary_expr
             (identifier)
             (binary_expr
               (identifier)
-              (hex_literal))))))))
+              (binary_expr
+                (identifier)
+                (binary_expr
+                  (identifier)
+                  (binary_expr
+                    (identifier)
+                    (binary_expr
+                      (identifier)
+                      (identifier))))))))))))
+
+================================================================================
+Member access
+================================================================================
+const x = foo.bar.baz;
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (const_def
+    (identifier)
+    (member
+      (member
+        (identifier)
+        (identifier))
+      (identifier))))

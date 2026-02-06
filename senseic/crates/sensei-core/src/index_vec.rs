@@ -565,8 +565,6 @@ mod tests {
 
         rel[X32::new(2)] = 300;
         assert_eq!(rel[X32::new(2)], 300);
-
-        drop(rel);
         assert_eq!(v[X32::new(2)], 300);
     }
 

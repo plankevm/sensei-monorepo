@@ -24,11 +24,19 @@
           "named": true
         },
         {
+          "type": "comptime_block",
+          "named": true
+        },
+        {
           "type": "dec_literal",
           "named": true
         },
         {
           "type": "fn_call",
+          "named": true
+        },
+        {
+          "type": "fn_def",
           "named": true
         },
         {
@@ -40,11 +48,11 @@
           "named": true
         },
         {
-          "type": "member",
+          "type": "if_expr",
           "named": true
         },
         {
-          "type": "name_path",
+          "type": "member",
           "named": true
         },
         {
@@ -52,11 +60,15 @@
           "named": true
         },
         {
+          "type": "struct_def",
+          "named": true
+        },
+        {
           "type": "struct_lit",
           "named": true
         },
         {
-          "type": "type_def",
+          "type": "unary_expr",
           "named": true
         }
       ]
@@ -87,11 +99,19 @@
             "named": true
           },
           {
+            "type": "comptime_block",
+            "named": true
+          },
+          {
             "type": "dec_literal",
             "named": true
           },
           {
             "type": "fn_call",
+            "named": true
+          },
+          {
+            "type": "fn_def",
             "named": true
           },
           {
@@ -103,6 +123,10 @@
             "named": true
           },
           {
+            "type": "if_expr",
+            "named": true
+          },
+          {
             "type": "member",
             "named": true
           },
@@ -111,11 +135,15 @@
             "named": true
           },
           {
+            "type": "struct_def",
+            "named": true
+          },
+          {
             "type": "struct_lit",
             "named": true
           },
           {
-            "type": "type_def",
+            "type": "unary_expr",
             "named": true
           }
         ]
@@ -130,6 +158,10 @@
           },
           {
             "type": "%",
+            "named": false
+          },
+          {
+            "type": "&",
             "named": false
           },
           {
@@ -157,7 +189,7 @@
             "named": false
           },
           {
-            "type": "/$",
+            "type": "/",
             "named": false
           },
           {
@@ -169,11 +201,19 @@
             "named": false
           },
           {
-            "type": "/^",
+            "type": "/<",
+            "named": false
+          },
+          {
+            "type": "/>",
             "named": false
           },
           {
             "type": "<",
+            "named": false
+          },
+          {
+            "type": "<<",
             "named": false
           },
           {
@@ -190,6 +230,26 @@
           },
           {
             "type": ">=",
+            "named": false
+          },
+          {
+            "type": ">>",
+            "named": false
+          },
+          {
+            "type": "^",
+            "named": false
+          },
+          {
+            "type": "and",
+            "named": false
+          },
+          {
+            "type": "or",
+            "named": false
+          },
+          {
+            "type": "|",
             "named": false
           }
         ]
@@ -215,11 +275,19 @@
             "named": true
           },
           {
+            "type": "comptime_block",
+            "named": true
+          },
+          {
             "type": "dec_literal",
             "named": true
           },
           {
             "type": "fn_call",
+            "named": true
+          },
+          {
+            "type": "fn_def",
             "named": true
           },
           {
@@ -231,6 +299,10 @@
             "named": true
           },
           {
+            "type": "if_expr",
+            "named": true
+          },
+          {
             "type": "member",
             "named": true
           },
@@ -239,11 +311,15 @@
             "named": true
           },
           {
+            "type": "struct_def",
+            "named": true
+          },
+          {
             "type": "struct_lit",
             "named": true
           },
           {
-            "type": "type_def",
+            "type": "unary_expr",
             "named": true
           }
         ]
@@ -275,11 +351,19 @@
             "named": true
           },
           {
+            "type": "comptime_block",
+            "named": true
+          },
+          {
             "type": "dec_literal",
             "named": true
           },
           {
             "type": "fn_call",
+            "named": true
+          },
+          {
+            "type": "fn_def",
             "named": true
           },
           {
@@ -291,6 +375,10 @@
             "named": true
           },
           {
+            "type": "if_expr",
+            "named": true
+          },
+          {
             "type": "member",
             "named": true
           },
@@ -299,11 +387,15 @@
             "named": true
           },
           {
+            "type": "struct_def",
+            "named": true
+          },
+          {
             "type": "struct_lit",
             "named": true
           },
           {
-            "type": "type_def",
+            "type": "unary_expr",
             "named": true
           }
         ]
@@ -329,19 +421,7 @@
             "named": true
           },
           {
-            "type": "block",
-            "named": true
-          },
-          {
             "type": "bool_literal",
-            "named": true
-          },
-          {
-            "type": "cond_stmt",
-            "named": true
-          },
-          {
-            "type": "const_item",
             "named": true
           },
           {
@@ -353,11 +433,19 @@
             "named": true
           },
           {
+            "type": "fn_def",
+            "named": true
+          },
+          {
             "type": "hex_literal",
             "named": true
           },
           {
             "type": "identifier",
+            "named": true
+          },
+          {
+            "type": "if_expr",
             "named": true
           },
           {
@@ -377,11 +465,19 @@
             "named": true
           },
           {
+            "type": "struct_def",
+            "named": true
+          },
+          {
             "type": "struct_lit",
             "named": true
           },
           {
-            "type": "type_def",
+            "type": "unary_expr",
+            "named": true
+          },
+          {
+            "type": "while",
             "named": true
           }
         ]
@@ -394,59 +490,15 @@
     "fields": {}
   },
   {
-    "type": "cond_stmt",
+    "type": "comptime_block",
     "named": true,
     "fields": {},
     "children": {
-      "multiple": true,
+      "multiple": false,
       "required": true,
       "types": [
         {
-          "type": "bin_literal",
-          "named": true
-        },
-        {
-          "type": "binary_expr",
-          "named": true
-        },
-        {
           "type": "block",
-          "named": true
-        },
-        {
-          "type": "bool_literal",
-          "named": true
-        },
-        {
-          "type": "dec_literal",
-          "named": true
-        },
-        {
-          "type": "fn_call",
-          "named": true
-        },
-        {
-          "type": "hex_literal",
-          "named": true
-        },
-        {
-          "type": "identifier",
-          "named": true
-        },
-        {
-          "type": "member",
-          "named": true
-        },
-        {
-          "type": "paren_expr",
-          "named": true
-        },
-        {
-          "type": "struct_lit",
-          "named": true
-        },
-        {
-          "type": "type_def",
           "named": true
         }
       ]
@@ -457,21 +509,6 @@
     "named": true,
     "fields": {},
     "children": {
-      "multiple": false,
-      "required": true,
-      "types": [
-        {
-          "type": "const_item",
-          "named": true
-        }
-      ]
-    }
-  },
-  {
-    "type": "const_item",
-    "named": true,
-    "fields": {},
-    "children": {
       "multiple": true,
       "required": true,
       "types": [
@@ -492,11 +529,19 @@
           "named": true
         },
         {
+          "type": "comptime_block",
+          "named": true
+        },
+        {
           "type": "dec_literal",
           "named": true
         },
         {
           "type": "fn_call",
+          "named": true
+        },
+        {
+          "type": "fn_def",
           "named": true
         },
         {
@@ -508,6 +553,10 @@
           "named": true
         },
         {
+          "type": "if_expr",
+          "named": true
+        },
+        {
           "type": "member",
           "named": true
         },
@@ -516,24 +565,266 @@
           "named": true
         },
         {
+          "type": "struct_def",
+          "named": true
+        },
+        {
           "type": "struct_lit",
           "named": true
         },
         {
-          "type": "type_def",
-          "named": true
-        },
-        {
-          "type": "type_expr",
+          "type": "unary_expr",
           "named": true
         }
       ]
     }
   },
   {
+    "type": "field_def",
+    "named": true,
+    "fields": {
+      "name": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      },
+      "type": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "bin_literal",
+            "named": true
+          },
+          {
+            "type": "binary_expr",
+            "named": true
+          },
+          {
+            "type": "block",
+            "named": true
+          },
+          {
+            "type": "bool_literal",
+            "named": true
+          },
+          {
+            "type": "comptime_block",
+            "named": true
+          },
+          {
+            "type": "dec_literal",
+            "named": true
+          },
+          {
+            "type": "fn_call",
+            "named": true
+          },
+          {
+            "type": "fn_def",
+            "named": true
+          },
+          {
+            "type": "hex_literal",
+            "named": true
+          },
+          {
+            "type": "identifier",
+            "named": true
+          },
+          {
+            "type": "if_expr",
+            "named": true
+          },
+          {
+            "type": "member",
+            "named": true
+          },
+          {
+            "type": "paren_expr",
+            "named": true
+          },
+          {
+            "type": "struct_def",
+            "named": true
+          },
+          {
+            "type": "struct_lit",
+            "named": true
+          },
+          {
+            "type": "unary_expr",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "field_init",
+    "named": true,
+    "fields": {
+      "name": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      },
+      "value": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "bin_literal",
+            "named": true
+          },
+          {
+            "type": "binary_expr",
+            "named": true
+          },
+          {
+            "type": "block",
+            "named": true
+          },
+          {
+            "type": "bool_literal",
+            "named": true
+          },
+          {
+            "type": "comptime_block",
+            "named": true
+          },
+          {
+            "type": "dec_literal",
+            "named": true
+          },
+          {
+            "type": "fn_call",
+            "named": true
+          },
+          {
+            "type": "fn_def",
+            "named": true
+          },
+          {
+            "type": "hex_literal",
+            "named": true
+          },
+          {
+            "type": "identifier",
+            "named": true
+          },
+          {
+            "type": "if_expr",
+            "named": true
+          },
+          {
+            "type": "member",
+            "named": true
+          },
+          {
+            "type": "paren_expr",
+            "named": true
+          },
+          {
+            "type": "struct_def",
+            "named": true
+          },
+          {
+            "type": "struct_lit",
+            "named": true
+          },
+          {
+            "type": "unary_expr",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
     "type": "fn_call",
     "named": true,
     "fields": {
+      "args": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "bin_literal",
+            "named": true
+          },
+          {
+            "type": "binary_expr",
+            "named": true
+          },
+          {
+            "type": "block",
+            "named": true
+          },
+          {
+            "type": "bool_literal",
+            "named": true
+          },
+          {
+            "type": "comptime_block",
+            "named": true
+          },
+          {
+            "type": "dec_literal",
+            "named": true
+          },
+          {
+            "type": "fn_call",
+            "named": true
+          },
+          {
+            "type": "fn_def",
+            "named": true
+          },
+          {
+            "type": "hex_literal",
+            "named": true
+          },
+          {
+            "type": "identifier",
+            "named": true
+          },
+          {
+            "type": "if_expr",
+            "named": true
+          },
+          {
+            "type": "member",
+            "named": true
+          },
+          {
+            "type": "paren_expr",
+            "named": true
+          },
+          {
+            "type": "struct_def",
+            "named": true
+          },
+          {
+            "type": "struct_lit",
+            "named": true
+          },
+          {
+            "type": "unary_expr",
+            "named": true
+          }
+        ]
+      },
       "fn": {
         "multiple": false,
         "required": true,
@@ -555,11 +846,19 @@
             "named": true
           },
           {
+            "type": "comptime_block",
+            "named": true
+          },
+          {
             "type": "dec_literal",
             "named": true
           },
           {
             "type": "fn_call",
+            "named": true
+          },
+          {
+            "type": "fn_def",
             "named": true
           },
           {
@@ -571,6 +870,10 @@
             "named": true
           },
           {
+            "type": "if_expr",
+            "named": true
+          },
+          {
             "type": "member",
             "named": true
           },
@@ -579,11 +882,31 @@
             "named": true
           },
           {
+            "type": "struct_def",
+            "named": true
+          },
+          {
             "type": "struct_lit",
             "named": true
           },
           {
-            "type": "type_def",
+            "type": "unary_expr",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "fn_def",
+    "named": true,
+    "fields": {
+      "body": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "block",
             "named": true
           }
         ]
@@ -593,9 +916,15 @@
         "required": false,
         "types": [
           {
-            "type": ",",
-            "named": false
-          },
+            "type": "param_def",
+            "named": true
+          }
+        ]
+      },
+      "return_type": {
+        "multiple": false,
+        "required": true,
+        "types": [
           {
             "type": "bin_literal",
             "named": true
@@ -613,11 +942,19 @@
             "named": true
           },
           {
+            "type": "comptime_block",
+            "named": true
+          },
+          {
             "type": "dec_literal",
             "named": true
           },
           {
             "type": "fn_call",
+            "named": true
+          },
+          {
+            "type": "fn_def",
             "named": true
           },
           {
@@ -629,6 +966,10 @@
             "named": true
           },
           {
+            "type": "if_expr",
+            "named": true
+          },
+          {
             "type": "member",
             "named": true
           },
@@ -637,11 +978,15 @@
             "named": true
           },
           {
+            "type": "struct_def",
+            "named": true
+          },
+          {
             "type": "struct_lit",
             "named": true
           },
           {
-            "type": "type_def",
+            "type": "unary_expr",
             "named": true
           }
         ]
@@ -649,12 +994,82 @@
     }
   },
   {
-    "type": "fn_def",
+    "type": "if_expr",
     "named": true,
     "fields": {
-      "block": {
-        "multiple": false,
+      "condition": {
+        "multiple": true,
         "required": true,
+        "types": [
+          {
+            "type": "bin_literal",
+            "named": true
+          },
+          {
+            "type": "binary_expr",
+            "named": true
+          },
+          {
+            "type": "block",
+            "named": true
+          },
+          {
+            "type": "bool_literal",
+            "named": true
+          },
+          {
+            "type": "comptime_block",
+            "named": true
+          },
+          {
+            "type": "dec_literal",
+            "named": true
+          },
+          {
+            "type": "fn_call",
+            "named": true
+          },
+          {
+            "type": "fn_def",
+            "named": true
+          },
+          {
+            "type": "hex_literal",
+            "named": true
+          },
+          {
+            "type": "identifier",
+            "named": true
+          },
+          {
+            "type": "if_expr",
+            "named": true
+          },
+          {
+            "type": "member",
+            "named": true
+          },
+          {
+            "type": "paren_expr",
+            "named": true
+          },
+          {
+            "type": "struct_def",
+            "named": true
+          },
+          {
+            "type": "struct_lit",
+            "named": true
+          },
+          {
+            "type": "unary_expr",
+            "named": true
+          }
+        ]
+      },
+      "else": {
+        "multiple": false,
+        "required": false,
         "types": [
           {
             "type": "block",
@@ -662,84 +1077,12 @@
           }
         ]
       },
-      "params": {
+      "then": {
         "multiple": true,
-        "required": false,
-        "types": [
-          {
-            "type": "typed_item_def",
-            "named": true
-          }
-        ]
-      },
-      "type": {
-        "multiple": false,
-        "required": false,
-        "types": [
-          {
-            "type": "type_expr",
-            "named": true
-          }
-        ]
-      }
-    }
-  },
-  {
-    "type": "import",
-    "named": true,
-    "fields": {
-      "kind": {
-        "multiple": false,
         "required": true,
         "types": [
           {
-            "type": "import_all",
-            "named": true
-          },
-          {
-            "type": "import_select",
-            "named": true
-          }
-        ]
-      },
-      "path": {
-        "multiple": false,
-        "required": true,
-        "types": [
-          {
-            "type": "string",
-            "named": true
-          }
-        ]
-      }
-    }
-  },
-  {
-    "type": "import_all",
-    "named": true,
-    "fields": {
-      "as": {
-        "multiple": false,
-        "required": false,
-        "types": [
-          {
-            "type": "identifier",
-            "named": true
-          }
-        ]
-      }
-    }
-  },
-  {
-    "type": "import_select",
-    "named": true,
-    "fields": {
-      "selection": {
-        "multiple": true,
-        "required": false,
-        "types": [
-          {
-            "type": "identifier",
+            "type": "block",
             "named": true
           }
         ]
@@ -786,11 +1129,19 @@
           "named": true
         },
         {
+          "type": "comptime_block",
+          "named": true
+        },
+        {
           "type": "dec_literal",
           "named": true
         },
         {
           "type": "fn_call",
+          "named": true
+        },
+        {
+          "type": "fn_def",
           "named": true
         },
         {
@@ -802,6 +1153,10 @@
           "named": true
         },
         {
+          "type": "if_expr",
+          "named": true
+        },
+        {
           "type": "member",
           "named": true
         },
@@ -810,15 +1165,15 @@
           "named": true
         },
         {
+          "type": "struct_def",
+          "named": true
+        },
+        {
           "type": "struct_lit",
           "named": true
         },
         {
-          "type": "type_def",
-          "named": true
-        },
-        {
-          "type": "type_expr",
+          "type": "unary_expr",
           "named": true
         }
       ]
@@ -849,11 +1204,19 @@
           "named": true
         },
         {
+          "type": "comptime_block",
+          "named": true
+        },
+        {
           "type": "dec_literal",
           "named": true
         },
         {
           "type": "fn_call",
+          "named": true
+        },
+        {
+          "type": "fn_def",
           "named": true
         },
         {
@@ -865,6 +1228,10 @@
           "named": true
         },
         {
+          "type": "if_expr",
+          "named": true
+        },
+        {
           "type": "member",
           "named": true
         },
@@ -873,29 +1240,104 @@
           "named": true
         },
         {
+          "type": "struct_def",
+          "named": true
+        },
+        {
           "type": "struct_lit",
           "named": true
         },
         {
-          "type": "type_def",
+          "type": "unary_expr",
           "named": true
         }
       ]
     }
   },
   {
-    "type": "name_path",
+    "type": "param_def",
     "named": true,
-    "fields": {},
-    "children": {
-      "multiple": true,
-      "required": true,
-      "types": [
-        {
-          "type": "identifier",
-          "named": true
-        }
-      ]
+    "fields": {
+      "name": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      },
+      "type": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "bin_literal",
+            "named": true
+          },
+          {
+            "type": "binary_expr",
+            "named": true
+          },
+          {
+            "type": "block",
+            "named": true
+          },
+          {
+            "type": "bool_literal",
+            "named": true
+          },
+          {
+            "type": "comptime_block",
+            "named": true
+          },
+          {
+            "type": "dec_literal",
+            "named": true
+          },
+          {
+            "type": "fn_call",
+            "named": true
+          },
+          {
+            "type": "fn_def",
+            "named": true
+          },
+          {
+            "type": "hex_literal",
+            "named": true
+          },
+          {
+            "type": "identifier",
+            "named": true
+          },
+          {
+            "type": "if_expr",
+            "named": true
+          },
+          {
+            "type": "member",
+            "named": true
+          },
+          {
+            "type": "paren_expr",
+            "named": true
+          },
+          {
+            "type": "struct_def",
+            "named": true
+          },
+          {
+            "type": "struct_lit",
+            "named": true
+          },
+          {
+            "type": "unary_expr",
+            "named": true
+          }
+        ]
+      }
     }
   },
   {
@@ -923,11 +1365,19 @@
           "named": true
         },
         {
+          "type": "comptime_block",
+          "named": true
+        },
+        {
           "type": "dec_literal",
           "named": true
         },
         {
           "type": "fn_call",
+          "named": true
+        },
+        {
+          "type": "fn_def",
           "named": true
         },
         {
@@ -939,6 +1389,10 @@
           "named": true
         },
         {
+          "type": "if_expr",
+          "named": true
+        },
+        {
           "type": "member",
           "named": true
         },
@@ -947,11 +1401,15 @@
           "named": true
         },
         {
+          "type": "struct_def",
+          "named": true
+        },
+        {
           "type": "struct_lit",
           "named": true
         },
         {
-          "type": "type_def",
+          "type": "unary_expr",
           "named": true
         }
       ]
@@ -982,11 +1440,19 @@
           "named": true
         },
         {
+          "type": "comptime_block",
+          "named": true
+        },
+        {
           "type": "dec_literal",
           "named": true
         },
         {
           "type": "fn_call",
+          "named": true
+        },
+        {
+          "type": "fn_def",
           "named": true
         },
         {
@@ -998,6 +1464,10 @@
           "named": true
         },
         {
+          "type": "if_expr",
+          "named": true
+        },
+        {
           "type": "member",
           "named": true
         },
@@ -1006,11 +1476,15 @@
           "named": true
         },
         {
+          "type": "struct_def",
+          "named": true
+        },
+        {
           "type": "struct_lit",
           "named": true
         },
         {
-          "type": "type_def",
+          "type": "unary_expr",
           "named": true
         }
       ]
@@ -1045,10 +1519,6 @@
           "named": true
         },
         {
-          "type": "import",
-          "named": true
-        },
-        {
           "type": "init",
           "named": true
         },
@@ -1062,167 +1532,358 @@
   {
     "type": "struct_def",
     "named": true,
-    "fields": {},
-    "children": {
-      "multiple": true,
-      "required": false,
-      "types": [
-        {
-          "type": "typed_item_def",
-          "named": true
-        }
-      ]
+    "fields": {
+      "fields": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "field_def",
+            "named": true
+          }
+        ]
+      },
+      "size": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "bin_literal",
+            "named": true
+          },
+          {
+            "type": "binary_expr",
+            "named": true
+          },
+          {
+            "type": "block",
+            "named": true
+          },
+          {
+            "type": "bool_literal",
+            "named": true
+          },
+          {
+            "type": "comptime_block",
+            "named": true
+          },
+          {
+            "type": "dec_literal",
+            "named": true
+          },
+          {
+            "type": "fn_call",
+            "named": true
+          },
+          {
+            "type": "fn_def",
+            "named": true
+          },
+          {
+            "type": "hex_literal",
+            "named": true
+          },
+          {
+            "type": "identifier",
+            "named": true
+          },
+          {
+            "type": "if_expr",
+            "named": true
+          },
+          {
+            "type": "member",
+            "named": true
+          },
+          {
+            "type": "paren_expr",
+            "named": true
+          },
+          {
+            "type": "struct_def",
+            "named": true
+          },
+          {
+            "type": "struct_lit",
+            "named": true
+          },
+          {
+            "type": "unary_expr",
+            "named": true
+          }
+        ]
+      }
     }
   },
   {
     "type": "struct_lit",
     "named": true,
-    "fields": {},
-    "children": {
-      "multiple": true,
-      "required": true,
-      "types": [
-        {
-          "type": "name_path",
-          "named": true
-        },
-        {
-          "type": "struct_lit_fields",
-          "named": true
-        }
-      ]
+    "fields": {
+      "fields": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "field_init",
+            "named": true
+          }
+        ]
+      },
+      "type": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "bin_literal",
+            "named": true
+          },
+          {
+            "type": "binary_expr",
+            "named": true
+          },
+          {
+            "type": "block",
+            "named": true
+          },
+          {
+            "type": "bool_literal",
+            "named": true
+          },
+          {
+            "type": "comptime_block",
+            "named": true
+          },
+          {
+            "type": "dec_literal",
+            "named": true
+          },
+          {
+            "type": "fn_call",
+            "named": true
+          },
+          {
+            "type": "fn_def",
+            "named": true
+          },
+          {
+            "type": "hex_literal",
+            "named": true
+          },
+          {
+            "type": "identifier",
+            "named": true
+          },
+          {
+            "type": "if_expr",
+            "named": true
+          },
+          {
+            "type": "member",
+            "named": true
+          },
+          {
+            "type": "paren_expr",
+            "named": true
+          },
+          {
+            "type": "struct_def",
+            "named": true
+          },
+          {
+            "type": "struct_lit",
+            "named": true
+          },
+          {
+            "type": "unary_expr",
+            "named": true
+          }
+        ]
+      }
     }
   },
   {
-    "type": "struct_lit_field",
+    "type": "unary_expr",
     "named": true,
-    "fields": {},
-    "children": {
-      "multiple": true,
-      "required": true,
-      "types": [
-        {
-          "type": "bin_literal",
-          "named": true
-        },
-        {
-          "type": "binary_expr",
-          "named": true
-        },
-        {
-          "type": "block",
-          "named": true
-        },
-        {
-          "type": "bool_literal",
-          "named": true
-        },
-        {
-          "type": "dec_literal",
-          "named": true
-        },
-        {
-          "type": "fn_call",
-          "named": true
-        },
-        {
-          "type": "hex_literal",
-          "named": true
-        },
-        {
-          "type": "identifier",
-          "named": true
-        },
-        {
-          "type": "member",
-          "named": true
-        },
-        {
-          "type": "paren_expr",
-          "named": true
-        },
-        {
-          "type": "struct_lit",
-          "named": true
-        },
-        {
-          "type": "type_def",
-          "named": true
-        }
-      ]
+    "fields": {
+      "op": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "!",
+            "named": false
+          },
+          {
+            "type": "-",
+            "named": false
+          },
+          {
+            "type": "~",
+            "named": false
+          }
+        ]
+      },
+      "operand": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "bin_literal",
+            "named": true
+          },
+          {
+            "type": "binary_expr",
+            "named": true
+          },
+          {
+            "type": "block",
+            "named": true
+          },
+          {
+            "type": "bool_literal",
+            "named": true
+          },
+          {
+            "type": "comptime_block",
+            "named": true
+          },
+          {
+            "type": "dec_literal",
+            "named": true
+          },
+          {
+            "type": "fn_call",
+            "named": true
+          },
+          {
+            "type": "fn_def",
+            "named": true
+          },
+          {
+            "type": "hex_literal",
+            "named": true
+          },
+          {
+            "type": "identifier",
+            "named": true
+          },
+          {
+            "type": "if_expr",
+            "named": true
+          },
+          {
+            "type": "member",
+            "named": true
+          },
+          {
+            "type": "paren_expr",
+            "named": true
+          },
+          {
+            "type": "struct_def",
+            "named": true
+          },
+          {
+            "type": "struct_lit",
+            "named": true
+          },
+          {
+            "type": "unary_expr",
+            "named": true
+          }
+        ]
+      }
     }
   },
   {
-    "type": "struct_lit_fields",
+    "type": "while",
     "named": true,
-    "fields": {},
-    "children": {
-      "multiple": true,
-      "required": false,
-      "types": [
-        {
-          "type": "struct_lit_field",
-          "named": true
-        }
-      ]
+    "fields": {
+      "body": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "block",
+            "named": true
+          }
+        ]
+      },
+      "condition": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "bin_literal",
+            "named": true
+          },
+          {
+            "type": "binary_expr",
+            "named": true
+          },
+          {
+            "type": "block",
+            "named": true
+          },
+          {
+            "type": "bool_literal",
+            "named": true
+          },
+          {
+            "type": "comptime_block",
+            "named": true
+          },
+          {
+            "type": "dec_literal",
+            "named": true
+          },
+          {
+            "type": "fn_call",
+            "named": true
+          },
+          {
+            "type": "fn_def",
+            "named": true
+          },
+          {
+            "type": "hex_literal",
+            "named": true
+          },
+          {
+            "type": "identifier",
+            "named": true
+          },
+          {
+            "type": "if_expr",
+            "named": true
+          },
+          {
+            "type": "member",
+            "named": true
+          },
+          {
+            "type": "paren_expr",
+            "named": true
+          },
+          {
+            "type": "struct_def",
+            "named": true
+          },
+          {
+            "type": "struct_lit",
+            "named": true
+          },
+          {
+            "type": "unary_expr",
+            "named": true
+          }
+        ]
+      }
     }
   },
   {
-    "type": "type_def",
-    "named": true,
-    "fields": {},
-    "children": {
-      "multiple": false,
-      "required": true,
-      "types": [
-        {
-          "type": "fn_def",
-          "named": true
-        },
-        {
-          "type": "struct_def",
-          "named": true
-        }
-      ]
-    }
-  },
-  {
-    "type": "type_expr",
-    "named": true,
-    "fields": {},
-    "children": {
-      "multiple": false,
-      "required": true,
-      "types": [
-        {
-          "type": "name_path",
-          "named": true
-        },
-        {
-          "type": "struct_def",
-          "named": true
-        }
-      ]
-    }
-  },
-  {
-    "type": "typed_item_def",
-    "named": true,
-    "fields": {},
-    "children": {
-      "multiple": true,
-      "required": true,
-      "types": [
-        {
-          "type": "identifier",
-          "named": true
-        },
-        {
-          "type": "type_expr",
-          "named": true
-        }
-      ]
-    }
+    "type": "!",
+    "named": false
   },
   {
     "type": "!=",
@@ -1230,6 +1891,10 @@
   },
   {
     "type": "%",
+    "named": false
+  },
+  {
+    "type": "&",
     "named": false
   },
   {
@@ -1269,15 +1934,11 @@
     "named": false
   },
   {
-    "type": "->",
-    "named": false
-  },
-  {
     "type": ".",
     "named": false
   },
   {
-    "type": "/$",
+    "type": "/",
     "named": false
   },
   {
@@ -1289,7 +1950,11 @@
     "named": false
   },
   {
-    "type": "/^",
+    "type": "/<",
+    "named": false
+  },
+  {
+    "type": "/>",
     "named": false
   },
   {
@@ -1302,6 +1967,10 @@
   },
   {
     "type": "<",
+    "named": false
+  },
+  {
+    "type": "<<",
     "named": false
   },
   {
@@ -1325,12 +1994,24 @@
     "named": false
   },
   {
-    "type": "as",
+    "type": ">>",
+    "named": false
+  },
+  {
+    "type": "^",
+    "named": false
+  },
+  {
+    "type": "and",
     "named": false
   },
   {
     "type": "bin_literal",
     "named": true
+  },
+  {
+    "type": "comptime",
+    "named": false
   },
   {
     "type": "const",
@@ -1345,19 +2026,11 @@
     "named": false
   },
   {
-    "type": "export",
-    "named": false
-  },
-  {
     "type": "false",
     "named": false
   },
   {
     "type": "fn",
-    "named": false
-  },
-  {
-    "type": "from",
     "named": false
   },
   {
@@ -1373,11 +2046,11 @@
     "named": false
   },
   {
-    "type": "import",
+    "type": "init",
     "named": false
   },
   {
-    "type": "init",
+    "type": "inline",
     "named": false
   },
   {
@@ -1394,16 +2067,16 @@
     "named": false
   },
   {
+    "type": "or",
+    "named": false
+  },
+  {
     "type": "return",
     "named": false
   },
   {
     "type": "run",
     "named": false
-  },
-  {
-    "type": "string",
-    "named": true
   },
   {
     "type": "struct",
@@ -1414,11 +2087,23 @@
     "named": false
   },
   {
+    "type": "while",
+    "named": false
+  },
+  {
     "type": "{",
     "named": false
   },
   {
+    "type": "|",
+    "named": false
+  },
+  {
     "type": "}",
+    "named": false
+  },
+  {
+    "type": "~",
     "named": false
   }
 ]

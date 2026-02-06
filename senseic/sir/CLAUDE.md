@@ -9,24 +9,6 @@ This project defines the Sensei intermediate representation (SIR) for compilers 
 **This is a bespoke EVM IR, not a Solidity IR.** Design for efficiency & simplicity. Only model what the EVM specification requires. External interfaces (Solidity ABI, etc.) are implemented in user space by emitting IR, not baked into the IR itself.
 
 ## Development Commands
-### Check Code While Working on Tasks
-```bash
-# Checks if code compiles without building
-cargo check --workspace
-```
-
-### Check Code to Verify Whether the Task was completed correctly
-
-```bash
-# Run test
-./run-tests.sh
-
-# Format code
-cargo +nightly fmt --all
-
-# Run clippy for linting
-cargo +nightly clippy --workspace --all --all-features --locked -- -D warnings
-```
 
 ### When Iterating/Working on a specific part of the code
 To improve the feedback loop you can narrow down what tests to run if you're fixing a bug in a

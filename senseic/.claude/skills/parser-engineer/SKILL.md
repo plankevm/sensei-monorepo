@@ -169,7 +169,6 @@ This only reports "missing Identifier"—no context about what was found.
 
 **Correct pattern:** Chain `check` calls to build the expected set:
 ```rust
-self.clear_expected();
 if self.check(Token::Colon) {
     // parse type annotation...
 } else if self.check(Token::Equals) {
