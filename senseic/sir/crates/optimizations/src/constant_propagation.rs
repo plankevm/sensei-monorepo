@@ -691,7 +691,11 @@ Basic Blocks:
         let (actual, lattice) = run_const_prop(input);
         assert_trim_strings_eq_with_diff(&actual, expected, "complex constant folding");
 
-        let sign_ext_result = U256::from_str_radix("ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff80", 16).unwrap();
+        let sign_ext_result = U256::from_str_radix(
+            "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff80",
+            16,
+        )
+        .unwrap();
         assert_eq!(lattice[LocalId::new(7)], LatticeValue::Const(sign_ext_result));
     }
 
@@ -1059,10 +1063,26 @@ Basic Blocks:
         let (actual, lattice) = run_const_prop(input);
         assert_trim_strings_eq_with_diff(&actual, expected, "constant evaluation");
 
-        let neg1 = U256::from_str_radix("ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff", 16).unwrap();
-        let int_max = U256::from_str_radix("7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff", 16).unwrap();
-        let int_min = U256::from_str_radix("8000000000000000000000000000000000000000000000000000000000000000", 16).unwrap();
-        let neg2 = U256::from_str_radix("fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe", 16).unwrap();
+        let neg1 = U256::from_str_radix(
+            "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+            16,
+        )
+        .unwrap();
+        let int_max = U256::from_str_radix(
+            "7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+            16,
+        )
+        .unwrap();
+        let int_min = U256::from_str_radix(
+            "8000000000000000000000000000000000000000000000000000000000000000",
+            16,
+        )
+        .unwrap();
+        let neg2 = U256::from_str_radix(
+            "fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe",
+            16,
+        )
+        .unwrap();
 
         assert_eq!(lattice[LocalId::new(12)], LatticeValue::Const(int_min));
         assert_eq!(lattice[LocalId::new(13)], LatticeValue::Const(int_max));
@@ -1074,6 +1094,15 @@ Basic Blocks:
         assert_eq!(lattice[LocalId::new(44)], LatticeValue::Const(neg1));
         assert_eq!(lattice[LocalId::new(49)], LatticeValue::Const(neg1));
         assert_eq!(lattice[LocalId::new(50)], LatticeValue::Const(neg1));
-        assert_eq!(lattice[LocalId::new(54)], LatticeValue::Const(U256::from_str_radix("ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff80", 16).unwrap()));
+        assert_eq!(
+            lattice[LocalId::new(54)],
+            LatticeValue::Const(
+                U256::from_str_radix(
+                    "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff80",
+                    16
+                )
+                .unwrap()
+            )
+        );
     }
 }
