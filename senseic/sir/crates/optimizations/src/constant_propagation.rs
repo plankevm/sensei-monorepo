@@ -623,12 +623,15 @@ Basic Blocks:
     }
         "#;
 
-        let (actual, _) = run_const_prop(input);
+        let (actual, lattice) = run_const_prop(input);
         assert_trim_strings_eq_with_diff(
             &actual,
             expected,
             "block inputs propagate only when predecessors agree",
         );
+
+        assert_eq!(lattice[LocalId::new(6)], LatticeValue::Overdefined);
+        assert_eq!(lattice[LocalId::new(8)], LatticeValue::Overdefined);
     }
 
     #[test]
@@ -685,8 +688,11 @@ Basic Blocks:
     }
         "#;
 
-        let (actual, _) = run_const_prop(input);
+        let (actual, lattice) = run_const_prop(input);
         assert_trim_strings_eq_with_diff(&actual, expected, "complex constant folding");
+
+        let sign_ext_result = U256::from_str_radix("ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff80", 16).unwrap();
+        assert_eq!(lattice[LocalId::new(7)], LatticeValue::Const(sign_ext_result));
     }
 
     #[test]
@@ -888,12 +894,15 @@ Basic Blocks:
     }
         "#;
 
-        let (actual, _) = run_const_prop(input);
+        let (actual, lattice) = run_const_prop(input);
         assert_trim_strings_eq_with_diff(
             &actual,
             expected,
             "internal function inputs remain overdefined and don't propagate constants incorrectly",
         );
+
+        assert_eq!(lattice[LocalId::new(0)], LatticeValue::Overdefined);
+        assert_eq!(lattice[LocalId::new(1)], LatticeValue::Overdefined);
     }
 
     #[test]
