@@ -75,6 +75,11 @@ impl<'a> SCCPAnalysis<'a> {
         &self.unreachable_blocks
     }
 
+    #[cfg(test)]
+    fn get_lattice(&self) -> &IndexVec<LocalIdMarker, LatticeValue> {
+        &self.lattice
+    }
+
     fn rewrite_constants(&mut self, bb_id: BasicBlockId) {
         let ops = self.program.basic_blocks[bb_id].operations;
         for op_idx in ops.iter() {
@@ -460,7 +465,7 @@ impl<'a> SCCPAnalysis<'a> {
     }
 }
 
-#[derive(Clone, Eq, PartialEq, Copy)]
+#[derive(Clone, Eq, PartialEq, Copy, Debug)]
 enum LatticeValue {
     Unknown,
     Const(U256),
@@ -497,7 +502,7 @@ impl LatticeValue {
 
 macro_rules! define_consts {
     ($($name:ident),* $(,)?) => {
-        #[derive(PartialEq, Clone, Eq, Hash, Copy)]
+        #[derive(PartialEq, Clone, Eq, Hash, Copy, Debug)]
         enum EvmConstKind {
             $($name),*
         }
@@ -548,10 +553,13 @@ mod tests {
     use sir_parser::{EmitConfig, parse_or_panic};
     use sir_test_utils::assert_trim_strings_eq_with_diff;
 
-    fn run_const_prop(source: &str) -> String {
+    fn run_const_prop(source: &str) -> (String, IndexVec<LocalIdMarker, LatticeValue>) {
         let mut ir = parse_or_panic(source, EmitConfig::init_only());
-        run(&mut ir);
-        sir_data::display_program(&ir)
+        let mut sccp = SCCPAnalysis::new(&mut ir);
+        sccp.analysis();
+        let lattice = sccp.get_lattice().clone();
+        sccp.apply();
+        (sir_data::display_program(&ir), lattice)
     }
 
     #[test]
@@ -615,7 +623,7 @@ Basic Blocks:
     }
         "#;
 
-        let actual = run_const_prop(input);
+        let (actual, _) = run_const_prop(input);
         assert_trim_strings_eq_with_diff(
             &actual,
             expected,
@@ -677,7 +685,7 @@ Basic Blocks:
     }
         "#;
 
-        let actual = run_const_prop(input);
+        let (actual, _) = run_const_prop(input);
         assert_trim_strings_eq_with_diff(&actual, expected, "complex constant folding");
     }
 
@@ -712,7 +720,7 @@ Basic Blocks:
     }
         "#;
 
-        let actual = run_const_prop(input);
+        let (actual, _) = run_const_prop(input);
         assert_trim_strings_eq_with_diff(&actual, expected, "branch zero takes false");
     }
 
@@ -747,7 +755,7 @@ Basic Blocks:
     }
         "#;
 
-        let actual = run_const_prop(input);
+        let (actual, _) = run_const_prop(input);
         assert_trim_strings_eq_with_diff(&actual, expected, "branch nonzero takes true");
     }
 
@@ -789,7 +797,7 @@ Basic Blocks:
     }
         "#;
 
-        let actual = run_const_prop(input);
+        let (actual, _) = run_const_prop(input);
         assert_trim_strings_eq_with_diff(&actual, expected, "switch with folded condition");
     }
 
@@ -831,7 +839,7 @@ Basic Blocks:
     }
         "#;
 
-        let actual = run_const_prop(input);
+        let (actual, _) = run_const_prop(input);
         assert_trim_strings_eq_with_diff(&actual, expected, "switch no match takes default");
     }
 
@@ -880,7 +888,7 @@ Basic Blocks:
     }
         "#;
 
-        let actual = run_const_prop(input);
+        let (actual, _) = run_const_prop(input);
         assert_trim_strings_eq_with_diff(
             &actual,
             expected,
@@ -1039,7 +1047,24 @@ Basic Blocks:
     }
         "#;
 
-        let actual = run_const_prop(input);
+        let (actual, lattice) = run_const_prop(input);
         assert_trim_strings_eq_with_diff(&actual, expected, "constant evaluation");
+
+        let neg1 = U256::from_str_radix("ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff", 16).unwrap();
+        let int_max = U256::from_str_radix("7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff", 16).unwrap();
+        let int_min = U256::from_str_radix("8000000000000000000000000000000000000000000000000000000000000000", 16).unwrap();
+        let neg2 = U256::from_str_radix("fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe", 16).unwrap();
+
+        assert_eq!(lattice[LocalId::new(12)], LatticeValue::Const(int_min));
+        assert_eq!(lattice[LocalId::new(13)], LatticeValue::Const(int_max));
+        assert_eq!(lattice[LocalId::new(17)], LatticeValue::Const(neg2));
+        assert_eq!(lattice[LocalId::new(18)], LatticeValue::Const(neg1));
+        assert_eq!(lattice[LocalId::new(31)], LatticeValue::Const(neg1));
+        assert_eq!(lattice[LocalId::new(32)], LatticeValue::Const(int_min));
+        assert_eq!(lattice[LocalId::new(43)], LatticeValue::Const(neg1));
+        assert_eq!(lattice[LocalId::new(44)], LatticeValue::Const(neg1));
+        assert_eq!(lattice[LocalId::new(49)], LatticeValue::Const(neg1));
+        assert_eq!(lattice[LocalId::new(50)], LatticeValue::Const(neg1));
+        assert_eq!(lattice[LocalId::new(54)], LatticeValue::Const(U256::from_str_radix("ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff80", 16).unwrap()));
     }
 }
