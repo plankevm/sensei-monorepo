@@ -305,7 +305,9 @@ impl<'a> SCCPAnalysis<'a> {
                 self.eval_binary(a, b, out, |va, vb| {
                     let sa = I256::from_raw(va);
                     let sb = I256::from_raw(vb);
-                    sa.checked_div(sb).unwrap_or(I256::ZERO).into_raw()
+                    sa.checked_div(sb)
+                        .unwrap_or_else(|| if sb.is_zero() { I256::ZERO } else { sa })
+                        .into_raw()
                 })
             }
             Operation::Mod(InlineOperands { ins: [a, b], outs: [out] }) => {
@@ -417,7 +419,11 @@ impl<'a> SCCPAnalysis<'a> {
             }
             Operation::Sar(InlineOperands { ins: [shift, value], outs: [out] }) => self
                 .eval_binary(shift, value, out, |vshift, vvalue| {
-                    I256::from_raw(vvalue).asr(vshift.to::<usize>()).to::<U256>()
+                    if vshift >= U256::from(256) {
+                        if vvalue.bit(255) { U256::MAX } else { U256::ZERO }
+                    } else {
+                        I256::from_raw(vvalue).asr(vshift.to::<usize>()).into_raw()
+                    }
                 }),
             Operation::Not(InlineOperands { ins: [a], outs: [out] }) => {
                 let va = self.const_u256(*a)?;
@@ -880,5 +886,160 @@ Basic Blocks:
             expected,
             "internal function inputs remain overdefined and don't propagate constants incorrectly",
         );
+    }
+
+    #[test]
+    fn test_constant_evaluation() {
+        let input = r#"
+            fn init:
+                entry {
+                    zero = const 0                  // $0
+                    one = const 1                   // $1
+                    three = const 3                 // $2
+                    seven = const 7                 // $3
+                    _0x80 = const 0x80              // $4
+                    _0xff = const 0xff              // $5
+                    _32 = const 32                  // $6
+                    _256 = const 256                // $7
+
+                    neg1 = large_const 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff   // $8
+                    neg7 = large_const 0xfffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff9   // $9
+                    int_max = large_const 0x7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff // $10
+                    int_min = large_const 0x8000000000000000000000000000000000000000000000000000000000000000 // $11
+
+                    a = add int_max one             // $12
+                    b = sub int_min one             // $13
+                    mul_wrap = mul int_max int_max   // $14
+                    d = div neg1 neg1               // $15
+                    e = mod a seven                 // $16
+                    f = sdiv neg7 three             // $17
+                    g = smod neg7 three             // $18
+                    ab_diff = sub a b               // $19
+
+                    smod_special = smod int_min neg1 // $20
+
+                    div_by_zero = div seven zero    // $21
+                    sdiv_by_zero = sdiv seven zero  // $22
+                    mod_by_zero = mod seven zero    // $23
+                    smod_by_zero = smod seven zero  // $24
+
+                    h = addmod neg1 one seven       // $25
+                    i = mulmod int_max int_max seven // $26
+                    addmod_zero_n = addmod one one zero // $27
+                    mulmod_zero_n = mulmod one one zero // $28
+
+                    j = exp zero zero               // $29
+                    exp_wrap = exp neg1 _32         // $30
+
+                    c = sdiv int_min int_max        // $31
+                    sdiv_overflow = sdiv int_min neg1 // $32
+                    fg_diff = sub g f               // $33
+                    sar_pos_256 = sar _256 b        // $34
+                    overflow_xor_a = xor sdiv_overflow a // $35
+
+                    gt_unsigned = gt a b            // $36
+                    sgt_signed = sgt a b            // $37
+                    lt_unsigned = lt a b            // $38
+                    slt_signed = slt a b            // $39
+                    o = iszero neg1                 // $40
+                    iszero_zero = iszero zero       // $41
+
+                    eq_computed = eq c g            // $42
+                    q = or int_min neg1             // $43
+                    s = not zero                    // $44
+                    qs_xor = xor q s                // $45
+                    r = not f                       // $46
+
+                    t = shl _256 one                // $47
+                    u = shr _256 neg1               // $48
+                    v = sar _0xff neg1              // $49
+                    sar_256 = sar _256 neg1         // $50
+                    vsar_xor = xor v sar_256        // $51
+
+                    w = byte _32 _0x80              // $52
+                    byte_msb = byte zero neg1       // $53
+
+                    x = signextend zero _0x80       // $54
+                    x2 = byte zero x                // $55
+                    signext_noop = signextend _32 _0x80 // $56
+
+                    z0 = add d j                    // $57
+                    z1 = and s _0xff                // $58
+
+                    stop
+                }
+        "#;
+
+        let expected = r#"
+Functions:
+    fn @0 -> entry @0  (outputs: 0)
+
+Basic Blocks:
+    @0 {
+        $0 = const 0x0
+        $1 = const 0x1
+        $2 = const 0x3
+        $3 = const 0x7
+        $4 = const 0x80
+        $5 = const 0xff
+        $6 = const 0x20
+        $7 = const 0x100
+        $8 = large_const 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+        $9 = large_const 0xfffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff9
+        $10 = large_const 0x7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+        $11 = large_const 0x8000000000000000000000000000000000000000000000000000000000000000
+        $12 = add $10 $1
+        $13 = sub $11 $1
+        $14 = const 0x1
+        $15 = const 0x1
+        $16 = const 0x1
+        $17 = sdiv $9 $2
+        $18 = smod $9 $2
+        $19 = const 0x1
+        $20 = const 0x0
+        $21 = const 0x0
+        $22 = const 0x0
+        $23 = const 0x0
+        $24 = const 0x0
+        $25 = const 0x2
+        $26 = const 0x0
+        $27 = const 0x0
+        $28 = const 0x0
+        $29 = const 0x1
+        $30 = const 0x1
+        $31 = sdiv $11 $10
+        $32 = sdiv $11 $8
+        $33 = const 0x1
+        $34 = const 0x0
+        $35 = const 0x0
+        $36 = const 0x1
+        $37 = const 0x0
+        $38 = const 0x0
+        $39 = const 0x1
+        $40 = const 0x0
+        $41 = const 0x1
+        $42 = const 0x1
+        $43 = or $11 $8
+        $44 = not $0
+        $45 = const 0x0
+        $46 = const 0x1
+        $47 = const 0x0
+        $48 = const 0x0
+        $49 = sar $5 $8
+        $50 = sar $7 $8
+        $51 = const 0x0
+        $52 = const 0x0
+        $53 = const 0xff
+        $54 = signextend $0 $4
+        $55 = const 0xff
+        $56 = const 0x80
+        $57 = const 0x2
+        $58 = const 0xff
+        stop
+    }
+        "#;
+
+        let actual = run_const_prop(input);
+        assert_trim_strings_eq_with_diff(&actual, expected, "constant evaluation");
     }
 }
