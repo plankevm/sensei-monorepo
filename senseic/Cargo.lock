@@ -1760,6 +1760,7 @@ version = "0.1.0"
 dependencies = [
  "sensei-core",
  "sir-data",
+ "sir-parser",
 ]
 
 [[package]]
@@ -1807,9 +1808,12 @@ dependencies = [
 name = "sir-optimizations"
 version = "0.1.0"
 dependencies = [
+ "alloy-primitives",
+ "sir-analyses",
  "sir-data",
  "sir-parser",
  "sir-test-utils",
+ "smallvec",
 ]
 
 [[package]]
@@ -1834,6 +1838,7 @@ dependencies = [
  "bumpalo",
  "chumsky",
  "logos",
+ "pretty_assertions",
  "sir-analyses",
  "sir-data",
  "smallvec",

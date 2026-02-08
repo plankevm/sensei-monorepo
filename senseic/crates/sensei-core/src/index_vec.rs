@@ -75,6 +75,10 @@ impl<'a, I, T> RelSlice<'a, I, T> {
         let rel_end = (end.get() - self.offset) as usize;
         RelSlice::new(start, &self.data[rel_start..rel_end])
     }
+
+    pub fn enumerate_idx(&self) -> impl Iterator<Item = (X32<I>, &T)> {
+        self.iter().scan(X32::new(self.offset), |idx, element| Some((idx.get_and_inc(), element)))
+    }
 }
 
 impl<I, T> std::ops::Index<X32<I>> for RelSlice<'_, I, T> {
@@ -279,6 +283,10 @@ impl<I, T> IndexVec<I, T, Global> {
     #[inline]
     pub fn from_vec(vec: std::vec::Vec<T>) -> Self {
         Self { raw: Vec::from_iter(vec), _index: PhantomData }
+    }
+
+    pub fn iter_idx(&self) -> impl Iterator<Item = X32<I>> + use<I, T> {
+        Span::new(X32::ZERO, self.len_idx()).iter()
     }
 }
 

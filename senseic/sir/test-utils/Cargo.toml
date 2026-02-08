@@ -12,3 +12,4 @@ smallvec.workspace = true
 sir-data.workspace = true
 sir-analyses.workspace = true
 alloy-primitives.workspace = true
+pretty_assertions.workspace = true

@@ -34,6 +34,10 @@ struct Cli {
     /// Enable copy propagation optimization
     #[arg(long)]
     copy_propagation: bool,
+
+    /// Enable constant propagation optimization
+    #[arg(long)]
+    constant_propagation: bool,
 }
 
 fn read_input(input: Option<PathBuf>) -> String {
@@ -71,6 +75,10 @@ fn main() {
 
     if cli.copy_propagation {
         Optimization::CopyPropagation.apply(&mut program);
+    }
+
+    if cli.constant_propagation {
+        Optimization::ConstantPropagation.apply(&mut program);
     }
 
     let mut bytecode = Vec::with_capacity(0x6000);

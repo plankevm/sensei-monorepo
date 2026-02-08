@@ -205,7 +205,7 @@ pub struct Switch {
 
 /// Values stored at `values_start_id..values_start_id + cases_count`, target basic block IDs stored
 /// at `targets_start_id..targets_start_id + cases_count`.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct Cases {
     pub values_start_id: LargeConstId,
     pub targets_start_id: CasesBasicBlocksIndex,
@@ -225,6 +225,34 @@ impl Cases {
         ir: &'ir EthIRProgram,
     ) -> RelSlice<'ir, CasesBasicBlocksIndexMarker, BasicBlockId> {
         ir.cases_bb_ids.rel_slice(self.targets_start_id..self.targets_start_id + self.cases_count)
+    }
+
+    pub fn iter<'ir>(&self, ir: &'ir EthIRProgram) -> CasesIter<'ir> {
+        CasesIter::new(self.get_values(ir).as_raw_slice(), self.get_bb_ids(ir).as_raw_slice())
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct CasesIter<'ir> {
+    values: &'ir [U256],
+    targets: &'ir [BasicBlockId],
+}
+
+impl<'ir> CasesIter<'ir> {
+    fn new(values: &'ir [U256], targets: &'ir [BasicBlockId]) -> Self {
+        Self { values, targets }
+    }
+}
+
+impl<'ir> Iterator for CasesIter<'ir> {
+    type Item = (U256, BasicBlockId);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let (value, rest_values) = self.values.split_first()?;
+        let (target, rest_targets) = self.targets.split_first()?;
+        self.values = rest_values;
+        self.targets = rest_targets;
+        Some((*value, *target))
     }
 }
 

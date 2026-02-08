@@ -19,10 +19,10 @@ fn fmt_locals(f: &mut impl fmt::Write, mut locals: impl Iterator<Item = LocalId>
     Ok(())
 }
 
-impl<'fmt, 'ir, W: fmt::Write> OpVisitor<fmt::Result> for OpFormatter<'fmt, 'ir, W> {
+impl<'d, 'fmt, 'ir, W: fmt::Write> OpVisitor<'d, fmt::Result> for OpFormatter<'fmt, 'ir, W> {
     fn visit_inline_operands<const INS: usize, const OUTS: usize>(
         &mut self,
-        operands: &InlineOperands<INS, OUTS>,
+        operands: &'d InlineOperands<INS, OUTS>,
     ) -> fmt::Result {
         fmt_locals(self.write, operands.outs.iter().copied())?;
         if operands.outs.is_empty() {
@@ -38,7 +38,7 @@ impl<'fmt, 'ir, W: fmt::Write> OpVisitor<fmt::Result> for OpFormatter<'fmt, 'ir,
 
     fn visit_allocated_ins<const INS: usize, const OUTS: usize>(
         &mut self,
-        data: &AllocatedIns<INS, OUTS>,
+        data: &'d AllocatedIns<INS, OUTS>,
     ) -> fmt::Result {
         fmt_locals(self.write, data.outs.iter().copied())?;
         if data.outs.is_empty() {
@@ -53,23 +53,30 @@ impl<'fmt, 'ir, W: fmt::Write> OpVisitor<fmt::Result> for OpFormatter<'fmt, 'ir,
         fmt_locals(self.write, ins.iter().copied())
     }
 
-    fn visit_static_alloc(&mut self, data: &StaticAllocData) -> fmt::Result {
+    fn visit_static_alloc(&mut self, data: &'d StaticAllocData) -> fmt::Result {
         write!(self.write, "${} = {} {} #{}", data.ptr_out, self.mnemonic, data.size, data.alloc_id)
     }
 
-    fn visit_memory_load(&mut self, data: &MemoryLoadData) -> fmt::Result {
+    fn visit_memory_load(&mut self, data: &'d MemoryLoadData) -> fmt::Result {
         write!(self.write, "${} = {}{} ${}", data.out, self.mnemonic, data.size.bits(), data.ptr)
     }
 
-    fn visit_memory_store(&mut self, data: &MemoryStoreData) -> fmt::Result {
-        write!(self.write, "{}{} ${} ${}", self.mnemonic, data.size.bits(), data.ptr, data.value)
+    fn visit_memory_store(&mut self, data: &'d MemoryStoreData) -> fmt::Result {
+        write!(
+            self.write,
+            "{}{} ${} ${}",
+            self.mnemonic,
+            data.size.bits(),
+            data.ptr(),
+            data.value()
+        )
     }
 
-    fn visit_set_small_const(&mut self, data: &SetSmallConstData) -> fmt::Result {
+    fn visit_set_small_const(&mut self, data: &'d SetSmallConstData) -> fmt::Result {
         write!(self.write, "${} = {} {:#x}", data.sets, self.mnemonic, data.value)
     }
 
-    fn visit_set_large_const(&mut self, data: &SetLargeConstData) -> fmt::Result {
+    fn visit_set_large_const(&mut self, data: &'d SetLargeConstData) -> fmt::Result {
         write!(
             self.write,
             "${} = {} {:#x}",
@@ -77,11 +84,11 @@ impl<'fmt, 'ir, W: fmt::Write> OpVisitor<fmt::Result> for OpFormatter<'fmt, 'ir,
         )
     }
 
-    fn visit_set_data_offset(&mut self, data: &SetDataOffsetData) -> fmt::Result {
+    fn visit_set_data_offset(&mut self, data: &'d SetDataOffsetData) -> fmt::Result {
         write!(self.write, "${} = {} .{}", data.sets, self.mnemonic, data.segment_id)
     }
 
-    fn visit_icall(&mut self, data: &InternalCallData) -> fmt::Result {
+    fn visit_icall(&mut self, data: &'d InternalCallData) -> fmt::Result {
         let ins = &self.ir.locals[data.ins_start..data.outs_start];
         let outs = &self.ir.locals
             [data.outs_start..data.outs_start + self.ir.functions[data.function].get_outputs()];
