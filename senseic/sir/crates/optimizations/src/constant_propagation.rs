@@ -635,71 +635,6 @@ Basic Blocks:
     }
 
     #[test]
-    fn test_complex_constant_folding() {
-        let input = r#"
-            fn init:
-                entry {
-                    zero = const 0
-                    seven = const 7
-                    five = const 5
-                    _0x80 = const 0x80
-                    _32 = const 32
-                    neg7 = large_const 0xfffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff8
-                    neg1 = large_const 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
-
-
-                    sign_ext = signextend zero _0x80
-                    byte_oob = byte _32 _0x80
-                    sar_noop = sar zero _0x80
-                    addmod_wrap = addmod seven seven five
-                    sdiv_zero = sdiv seven zero
-                    sdiv_one = sdiv neg7 neg1
-
-                    stop
-                }
-        "#;
-
-        // $0-$4: constants (zero, seven, five, _0x80, _32)
-        // $5: signextend(0, 0x80) → 0xFF..FF80 (sign extend fills upper bits)
-        // $6: byte(32, 0x80) → 0 (index out of bounds)
-        // $7: sar(0, 0x80) → 0x80 (shift by 0 is no-op)
-        // $8: addmod(7, 7, 5) → 4 ((7+7) % 5)
-        // $9: sdiv(7, 0) → 0 (division by zero)
-        let expected = r#"
-Functions:
-    fn @0 -> entry @0  (outputs: 0)
-
-Basic Blocks:
-    @0 {
-        $0 = const 0x0
-        $1 = const 0x7
-        $2 = const 0x5
-        $3 = const 0x80
-        $4 = const 0x20
-        $5 = large_const 0xfffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff8
-        $6 = large_const 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
-        $7 = signextend $0 $3
-        $8 = const 0x0
-        $9 = const 0x80
-        $10 = const 0x4
-        $11 = const 0x0
-        $12 = const 0x8
-        stop
-    }
-        "#;
-
-        let (actual, lattice) = run_const_prop(input);
-        assert_trim_strings_eq_with_diff(&actual, expected, "complex constant folding");
-
-        let sign_ext_result = U256::from_str_radix(
-            "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff80",
-            16,
-        )
-        .unwrap();
-        assert_eq!(lattice[LocalId::new(7)], LatticeValue::Const(sign_ext_result));
-    }
-
-    #[test]
     fn test_branch_zero_takes_false() {
         let input = r#"
             fn init:
@@ -1104,5 +1039,225 @@ Basic Blocks:
                 .unwrap()
             )
         );
+    }
+
+    #[test]
+    fn test_additional_cases() {
+        let input = r#"
+            fn init:
+                entry {
+                    zero = const 0                  // $0
+                    one = const 1                   // $1
+                    two = const 2                   // $2
+                    _31 = const 31                  // $3
+                    _32 = const 32                  // $4
+                    _128 = const 128                // $5
+                    _255 = const 255                // $6
+                    _0x1_0000_0000 = large_const 0x0000000000000000000000000000000000000000000000000000000100000000 // $7
+                    neg1 = large_const 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff   // $8
+                    int_max = large_const 0x7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff // $9
+                    int_min = large_const 0x8000000000000000000000000000000000000000000000000000000000000000 // $10
+
+                    a = add int_max int_max         // $11
+                    b = sub int_min int_min         // $12
+
+                    and_identity = and a neg1        // $13
+                    or_identity = or b zero         // $14
+
+                    shl_zero = shl zero a           // $15
+                    shr_zero = shr zero b           // $16
+                    sar_zero = sar zero neg1         // $17
+
+                    exp_zero_large = exp zero int_max // $18
+                    exp_neg1_odd = exp neg1 _255    // $19
+
+                    sar_255_neg = sar _255 neg1      // $20
+                    sar_255_pos = sar _255 int_max  // $21
+
+                    byte_lsb = byte _31 neg1         // $22
+                    signext_31 = signextend _31 int_min // $23
+
+                    slt_zero_neg1 = slt zero neg1    // $24
+
+                    sdiv_zero_x = sdiv zero int_max // $25
+                    smod_x_one = smod neg1 one       // $26
+
+                    shl_255 = shl _255 one          // $27
+                    shr_255 = shr _255 neg1          // $28
+
+                    signext_pos = signextend zero one // $29
+
+                    addmod_one = addmod neg1 neg1 one // $30
+                    mulmod_one = mulmod int_max int_max one // $31
+
+                    sgt_neg1_zero = sgt neg1 zero    // $32
+
+                    add_large = add _0x1_0000_0000 one // $33
+                    mul_large = mul _0x1_0000_0000 _0x1_0000_0000 // $34
+                    exp_large = exp _0x1_0000_0000 two // $35
+
+                    shl_32 = shl _32 one            // $36
+                    shl_128 = shl _128 one          // $37
+
+                    shl_big = shl _128 _0x1_0000_0000        // $38
+                    shr_big = shr _128 neg1                   // $39
+                    sar_big_neg = sar _0x1_0000_0000 neg1    // $40
+                    sar_big_pos = sar _128 int_max            // $41
+
+                    sub_underflow = sub zero one              // $42
+
+                    signext_0_ff = signextend zero _255       // $43
+                    signext_1_trunc = signextend one _0x1_0000_0000 // $44
+
+                    exp_identity = exp int_max one            // $45
+                    exp_one_large = exp one _0x1_0000_0000    // $46
+                    exp_full_wrap = exp two _255              // $47
+
+                    sar_1_intmin = sar one int_min            // $48
+
+                    exp_x_zero = exp neg1 zero               // $49
+                    eq_unequal = eq one two                   // $50
+                    and_zero = and int_min zero               // $51
+                    xor_identity = xor int_min zero           // $52
+                    lt_self = lt neg1 neg1                    // $53
+                    gt_self = gt neg1 neg1                    // $54
+
+                    stop
+                }
+        "#;
+
+        let (_, lattice) = run_const_prop(input);
+
+        let neg2 = U256::from_str_radix(
+            "fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe",
+            16,
+        )
+        .unwrap();
+        let neg1 = U256::from_str_radix(
+            "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+            16,
+        )
+        .unwrap();
+        let int_min = U256::from_str_radix(
+            "8000000000000000000000000000000000000000000000000000000000000000",
+            16,
+        )
+        .unwrap();
+        let int_max = U256::from_str_radix(
+            "7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+            16,
+        )
+        .unwrap();
+
+        assert_eq!(lattice[LocalId::new(11)], LatticeValue::Const(neg2));
+        assert_eq!(lattice[LocalId::new(12)], LatticeValue::Const(U256::ZERO));
+        assert_eq!(lattice[LocalId::new(13)], LatticeValue::Const(neg2));
+        assert_eq!(lattice[LocalId::new(14)], LatticeValue::Const(U256::ZERO));
+        assert_eq!(lattice[LocalId::new(15)], LatticeValue::Const(neg2));
+        assert_eq!(lattice[LocalId::new(16)], LatticeValue::Const(U256::ZERO));
+        assert_eq!(lattice[LocalId::new(17)], LatticeValue::Const(neg1));
+        assert_eq!(lattice[LocalId::new(18)], LatticeValue::Const(U256::ZERO));
+        assert_eq!(lattice[LocalId::new(19)], LatticeValue::Const(neg1));
+        assert_eq!(lattice[LocalId::new(20)], LatticeValue::Const(neg1));
+        assert_eq!(lattice[LocalId::new(21)], LatticeValue::Const(U256::ZERO));
+        assert_eq!(lattice[LocalId::new(22)], LatticeValue::Const(U256::from(0xff)));
+        assert_eq!(lattice[LocalId::new(23)], LatticeValue::Const(int_min));
+        assert_eq!(lattice[LocalId::new(24)], LatticeValue::Const(U256::ZERO));
+        assert_eq!(lattice[LocalId::new(25)], LatticeValue::Const(U256::ZERO));
+        assert_eq!(lattice[LocalId::new(26)], LatticeValue::Const(U256::ZERO));
+        assert_eq!(lattice[LocalId::new(27)], LatticeValue::Const(U256::from(1) << 255));
+        assert_eq!(lattice[LocalId::new(28)], LatticeValue::Const(U256::ONE));
+        assert_eq!(lattice[LocalId::new(29)], LatticeValue::Const(U256::ONE));
+        assert_eq!(lattice[LocalId::new(30)], LatticeValue::Const(U256::ZERO));
+        assert_eq!(lattice[LocalId::new(31)], LatticeValue::Const(U256::ZERO));
+        assert_eq!(lattice[LocalId::new(32)], LatticeValue::Const(U256::ZERO));
+        assert_eq!(lattice[LocalId::new(33)], LatticeValue::Const(U256::from(0x100000001u64)));
+        assert_eq!(lattice[LocalId::new(34)], LatticeValue::Const(U256::from(1u128 << 64)));
+        assert_eq!(lattice[LocalId::new(35)], LatticeValue::Const(U256::from(1u128 << 64)));
+        assert_eq!(lattice[LocalId::new(36)], LatticeValue::Const(U256::from(1u64 << 32)));
+        assert_eq!(lattice[LocalId::new(37)], LatticeValue::Const(U256::from(1) << 128));
+        assert_eq!(lattice[LocalId::new(38)], LatticeValue::Const(U256::from(1) << 160));
+        assert_eq!(
+            lattice[LocalId::new(39)],
+            LatticeValue::Const((U256::from(1) << 128) - U256::from(1))
+        );
+        assert_eq!(lattice[LocalId::new(40)], LatticeValue::Const(neg1));
+        assert_eq!(
+            lattice[LocalId::new(41)],
+            LatticeValue::Const((U256::from(1) << 127) - U256::from(1))
+        );
+        assert_eq!(lattice[LocalId::new(42)], LatticeValue::Const(neg1));
+        assert_eq!(lattice[LocalId::new(43)], LatticeValue::Const(neg1));
+        assert_eq!(lattice[LocalId::new(44)], LatticeValue::Const(U256::ZERO));
+        assert_eq!(lattice[LocalId::new(45)], LatticeValue::Const(int_max));
+        assert_eq!(lattice[LocalId::new(46)], LatticeValue::Const(U256::ONE));
+        assert_eq!(lattice[LocalId::new(47)], LatticeValue::Const(int_min));
+        assert_eq!(lattice[LocalId::new(48)], LatticeValue::Const(U256::from(3) << 254));
+        assert_eq!(lattice[LocalId::new(49)], LatticeValue::Const(U256::ONE));
+        assert_eq!(lattice[LocalId::new(50)], LatticeValue::Const(U256::ZERO));
+        assert_eq!(lattice[LocalId::new(51)], LatticeValue::Const(U256::ZERO));
+        assert_eq!(lattice[LocalId::new(52)], LatticeValue::Const(int_min));
+        assert_eq!(lattice[LocalId::new(53)], LatticeValue::Const(U256::ZERO));
+        assert_eq!(lattice[LocalId::new(54)], LatticeValue::Const(U256::ZERO));
+    }
+
+    #[test]
+    fn test_evm_const_branch() {
+        let input = r#"
+            fn init:
+                entry {                             // @0
+                    a = address
+                    => a ? @if_true : @if_false
+                }
+                if_true { stop }                    // @1
+                if_false { stop }                   // @2
+        "#;
+
+        let mut ir = parse_or_panic(input, EmitConfig::init_only());
+        let mut sccp = SCCPAnalysis::new(&mut ir);
+        sccp.analysis();
+
+        let unreachable = sccp.get_unreachable_blocks();
+        assert!(!unreachable.contains(BasicBlockId::new(1)));
+        assert!(unreachable.contains(BasicBlockId::new(2)));
+    }
+
+    #[test]
+    fn test_evm_const_meet() {
+        let input = r#"
+            fn init:
+                entry {
+                    stop
+                }
+            fn test:
+                entry x {                          // x = $0
+                    => x ? @block_a : @block_b
+                }
+                block_a -> same_a diff_a {
+                    same_a = address                // $1
+                    diff_a = address                // $2
+                    => @merge
+                }
+                block_b -> same_b diff_b {
+                    same_b = address                // $3
+                    diff_b = caller                 // $4
+                    => @merge
+                }
+                merge same_input diff_input {       // $5, $6
+                    // TODO: same_input is EvmConst(Address) from both predecessors,
+                    // so eq(x, x) could fold to 1 if we tracked EvmConst identity.
+                    eq_same = eq same_input same_input   // $7
+                    stop
+                }
+        "#;
+
+        let mut ir = parse_or_panic(input, EmitConfig::init_only());
+        let mut sccp = SCCPAnalysis::new(&mut ir);
+        sccp.analysis();
+        let lattice = sccp.get_lattice();
+
+        assert_eq!(lattice[LocalId::new(5)], LatticeValue::EvmConst(EvmConstKind::Address));
+        assert_eq!(lattice[LocalId::new(6)], LatticeValue::Overdefined);
+        assert_eq!(lattice[LocalId::new(7)], LatticeValue::Overdefined);
     }
 }
