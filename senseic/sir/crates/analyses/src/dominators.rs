@@ -25,31 +25,31 @@ fn compute_function_dominators(
     dominators[entry] = Some(entry);
 
     let mut visited = DenseIndexSet::new();
-    let mut rpo = Vec::new();
-    dfs_postorder(program, entry, &mut visited, &mut rpo);
-    rpo.reverse();
-    let mut rpo_pos = index_vec![0; program.basic_blocks.len()];
-    for (pos, &bb) in rpo.iter().enumerate() {
-        rpo_pos[bb] = pos as u32;
+    let mut reverse_post_order = Vec::new();
+    dfs_postorder(program, entry, &mut visited, &mut reverse_post_order);
+    reverse_post_order.reverse();
+    let mut bb_to_rpo_pos = index_vec![0; program.basic_blocks.len()];
+    for (pos, &basic_block) in reverse_post_order.iter().enumerate() {
+        bb_to_rpo_pos[basic_block] = pos as u32;
     }
 
     let predecessors = compute_predecessors(program);
     let mut changed = true;
     while changed {
         changed = false;
-        for b in rpo[1..].iter() {
+        for bb in reverse_post_order[1..].iter() {
             debug_assert!(
-                !predecessors[*b].is_empty(),
+                !predecessors[*bb].is_empty(),
                 "non-entry block in RPO has no predecessors"
             );
-            let mut new_idom = predecessors[*b][0];
-            for p in predecessors[*b][1..].iter() {
-                if dominators[*p].is_some() {
-                    new_idom = intersect(*p, new_idom, dominators, &rpo_pos);
+            let mut new_idom = predecessors[*bb][0];
+            for pred in predecessors[*bb][1..].iter() {
+                if dominators[*pred].is_some() {
+                    new_idom = intersect(*pred, new_idom, dominators, &bb_to_rpo_pos);
                 }
             }
-            if dominators[*b] != Some(new_idom) {
-                dominators[*b] = Some(new_idom);
+            if dominators[*bb] != Some(new_idom) {
+                dominators[*bb] = Some(new_idom);
                 changed = true;
             }
         }
@@ -57,38 +57,40 @@ fn compute_function_dominators(
 }
 
 fn intersect(
-    b1: BasicBlockId,
-    b2: BasicBlockId,
-    doms: &IndexVec<BasicBlockIdMarker, Option<BasicBlockId>>,
-    rpo_pos: &IndexVec<BasicBlockIdMarker, u32>,
+    bb1: BasicBlockId,
+    bb2: BasicBlockId,
+    dominators: &IndexVec<BasicBlockIdMarker, Option<BasicBlockId>>,
+    bb_to_rpo_pos: &IndexVec<BasicBlockIdMarker, u32>,
 ) -> BasicBlockId {
-    let mut b1 = b1;
-    let mut b2 = b2;
-    while b1 != b2 {
-        while rpo_pos[b1] > rpo_pos[b2] {
-            b1 = doms[b1].expect("intersect only called on blocks with computed dominators");
+    let mut finger1 = bb1;
+    let mut finger2 = bb2;
+    while finger1 != finger2 {
+        while bb_to_rpo_pos[finger1] > bb_to_rpo_pos[finger2] {
+            finger1 = dominators[finger1]
+                .expect("intersect only called on blocks with computed dominators");
         }
-        while rpo_pos[b2] > rpo_pos[b1] {
-            b2 = doms[b2].expect("intersect only called on blocks with computed dominators");
+        while bb_to_rpo_pos[finger2] > bb_to_rpo_pos[finger1] {
+            finger2 = dominators[finger2]
+                .expect("intersect only called on blocks with computed dominators");
         }
     }
-    b1
+    finger1
 }
 
 fn dfs_postorder(
     program: &EthIRProgram,
-    id: BasicBlockId,
+    bb: BasicBlockId,
     visited: &mut DenseIndexSet<BasicBlockIdMarker>,
     postorder: &mut Vec<BasicBlockId>,
 ) {
-    if visited.contains(id) {
+    if visited.contains(bb) {
         return;
     }
-    visited.add(id);
-    for succ in program.basic_blocks[id].control.iter_outgoing(program) {
+    visited.add(bb);
+    for succ in program.basic_blocks[bb].control.iter_outgoing(program) {
         dfs_postorder(program, succ, visited, postorder);
     }
-    postorder.push(id);
+    postorder.push(bb);
 }
 
 #[cfg(test)]
