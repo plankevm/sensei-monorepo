@@ -1,10 +1,14 @@
-use sir_data::{BasicBlockId, BasicBlockIdMarker, EthIRProgram, IndexVec, index_vec};
+use sir_data::{
+    BasicBlockId, BasicBlockIdMarker, DenseIndexSet, EthIRProgram, IndexVec, index_vec,
+};
 
 use crate::compute_predecessors;
 
 // iterative dominator algorithm using RPO
-pub fn compute_dominators(program: &EthIRProgram) -> IndexVec<BasicBlockIdMarker, BasicBlockId> {
-    let mut dominators = index_vec![BasicBlockId::ZERO; program.basic_blocks.len()];
+pub fn compute_dominators(
+    program: &EthIRProgram,
+) -> IndexVec<BasicBlockIdMarker, Option<BasicBlockId>> {
+    let mut dominators = index_vec![None; program.basic_blocks.len()];
 
     for func in program.functions.iter() {
         compute_function_dominators(program, func.entry(), &mut dominators);
@@ -16,15 +20,15 @@ pub fn compute_dominators(program: &EthIRProgram) -> IndexVec<BasicBlockIdMarker
 fn compute_function_dominators(
     program: &EthIRProgram,
     entry: BasicBlockId,
-    dominators: &mut IndexVec<BasicBlockIdMarker, BasicBlockId>,
+    dominators: &mut IndexVec<BasicBlockIdMarker, Option<BasicBlockId>>,
 ) {
-    let mut visited = index_vec![false; program.basic_blocks.len()];
+    let mut visited = DenseIndexSet::new();
     let mut rpo = Vec::new();
     dfs_postorder(program, entry, &mut visited, &mut rpo);
     rpo.reverse();
-    let mut rpo_pos = index_vec![BasicBlockId::ZERO; program.basic_blocks.len()];
+    let mut rpo_pos = index_vec![0; program.basic_blocks.len()];
     for (pos, &bb) in rpo.iter().enumerate() {
-        rpo_pos[bb] = BasicBlockId::new(pos as u32);
+        rpo_pos[bb] = pos as u32;
     }
 
     let mut doms = index_vec![None; program.basic_blocks.len()];
@@ -52,7 +56,7 @@ fn compute_function_dominators(
     }
     for (id, dom) in doms.enumerate_idx() {
         if let Some(d) = dom {
-            dominators[id] = *d;
+            dominators[id] = Some(*d);
         }
     }
 }
@@ -61,7 +65,7 @@ fn intersect(
     b1: BasicBlockId,
     b2: BasicBlockId,
     doms: &IndexVec<BasicBlockIdMarker, Option<BasicBlockId>>,
-    rpo_pos: &IndexVec<BasicBlockIdMarker, BasicBlockId>,
+    rpo_pos: &IndexVec<BasicBlockIdMarker, u32>,
 ) -> BasicBlockId {
     let mut b1 = b1;
     let mut b2 = b2;
@@ -79,13 +83,13 @@ fn intersect(
 fn dfs_postorder(
     program: &EthIRProgram,
     id: BasicBlockId,
-    visited: &mut IndexVec<BasicBlockIdMarker, bool>,
+    visited: &mut DenseIndexSet<BasicBlockIdMarker>,
     postorder: &mut Vec<BasicBlockId>,
 ) {
-    if visited[id] {
+    if visited.contains(id) {
         return;
     }
-    visited[id] = true;
+    visited.add(id);
     for succ in program.basic_blocks[id].control.iter_outgoing(program) {
         dfs_postorder(program, succ, visited, postorder);
     }
@@ -116,7 +120,7 @@ mod tests {
 
         let dominators = compute_dominators(&program);
 
-        assert_eq!(dominators[bb(0)], bb(0)); // idom(A) = A
+        assert_eq!(dominators[bb(0)], Some(bb(0))); // idom(A) = A
     }
 
     #[test]
@@ -140,9 +144,9 @@ mod tests {
 
         let dominators = compute_dominators(&program);
 
-        assert_eq!(dominators[bb(0)], bb(0)); // idom(A) = A
-        assert_eq!(dominators[bb(1)], bb(0)); // idom(B) = A
-        assert_eq!(dominators[bb(2)], bb(1)); // idom(C) = B
+        assert_eq!(dominators[bb(0)], Some(bb(0))); // idom(A) = A
+        assert_eq!(dominators[bb(1)], Some(bb(0))); // idom(B) = A
+        assert_eq!(dominators[bb(2)], Some(bb(1))); // idom(C) = B
     }
 
     #[test]
@@ -174,10 +178,10 @@ mod tests {
 
         let dominators = compute_dominators(&program);
 
-        assert_eq!(dominators[bb(0)], bb(0)); // idom(A) = A
-        assert_eq!(dominators[bb(1)], bb(0)); // idom(B) = A
-        assert_eq!(dominators[bb(2)], bb(0)); // idom(C) = A
-        assert_eq!(dominators[bb(3)], bb(0)); // idom(D) = A (not B or C)
+        assert_eq!(dominators[bb(0)], Some(bb(0))); // idom(A) = A
+        assert_eq!(dominators[bb(1)], Some(bb(0))); // idom(B) = A
+        assert_eq!(dominators[bb(2)], Some(bb(0))); // idom(C) = A
+        assert_eq!(dominators[bb(3)], Some(bb(0))); // idom(D) = A (not B or C)
     }
 
     #[test]
@@ -217,17 +221,17 @@ mod tests {
 
         let dominators = compute_dominators(&program);
 
-        assert_eq!(dominators[bb(0)], bb(0)); // idom(A) = A
-        assert_eq!(dominators[bb(1)], bb(0)); // idom(B) = A
-        assert_eq!(dominators[bb(2)], bb(0)); // idom(C) = A
-        assert_eq!(dominators[bb(3)], bb(1)); // idom(D) = B
-        assert_eq!(dominators[bb(4)], bb(0)); // idom(E) = A (common dominator of C and D)
-        assert_eq!(dominators[bb(5)], bb(4)); // idom(F) = E
+        assert_eq!(dominators[bb(0)], Some(bb(0))); // idom(A) = A
+        assert_eq!(dominators[bb(1)], Some(bb(0))); // idom(B) = A
+        assert_eq!(dominators[bb(2)], Some(bb(0))); // idom(C) = A
+        assert_eq!(dominators[bb(3)], Some(bb(1))); // idom(D) = B
+        assert_eq!(dominators[bb(4)], Some(bb(0))); // idom(E) = A (common dominator of C and D)
+        assert_eq!(dominators[bb(5)], Some(bb(4))); // idom(F) = E
     }
 
     #[test]
     fn test_nested_loops() {
-        // A → B → C → D → C (inner loop)
+        // A → B → C ⟷ D (inner loop C-D)
         //     ↑       ↓
         //     +───────E → F (exit)
         //     (D also → B via E, outer backedge)
@@ -260,17 +264,17 @@ mod tests {
 
         let dominators = compute_dominators(&program);
 
-        assert_eq!(dominators[bb(0)], bb(0)); // idom(A) = A
-        assert_eq!(dominators[bb(1)], bb(0)); // idom(B) = A
-        assert_eq!(dominators[bb(2)], bb(1)); // idom(C) = B
-        assert_eq!(dominators[bb(3)], bb(2)); // idom(D) = C
-        assert_eq!(dominators[bb(4)], bb(3)); // idom(E) = D
-        assert_eq!(dominators[bb(5)], bb(4)); // idom(F) = E
+        assert_eq!(dominators[bb(0)], Some(bb(0))); // idom(A) = A
+        assert_eq!(dominators[bb(1)], Some(bb(0))); // idom(B) = A
+        assert_eq!(dominators[bb(2)], Some(bb(1))); // idom(C) = B
+        assert_eq!(dominators[bb(3)], Some(bb(2))); // idom(D) = C
+        assert_eq!(dominators[bb(4)], Some(bb(3))); // idom(E) = D
+        assert_eq!(dominators[bb(5)], Some(bb(4))); // idom(F) = E
     }
 
     #[test]
-    fn test_unreachable_node() {
-        // A → B, C is unreachable from A
+    fn test_unreachable_block() {
+        // A → B, C is in same function but unreachable
         let program = parse_or_panic(
             r#"
             fn init:
@@ -280,7 +284,6 @@ mod tests {
                 b {
                     stop
                 }
-            fn other:
                 c {
                     stop
                 }
@@ -288,12 +291,11 @@ mod tests {
             EmitConfig::init_only(),
         );
 
-        let mut dominators = index_vec![BasicBlockId::ZERO; program.basic_blocks.len()];
-        compute_function_dominators(&program, bb(0), &mut dominators);
+        let dominators = compute_dominators(&program);
 
-        assert_eq!(dominators[bb(0)], bb(0)); // idom(A) = A
-        assert_eq!(dominators[bb(1)], bb(0)); // idom(B) = A
-        assert_eq!(dominators[bb(2)], bb(0)); // C stays at default (ZERO), unreachable
+        assert_eq!(dominators[bb(0)], Some(bb(0))); // idom(A) = A
+        assert_eq!(dominators[bb(1)], Some(bb(0))); // idom(B) = A
+        assert_eq!(dominators[bb(2)], None); // C is unreachable
     }
 
     #[test]
@@ -321,10 +323,10 @@ mod tests {
 
         let dominators = compute_dominators(&program);
 
-        assert_eq!(dominators[bb(0)], bb(0)); // idom(A) = A
-        assert_eq!(dominators[bb(1)], bb(0)); // idom(B) = A
-        assert_eq!(dominators[bb(2)], bb(2)); // idom(C) = C (entry of other)
-        assert_eq!(dominators[bb(3)], bb(2)); // idom(D) = C
+        assert_eq!(dominators[bb(0)], Some(bb(0))); // idom(A) = A
+        assert_eq!(dominators[bb(1)], Some(bb(0))); // idom(B) = A
+        assert_eq!(dominators[bb(2)], Some(bb(2))); // idom(C) = C (entry of other)
+        assert_eq!(dominators[bb(3)], Some(bb(2))); // idom(D) = C
     }
 
     #[test]
@@ -359,9 +361,9 @@ mod tests {
 
         let dominators = compute_dominators(&program);
 
-        assert_eq!(dominators[bb(0)], bb(0)); // idom(A) = A
-        assert_eq!(dominators[bb(1)], bb(0)); // idom(B) = A
-        assert_eq!(dominators[bb(2)], bb(0)); // idom(C) = A
-        assert_eq!(dominators[bb(3)], bb(0)); // idom(D) = A (common dominator of B and C paths)
+        assert_eq!(dominators[bb(0)], Some(bb(0))); // idom(A) = A
+        assert_eq!(dominators[bb(1)], Some(bb(0))); // idom(B) = A
+        assert_eq!(dominators[bb(2)], Some(bb(0))); // idom(C) = A
+        assert_eq!(dominators[bb(3)], Some(bb(0))); // idom(D) = A (common dominator of B and C paths)
     }
 }
