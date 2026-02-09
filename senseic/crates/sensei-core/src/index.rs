@@ -1,172 +1,111 @@
-use inturn::InternerSymbol;
-use std::{hash::Hash, marker::PhantomData, num::NonZero};
-
-#[repr(transparent)]
-pub struct X32<M> {
-    idx: NonZero<u32>,
-    _marker: PhantomData<M>,
-}
+use crate::span::IncIterable;
+use std::{
+    num::NonZero,
+    ops::{Add, AddAssign},
+};
 
 #[cold]
 #[inline(never)]
 #[cfg_attr(debug_assertions, track_caller)]
-pub const fn panic_x32_overflow() -> ! {
+pub const fn panic_idx_overflow() -> ! {
     panic!("Overflowed 32-bits for an X32");
 }
 
-impl<M> X32<M> {
-    pub const ZERO: X32<M> = X32::new(0);
-    pub const MAX: X32<M> = X32::new(u32::MAX - 1);
-    pub const MAX_USIZE: usize = Self::MAX.idx();
+/// Safety: Implementor guarantees that their implementations of `from_raw` & `to_raw` are
+/// injective. Meaning for all `x: Self`, `from_raw(to_raw(x)) == x`.
+pub unsafe trait IdxInner: Ord + Eq + Copy + Add<u32> + AddAssign<u32> {
+    fn from_raw(raw: NonZero<u32>) -> Self;
+    fn to_raw(self) -> NonZero<u32>;
+}
 
-    #[inline]
-    pub const fn try_new(value: u32) -> Option<X32<M>> {
-        match NonZero::new(value.wrapping_add(1)) {
-            Some(idx) => Some(X32 { idx, _marker: PhantomData }),
-            None => None,
+#[macro_export]
+macro_rules! newtype_index {
+    () => {};
+    ($(#[$attr:meta])* struct $name:ident; $($rest:tt)*) => {
+        $crate::newtype_index! {
+            $(#[$attr])*
+            pub(self) struct $name;
+            $($rest)*
         }
-    }
+    };
+    ($(#[$attr:meta])* $vis:vis struct $name:ident; $($rest:tt)*) => {
+        $(#[$attr])*
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+        #[repr(transparent)]
+        $vis struct $name(::core::num::NonZero<u32>);
 
-    /// Creates a new index by wrapping the `value`.
-    ///
-    /// # Panics
-    /// Panics if `value + 1` overflows 32 bits.
-    #[inline]
-    pub const fn new(value: u32) -> X32<M> {
-        match X32::try_new(value) {
-            Some(x) => x,
-            None => panic_x32_overflow(),
-        }
-    }
-
-    /// # Safety
-    /// `value + 1` must not overflow 32-bits.
-    #[inline(always)]
-    pub const unsafe fn new_unchecked(value: u32) -> X32<M> {
-        let idx = unsafe {
-            let inner = value.unchecked_add(1);
-            std::num::NonZero::new_unchecked(inner)
-        };
-        X32 { idx, _marker: PhantomData }
-    }
-
-    #[inline(always)]
-    pub const fn idx(self) -> usize {
-        self.get() as usize
-    }
-
-    /// Gets the underlying index value.
-    #[inline(always)]
-    pub const fn get(self) -> u32 {
-        // Safety: By definition `>= 1`.
-        unsafe { self.idx.get().unchecked_sub(1) }
-    }
-}
-
-impl<M> std::ops::Add<u32> for X32<M> {
-    type Output = Self;
-
-    fn add(self, rhs: u32) -> Self::Output {
-        Self::new(self.get() + rhs)
-    }
-}
-
-impl<M> std::ops::Sub<u32> for X32<M> {
-    type Output = Self;
-
-    fn sub(self, rhs: u32) -> Self::Output {
-        Self::new(self.get() - rhs)
-    }
-}
-
-impl<M> std::ops::Sub<X32<M>> for X32<M> {
-    type Output = u32;
-
-    fn sub(self, rhs: X32<M>) -> Self::Output {
-        self.get() - rhs.get()
-    }
-}
-
-impl<M> std::ops::AddAssign<u32> for X32<M> {
-    fn add_assign(&mut self, rhs: u32) {
-        *self = *self + rhs;
-    }
-}
-
-impl<M> TryFrom<usize> for X32<M> {
-    type Error = ();
-
-    fn try_from(value: usize) -> Result<Self, Self::Error> {
-        unsafe {
-            if value > Self::MAX_USIZE {
-                return Err(());
+        unsafe impl $crate::index::IdxInner for $name {
+            fn from_raw(raw: ::core::num::NonZero<u32>) -> $name {
+                $name(raw)
             }
-            Ok(Self::new_unchecked(value as u32))
+
+            fn to_raw(self) ->::core::num::NonZero<u32> {
+                self.0
+            }
         }
+
+        impl ::core::ops::Add<u32> for $name {
+            type Output = Self;
+
+            fn add(self, rhs: u32) -> Self::Output {
+                use $crate::Idx;
+                Self::new(self.get().wrapping_add(rhs))
+            }
+        }
+
+        impl ::core::ops::AddAssign<u32> for $name {
+            fn add_assign(&mut self, other: u32) {
+                *self = *self + other;
+            }
+        }
+
+        impl ::core::ops::Sub<$name> for $name {
+            type Output = u32;
+
+            fn sub(self, rhs: $name) -> Self::Output {
+                use $crate::Idx;
+                self.get() - rhs.get()
+            }
+        }
+
+        $crate::newtype_index!($($rest)*);
+    };
+}
+
+pub trait Idx: Eq + Copy {
+    fn max() -> Self;
+    fn new(x: u32) -> Self;
+    fn get(self) -> u32;
+}
+
+impl<I: IdxInner> Idx for I {
+    fn max() -> Self {
+        Self::new(u32::MAX - 1)
+    }
+
+    fn new(x: u32) -> Self {
+        let nz = NonZero::new(x.wrapping_add(1)).unwrap_or_else(|| panic_idx_overflow());
+        Self::from_raw(nz)
+    }
+
+    fn get(self) -> u32 {
+        // Safety: `NonZero<u32>` guarantees `.get()` yields a value that's at least 1.
+        unsafe { self.to_raw().get().unchecked_sub(1) }
     }
 }
 
-const _OPTION_X32_SMALL: () = const {
-    struct ExampleMarker;
-    type Index = X32<ExampleMarker>;
-    assert!(std::mem::size_of::<Option<Index>>() == 4);
-    assert!(std::mem::size_of::<Index>() == 4);
-};
-
-impl<M> Hash for X32<M> {
-    #[inline]
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.idx.hash(state);
+impl<I: IdxInner> IncIterable for I {
+    #[inline(always)]
+    fn get_and_inc(&mut self) -> Self {
+        let current = *self;
+        *self += 1;
+        current
     }
 }
 
-impl<M> std::fmt::Debug for X32<M> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}({})", std::any::type_name::<M>(), self.get())
-    }
-}
-
-impl<M> std::fmt::Display for X32<M> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.get())
-    }
-}
-
-impl<M> InternerSymbol for X32<M> {
-    fn try_from_usize(id: usize) -> Option<X32<M>> {
-        u32::try_from(id).ok().and_then(X32::try_new)
-    }
-
-    #[inline]
-    fn to_usize(self) -> usize {
-        self.get() as usize
-    }
-}
-
-impl<M> Clone for X32<M> {
-    fn clone(&self) -> Self {
-        *self
-    }
-}
-
-impl<M> Copy for X32<M> {}
-
-impl<M> PartialEq for X32<M> {
-    fn eq(&self, other: &Self) -> bool {
-        self.idx == other.idx
-    }
-}
-
-impl<M> Eq for X32<M> {}
-
-impl<M> PartialOrd for X32<M> {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl<M> Ord for X32<M> {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        self.idx.cmp(&other.idx)
+#[cfg(test)]
+mod tests {
+    newtype_index! {
+        pub struct TestIdx;
     }
 }

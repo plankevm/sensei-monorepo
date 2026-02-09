@@ -1,6 +1,6 @@
 use std::marker::PhantomData;
 
-use crate::X32;
+use crate::Idx;
 
 /// A dense bitset for storing sets of typed indices.
 ///
@@ -8,12 +8,12 @@ use crate::X32;
 /// index is known or bounded. It uses a bit vector internally, where each bit represents
 /// whether an index is present in the set.
 #[derive(Debug, Clone)]
-pub struct DenseIndexSet<M> {
+pub struct DenseIndexSet<I: Idx> {
     inner: Vec<usize>,
-    _marker: PhantomData<M>,
+    _marker: PhantomData<I>,
 }
 
-impl<M> DenseIndexSet<M> {
+impl<I: Idx> DenseIndexSet<I> {
     /// Creates a new empty `DenseIndexSet`.
     #[inline]
     pub fn new() -> Self {
@@ -41,7 +41,7 @@ impl<M> DenseIndexSet<M> {
 
     /// Returns `true` if the set contains the given index.
     #[inline]
-    pub fn contains(&self, i: X32<M>) -> bool {
+    pub fn contains(&self, i: I) -> bool {
         let idx = i.get();
         let bit = idx % usize::BITS;
         let word = idx / usize::BITS;
@@ -51,7 +51,7 @@ impl<M> DenseIndexSet<M> {
     /// Adds an index to the set.
     ///
     /// Returns `true` if the index was newly added, or `false` if it was already present.
-    pub fn add(&mut self, i: X32<M>) -> bool {
+    pub fn add(&mut self, i: I) -> bool {
         let idx = i.get();
         let bit = idx % usize::BITS;
         let word = (idx / usize::BITS) as usize;
@@ -74,7 +74,7 @@ impl<M> DenseIndexSet<M> {
     /// Removes an index from the set.
     ///
     /// Returns `true` if the index was present and removed, or `false` if it wasn't in the set.
-    pub fn remove(&mut self, i: X32<M>) -> bool {
+    pub fn remove(&mut self, i: I) -> bool {
         let idx = i.get();
         let bit = idx % usize::BITS;
         let word = (idx / usize::BITS) as usize;
@@ -93,7 +93,7 @@ impl<M> DenseIndexSet<M> {
     }
 }
 
-impl<M> Default for DenseIndexSet<M> {
+impl<I: Idx> Default for DenseIndexSet<I> {
     fn default() -> Self {
         Self::new()
     }
@@ -101,59 +101,63 @@ impl<M> Default for DenseIndexSet<M> {
 
 #[cfg(test)]
 mod tests {
+    use crate::newtype_index;
+
     use super::*;
 
-    enum TestIdx {}
+    newtype_index! {
+        struct TestIdx;
+    }
 
     #[test]
     fn test_new_empty() {
         let set: DenseIndexSet<TestIdx> = DenseIndexSet::new();
-        assert!(!set.contains(X32::new(0)));
-        assert!(!set.contains(X32::new(100)));
+        assert!(!set.contains(TestIdx::new(0)));
+        assert!(!set.contains(TestIdx::new(100)));
     }
 
     #[test]
     fn test_add_and_contains() {
         let mut set: DenseIndexSet<TestIdx> = DenseIndexSet::new();
 
-        assert!(set.add(X32::new(5)));
-        assert!(set.contains(X32::new(5)));
-        assert!(!set.contains(X32::new(4)));
-        assert!(!set.contains(X32::new(6)));
+        assert!(set.add(TestIdx::new(5)));
+        assert!(set.contains(TestIdx::new(5)));
+        assert!(!set.contains(TestIdx::new(4)));
+        assert!(!set.contains(TestIdx::new(6)));
 
         // Adding again should return false
-        assert!(!set.add(X32::new(5)));
-        assert!(set.contains(X32::new(5)));
+        assert!(!set.add(TestIdx::new(5)));
+        assert!(set.contains(TestIdx::new(5)));
     }
 
     #[test]
     fn test_remove() {
         let mut set: DenseIndexSet<TestIdx> = DenseIndexSet::new();
 
-        set.add(X32::new(10));
-        assert!(set.contains(X32::new(10)));
+        set.add(TestIdx::new(10));
+        assert!(set.contains(TestIdx::new(10)));
 
-        assert!(set.remove(X32::new(10)));
-        assert!(!set.contains(X32::new(10)));
+        assert!(set.remove(TestIdx::new(10)));
+        assert!(!set.contains(TestIdx::new(10)));
 
         // Removing non-existent element should return false
-        assert!(!set.remove(X32::new(10)));
-        assert!(!set.remove(X32::new(999)));
+        assert!(!set.remove(TestIdx::new(10)));
+        assert!(!set.remove(TestIdx::new(999)));
     }
 
     #[test]
     fn test_clear() {
         let mut set: DenseIndexSet<TestIdx> = DenseIndexSet::new();
 
-        set.add(X32::new(1));
-        set.add(X32::new(10));
-        set.add(X32::new(100));
+        set.add(TestIdx::new(1));
+        set.add(TestIdx::new(10));
+        set.add(TestIdx::new(100));
 
         set.clear();
 
-        assert!(!set.contains(X32::new(1)));
-        assert!(!set.contains(X32::new(10)));
-        assert!(!set.contains(X32::new(100)));
+        assert!(!set.contains(TestIdx::new(1)));
+        assert!(!set.contains(TestIdx::new(10)));
+        assert!(!set.contains(TestIdx::new(100)));
     }
 
     #[test]
@@ -161,28 +165,28 @@ mod tests {
         let mut set: DenseIndexSet<TestIdx> = DenseIndexSet::new();
 
         // Test indices across word boundaries
-        assert!(set.add(X32::new(0)));
-        assert!(set.add(X32::new(63)));
-        assert!(set.add(X32::new(64)));
-        assert!(set.add(X32::new(65)));
-        assert!(set.add(X32::new(1000)));
+        assert!(set.add(TestIdx::new(0)));
+        assert!(set.add(TestIdx::new(63)));
+        assert!(set.add(TestIdx::new(64)));
+        assert!(set.add(TestIdx::new(65)));
+        assert!(set.add(TestIdx::new(1000)));
 
-        assert!(set.contains(X32::new(0)));
-        assert!(set.contains(X32::new(63)));
-        assert!(set.contains(X32::new(64)));
-        assert!(set.contains(X32::new(65)));
-        assert!(set.contains(X32::new(1000)));
+        assert!(set.contains(TestIdx::new(0)));
+        assert!(set.contains(TestIdx::new(63)));
+        assert!(set.contains(TestIdx::new(64)));
+        assert!(set.contains(TestIdx::new(65)));
+        assert!(set.contains(TestIdx::new(1000)));
 
-        assert!(!set.contains(X32::new(1)));
-        assert!(!set.contains(X32::new(62)));
-        assert!(!set.contains(X32::new(66)));
-        assert!(!set.contains(X32::new(999)));
+        assert!(!set.contains(TestIdx::new(1)));
+        assert!(!set.contains(TestIdx::new(62)));
+        assert!(!set.contains(TestIdx::new(66)));
+        assert!(!set.contains(TestIdx::new(999)));
     }
 
     #[test]
     fn test_with_capacity() {
         let set: DenseIndexSet<TestIdx> = DenseIndexSet::with_capacity_in_bits(256);
-        assert!(!set.contains(X32::new(0)));
-        assert!(!set.contains(X32::new(255)));
+        assert!(!set.contains(TestIdx::new(0)));
+        assert!(!set.contains(TestIdx::new(255)));
     }
 }
