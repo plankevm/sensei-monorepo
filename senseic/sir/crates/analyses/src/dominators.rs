@@ -22,6 +22,8 @@ fn compute_function_dominators(
     entry: BasicBlockId,
     dominators: &mut IndexVec<BasicBlockIdMarker, Option<BasicBlockId>>,
 ) {
+    dominators[entry] = Some(entry);
+
     let mut visited = DenseIndexSet::new();
     let mut rpo = Vec::new();
     dfs_postorder(program, entry, &mut visited, &mut rpo);
@@ -31,8 +33,6 @@ fn compute_function_dominators(
         rpo_pos[bb] = pos as u32;
     }
 
-    let mut doms = index_vec![None; program.basic_blocks.len()];
-    doms[entry] = Some(entry);
     let predecessors = compute_predecessors(program);
     let mut changed = true;
     while changed {
@@ -44,19 +44,14 @@ fn compute_function_dominators(
             );
             let mut new_idom = predecessors[*b][0];
             for p in predecessors[*b][1..].iter() {
-                if doms[*p].is_some() {
-                    new_idom = intersect(*p, new_idom, &doms, &rpo_pos);
+                if dominators[*p].is_some() {
+                    new_idom = intersect(*p, new_idom, dominators, &rpo_pos);
                 }
             }
-            if doms[*b] != Some(new_idom) {
-                doms[*b] = Some(new_idom);
+            if dominators[*b] != Some(new_idom) {
+                dominators[*b] = Some(new_idom);
                 changed = true;
             }
-        }
-    }
-    for (id, dom) in doms.enumerate_idx() {
-        if let Some(d) = dom {
-            dominators[id] = Some(*d);
         }
     }
 }
