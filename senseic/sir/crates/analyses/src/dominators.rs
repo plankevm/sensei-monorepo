@@ -2,140 +2,94 @@ use sir_data::{BasicBlockId, BasicBlockIdMarker, EthIRProgram, IndexVec, index_v
 
 use crate::compute_predecessors;
 
-// uses Semi-NCA
+// iterative dominator algorithm using RPO
 pub fn compute_dominators(program: &EthIRProgram) -> IndexVec<BasicBlockIdMarker, BasicBlockId> {
-    let mut result = index_vec![BasicBlockId::ZERO; program.basic_blocks.len()];
+    let mut dominators = index_vec![BasicBlockId::ZERO; program.basic_blocks.len()];
 
     for func in program.functions.iter() {
-        compute_function_dominators(program, func.entry(), &mut result);
+        compute_function_dominators(program, func.entry(), &mut dominators);
     }
 
-    result
+    dominators
 }
 
 fn compute_function_dominators(
     program: &EthIRProgram,
     entry: BasicBlockId,
-    result: &mut IndexVec<BasicBlockIdMarker, BasicBlockId>,
+    dominators: &mut IndexVec<BasicBlockIdMarker, BasicBlockId>,
 ) {
-    let mut dfnum = index_vec![usize::MAX; program.basic_blocks.len()];
-    let mut parent = index_vec![BasicBlockId::ZERO; program.basic_blocks.len()];
-    parent[entry] = entry;
-    let mut vertex = Vec::new();
-    dfs_number(entry, program, &mut dfnum, &mut parent, &mut vertex);
+    let mut visited = index_vec![false; program.basic_blocks.len()];
+    let mut rpo = Vec::new();
+    dfs_postorder(program, entry, &mut visited, &mut rpo);
+    rpo.reverse();
+    let mut rpo_pos = index_vec![BasicBlockId::ZERO; program.basic_blocks.len()];
+    for (pos, &bb) in rpo.iter().enumerate() {
+        rpo_pos[bb] = BasicBlockId::new(pos as u32);
+    }
 
+    let mut doms = index_vec![None; program.basic_blocks.len()];
+    doms[entry] = Some(entry);
     let predecessors = compute_predecessors(program);
-    let sdom = compute_semi_dominators(&vertex, &dfnum, &parent, &predecessors);
-
-    result[entry] = entry;
-    for i in 1..vertex.len() {
-        let w = vertex[i];
-        let sdom_node = vertex[sdom[w]];
-
-        let mut y = parent[w];
-        while dfnum[y] > sdom[w] {
-            y = parent[y];
-        }
-
-        if y == sdom_node {
-            result[w] = sdom_node;
-        } else {
-            result[w] = result[y];
-        }
-    }
-}
-
-fn dfs_number(
-    bb_id: BasicBlockId,
-    program: &EthIRProgram,
-    dfnum: &mut IndexVec<BasicBlockIdMarker, usize>,
-    parent: &mut IndexVec<BasicBlockIdMarker, BasicBlockId>,
-    vertex: &mut Vec<BasicBlockId>,
-) {
-    dfnum[bb_id] = vertex.len();
-    vertex.push(bb_id);
-
-    for succ in program.basic_blocks[bb_id].control.iter_outgoing(program) {
-        if dfnum[succ] != usize::MAX {
-            continue;
-        };
-        parent[succ] = bb_id;
-        dfs_number(succ, program, dfnum, parent, vertex);
-    }
-}
-
-fn compute_semi_dominators(
-    vertex: &[BasicBlockId],
-    dfnum: &IndexVec<BasicBlockIdMarker, usize>,
-    parent: &IndexVec<BasicBlockIdMarker, BasicBlockId>,
-    predecessors: &IndexVec<BasicBlockIdMarker, Vec<BasicBlockId>>,
-) -> IndexVec<BasicBlockIdMarker, usize> {
-    let mut ancestor: IndexVec<BasicBlockIdMarker, Option<BasicBlockId>> =
-        index_vec![None; dfnum.len()];
-    let mut sdom = index_vec![usize::MAX; dfnum.len()];
-    let mut best = index_vec![BasicBlockId::ZERO; dfnum.len()];
-    for &v in vertex {
-        sdom[v] = dfnum[v];
-        best[v] = v;
-    }
-
-    for i in (1..vertex.len()).rev() {
-        let w = vertex[i];
-
-        for &pred in &predecessors[w] {
-            if dfnum[pred] == usize::MAX {
-                continue;
+    let mut changed = true;
+    while changed {
+        changed = false;
+        for b in rpo[1..].iter() {
+            debug_assert!(
+                !predecessors[*b].is_empty(),
+                "non-entry block in RPO has no predecessors"
+            );
+            let mut new_idom = predecessors[*b][0];
+            for p in predecessors[*b][1..].iter() {
+                if doms[*p].is_some() {
+                    new_idom = intersect(*p, new_idom, &doms, &rpo_pos);
+                }
             }
-
-            let candidate_sdom = if dfnum[pred] < dfnum[w] {
-                dfnum[pred]
-            } else {
-                sdom[eval(pred, &mut ancestor, &mut best, &sdom)]
-            };
-
-            if candidate_sdom < sdom[w] {
-                sdom[w] = candidate_sdom;
+            if doms[*b] != Some(new_idom) {
+                doms[*b] = Some(new_idom);
+                changed = true;
             }
         }
-
-        ancestor[w] = Some(parent[w]);
     }
-
-    sdom
+    for (id, dom) in doms.enumerate_idx() {
+        if let Some(d) = dom {
+            dominators[id] = *d;
+        }
+    }
 }
 
-fn eval(
-    v: BasicBlockId,
-    ancestor: &mut IndexVec<BasicBlockIdMarker, Option<BasicBlockId>>,
-    best: &mut IndexVec<BasicBlockIdMarker, BasicBlockId>,
-    sdom: &IndexVec<BasicBlockIdMarker, usize>,
+fn intersect(
+    b1: BasicBlockId,
+    b2: BasicBlockId,
+    doms: &IndexVec<BasicBlockIdMarker, Option<BasicBlockId>>,
+    rpo_pos: &IndexVec<BasicBlockIdMarker, BasicBlockId>,
 ) -> BasicBlockId {
-    if ancestor[v].is_none() {
-        return v;
+    let mut b1 = b1;
+    let mut b2 = b2;
+    while b1 != b2 {
+        while rpo_pos[b1] > rpo_pos[b2] {
+            b1 = doms[b1].expect("intersect only called on blocks with computed dominators");
+        }
+        while rpo_pos[b2] > rpo_pos[b1] {
+            b2 = doms[b2].expect("intersect only called on blocks with computed dominators");
+        }
     }
-    compress(v, ancestor, best, sdom);
-    best[v]
+    b1
 }
 
-fn compress(
-    v: BasicBlockId,
-    ancestor: &mut IndexVec<BasicBlockIdMarker, Option<BasicBlockId>>,
-    best: &mut IndexVec<BasicBlockIdMarker, BasicBlockId>,
-    sdom: &IndexVec<BasicBlockIdMarker, usize>,
+fn dfs_postorder(
+    program: &EthIRProgram,
+    id: BasicBlockId,
+    visited: &mut IndexVec<BasicBlockIdMarker, bool>,
+    postorder: &mut Vec<BasicBlockId>,
 ) {
-    let a = ancestor[v].unwrap();
-
-    if ancestor[a].is_none() {
+    if visited[id] {
         return;
     }
-
-    compress(a, ancestor, best, sdom);
-
-    if sdom[best[a]] < sdom[best[v]] {
-        best[v] = best[a];
+    visited[id] = true;
+    for succ in program.basic_blocks[id].control.iter_outgoing(program) {
+        dfs_postorder(program, succ, visited, postorder);
     }
-
-    ancestor[v] = ancestor[a];
+    postorder.push(id);
 }
 
 #[cfg(test)]
