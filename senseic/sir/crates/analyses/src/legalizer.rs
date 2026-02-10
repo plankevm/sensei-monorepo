@@ -30,7 +30,7 @@ pub enum LegalizerError {
     SpanOutOfBounds(SpanSource),
     SharedBasicBlock(BasicBlockId, FunctionId, FunctionId),
     IncompatibleEdge { from: BasicBlockId, to: BasicBlockId },
-    WrongOutputCount { block: BasicBlockId, expected: u32 },
+    WrongOutputCount { block: BasicBlockId, expected: u32, actual: u32 },
     RecursiveCall(FunctionId, FunctionId),
     InvalidLocalId(LocalId),
     DoubleDefinition(LocalId),
@@ -51,11 +51,12 @@ struct Legalizer<'a> {
 
 impl<'a> Legalizer<'a> {
     fn new(program: &'a EthIRProgram) -> Self {
+        let block_owner = index_vec![None; program.basic_blocks.len()];
         Self {
             program,
             locals_spans: Vec::new(),
             operations_spans: Vec::new(),
-            block_owner: IndexVec::new(),
+            block_owner,
             call_edges: Vec::new(),
         }
     }
@@ -67,148 +68,17 @@ impl<'a> Legalizer<'a> {
         self.validate_local_ids()
     }
 
-    fn validate_cfg(&mut self) -> Result<(), LegalizerError> {
-        let mut visited = DenseIndexSet::new();
-        for (fn_id, function) in self.program.functions.enumerate_idx() {
-            visited.clear();
-            self.visit_block(fn_id, function.entry(), &mut visited)?;
-        }
-        self.validate_call_graph()
-    }
-
-    fn validate_call_graph(&self) -> Result<(), LegalizerError> {
-        let mut callees: IndexVec<FunctionId, Vec<FunctionId>> =
-            index_vec![Vec::new(); self.program.functions.len()];
-        for (caller, callee) in &self.call_edges {
-            callees[*caller].push(*callee);
+    fn validate_entry_points(&self) -> Result<(), LegalizerError> {
+        let entry_bb =
+            &self.program.basic_blocks[self.program.functions[self.program.init_entry].entry()];
+        if !entry_bb.inputs.is_empty() {
+            return Err(LegalizerError::InitHasInputs(entry_bb.inputs.len()));
         }
 
-        // 0 = unvisited, 1 = in progress, 2 = done
-        let mut color: IndexVec<FunctionId, u8> = index_vec![0; self.program.functions.len()];
-        for fn_id in self.program.functions.iter_idx() {
-            if color[fn_id] == 0 {
-                detect_cycle(fn_id, &callees, &mut color)?;
-            }
-        }
-        Ok(())
-    }
-
-    fn visit_block(
-        &mut self,
-        fn_id: FunctionId,
-        bb: BasicBlockId,
-        visited: &mut DenseIndexSet<BasicBlockId>,
-    ) -> Result<(), LegalizerError> {
-        if visited.contains(bb) {
-            return Ok(());
-        }
-        visited.add(bb);
-
-        // function end blocks have output count equal to the function's .outputs when Control::InternalReturn
-        if matches!(self.program.basic_blocks[bb].control, Control::InternalReturn) {
-            if self.program.basic_blocks[bb].outputs.len()
-                != self.program.functions[fn_id].get_outputs()
-            {
-                return Err(LegalizerError::WrongOutputCount {
-                    block: bb,
-                    expected: self.program.functions[fn_id].get_outputs(),
-                });
-            }
-        }
-
-        // check no two functions share the same basic block
-        if let Some(owner) = self.block_owner[bb] {
-            return Err(LegalizerError::SharedBasicBlock(bb, owner, fn_id));
-        }
-        self.block_owner[bb] = Some(fn_id);
-
-        // update call_edges
-        for op_id in self.program.basic_blocks[bb].operations.iter() {
-            let op = &self.program.operations[op_id];
-            if let Operation::InternalCall(InternalCallData { function: callee, .. }) = op {
-                self.call_edges.push((fn_id, *callee));
-            }
-        }
-
-        for succ in self.program.basic_blocks[bb].control.iter_outgoing(self.program) {
-            // input & output count of connected basic blocks
-            if self.program.basic_blocks[bb].outputs.len()
-                != self.program.basic_blocks[succ].inputs.len()
-            {
-                return Err(LegalizerError::IncompatibleEdge { from: bb, to: succ });
-            }
-            self.visit_block(fn_id, succ, visited)?;
-        }
-        Ok(())
-    }
-
-    fn validate_local_ids(&mut self) -> Result<(), LegalizerError> {
-        self.validate_single_assignment()?;
-        self.validate_uses_defined()
-    }
-
-    fn validate_single_assignment(&self) -> Result<(), LegalizerError> {
-        let mut defs = DenseIndexSet::new();
-        for bb in self.program.basic_blocks.iter() {
-            for local in self.program.locals[bb.inputs].iter() {
-                if !defs.add(*local) {
-                    return Err(LegalizerError::DoubleDefinition(*local));
-                }
-            }
-            for op_idx in bb.operations.iter() {
-                for local in self.program.operations[op_idx].outputs(self.program) {
-                    if !defs.add(*local) {
-                        return Err(LegalizerError::DoubleDefinition(*local));
-                    }
-                }
-            }
-        }
-        Ok(())
-    }
-
-    fn validate_uses_defined(&self) -> Result<(), LegalizerError> {
-        let mut fn_blocks: IndexVec<FunctionId, Vec<BasicBlockId>> =
-            index_vec![Vec::new(); self.program.functions.len()];
-        for (bb_id, owner) in self.block_owner.enumerate_idx() {
-            if let Some(fn_id) = owner {
-                fn_blocks[*fn_id].push(bb_id);
-            }
-        }
-        let mut use_def = DenseIndexSet::new();
-        for fn_id in self.program.functions.iter_idx() {
-            use_def.clear();
-            for bb_id in &fn_blocks[fn_id] {
-                for local_idx in self.program.basic_blocks[*bb_id].inputs.iter() {
-                    let local_id = self.program.locals[local_idx];
-                    use_def.add(local_id);
-                }
-                for op_idx in self.program.basic_blocks[*bb_id].operations.iter() {
-                    let op = &self.program.operations[op_idx];
-                    for output in op.outputs(self.program) {
-                        use_def.add(*output);
-                    }
-                }
-            }
-
-            for bb_id in &fn_blocks[fn_id] {
-                let bb = &self.program.basic_blocks[*bb_id];
-                for local_id in self.program.locals[bb.outputs].iter() {
-                    if !use_def.contains(*local_id) {
-                        return Err(LegalizerError::UndefinedLocal(fn_id, *local_id));
-                    }
-                }
-                for op_idx in bb.operations.iter() {
-                    for local_id in self.program.operations[op_idx].inputs(self.program) {
-                        if !use_def.contains(*local_id) {
-                            return Err(LegalizerError::UndefinedLocal(fn_id, *local_id));
-                        }
-                    }
-                }
-                if let Control::Branches(branch) = &bb.control {
-                    if !use_def.contains(branch.condition) {
-                        return Err(LegalizerError::UndefinedLocal(fn_id, branch.condition));
-                    }
-                }
+        if let Some(main_entry) = self.program.main_entry {
+            let main_bb = &self.program.basic_blocks[self.program.functions[main_entry].entry()];
+            if !main_bb.inputs.is_empty() {
+                return Err(LegalizerError::RuntimeHasInputs(main_bb.inputs.len()));
             }
         }
         Ok(())
@@ -217,37 +87,11 @@ impl<'a> Legalizer<'a> {
     fn validate_blocks(&mut self) -> Result<(), LegalizerError> {
         for (bb_id, bb) in self.program.basic_blocks.enumerate_idx() {
             self.validate_block_terminators(bb_id, bb)?;
-            self.validate_block_ranges(bb_id, bb)?;
+            self.validate_block_indices(bb_id, bb)?;
         }
 
-        // final range validation for locals
-        self.locals_spans.sort_by_key(|s| s.start);
-        for window in self.locals_spans.windows(2) {
-            if window[0].end > window[1].start {
-                return Err(LegalizerError::OverlappingSpans(window[1].source, window[0].source));
-            }
-        }
-
-        if let Some(last) = self.locals_spans.last() {
-            if last.end.idx() > self.program.locals.len() {
-                return Err(LegalizerError::SpanOutOfBounds(last.source));
-            }
-        }
-
-        // final range validation for operations spans
-        self.operations_spans.sort_by_key(|s| s.start);
-        for window in self.operations_spans.windows(2) {
-            if window[0].end > window[1].start {
-                return Err(LegalizerError::OverlappingSpans(window[1].source, window[0].source));
-            }
-        }
-
-        if let Some(last) = self.operations_spans.last() {
-            if last.end.idx() > self.program.operations.len() {
-                return Err(LegalizerError::SpanOutOfBounds(last.source));
-            }
-        }
-        Ok(())
+        validate_spans(&mut self.locals_spans, self.program.locals.len())?;
+        validate_spans(&mut self.operations_spans, self.program.operations.len())
     }
 
     fn validate_block_terminators(
@@ -255,9 +99,6 @@ impl<'a> Legalizer<'a> {
         bb_id: BasicBlockId,
         bb: &BasicBlock,
     ) -> Result<(), LegalizerError> {
-        // basic blocks may contain stop, invalid, return, revert, selfdestruct only if they're Control::LastOpTerminates
-        // and only if it's their last operation
-        // if Control is LastOpTerminates, the last op must be a terminator
         if matches!(bb.control, Control::LastOpTerminates) {
             if bb.operations.is_empty()
                 || !matches!(
@@ -293,7 +134,7 @@ impl<'a> Legalizer<'a> {
         Ok(())
     }
 
-    fn validate_block_ranges(
+    fn validate_block_indices(
         &mut self,
         bb_id: BasicBlockId,
         bb: &BasicBlock,
@@ -314,7 +155,6 @@ impl<'a> Legalizer<'a> {
             source: SpanSource::Operations(bb_id),
         });
 
-        // check control flow condition
         if let Control::Branches(branch) = &bb.control {
             if branch.condition >= self.program.next_free_local_id {
                 return Err(LegalizerError::InvalidLocalId(branch.condition));
@@ -529,18 +369,145 @@ impl<'a> Legalizer<'a> {
         Ok(())
     }
 
-    fn validate_entry_points(&mut self) -> Result<(), LegalizerError> {
-        // init & runtime entry points have 0 inputs
-        let entry_bb =
-            &self.program.basic_blocks[self.program.functions[self.program.init_entry].entry()];
-        if !entry_bb.inputs.is_empty() {
-            return Err(LegalizerError::InitHasInputs(entry_bb.inputs.len()));
+    fn validate_cfg(&mut self) -> Result<(), LegalizerError> {
+        let mut visited = DenseIndexSet::new();
+        for (fn_id, function) in self.program.functions.enumerate_idx() {
+            visited.clear();
+            self.visit_block(fn_id, function.entry(), &mut visited)?;
+        }
+        self.validate_call_graph()
+    }
+
+    fn validate_call_graph(&self) -> Result<(), LegalizerError> {
+        let mut callees: IndexVec<FunctionId, Vec<FunctionId>> =
+            index_vec![Vec::new(); self.program.functions.len()];
+        for (caller, callee) in &self.call_edges {
+            callees[*caller].push(*callee);
         }
 
-        if let Some(main_entry) = self.program.main_entry {
-            let main_bb = &self.program.basic_blocks[self.program.functions[main_entry].entry()];
-            if !main_bb.inputs.is_empty() {
-                return Err(LegalizerError::RuntimeHasInputs(main_bb.inputs.len()));
+        // 0 = unvisited, 1 = in progress, 2 = done
+        let mut color: IndexVec<FunctionId, u8> = index_vec![0; self.program.functions.len()];
+        for fn_id in self.program.functions.iter_idx() {
+            if color[fn_id] == 0 {
+                detect_cycle(fn_id, &callees, &mut color)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn visit_block(
+        &mut self,
+        fn_id: FunctionId,
+        bb: BasicBlockId,
+        visited: &mut DenseIndexSet<BasicBlockId>,
+    ) -> Result<(), LegalizerError> {
+        if visited.contains(bb) {
+            return Ok(());
+        }
+        visited.add(bb);
+
+        if matches!(self.program.basic_blocks[bb].control, Control::InternalReturn) {
+            if self.program.basic_blocks[bb].outputs.len()
+                != self.program.functions[fn_id].get_outputs()
+            {
+                return Err(LegalizerError::WrongOutputCount {
+                    block: bb,
+                    expected: self.program.functions[fn_id].get_outputs(),
+                    actual: self.program.basic_blocks[bb].outputs.len(),
+                });
+            }
+        }
+
+        if let Some(owner) = self.block_owner[bb] {
+            return Err(LegalizerError::SharedBasicBlock(bb, owner, fn_id));
+        }
+        self.block_owner[bb] = Some(fn_id);
+
+        for op_id in self.program.basic_blocks[bb].operations.iter() {
+            let op = &self.program.operations[op_id];
+            if let Operation::InternalCall(InternalCallData { function: callee, .. }) = op {
+                self.call_edges.push((fn_id, *callee));
+            }
+        }
+
+        for succ in self.program.basic_blocks[bb].control.iter_outgoing(self.program) {
+            if self.program.basic_blocks[bb].outputs.len()
+                != self.program.basic_blocks[succ].inputs.len()
+            {
+                return Err(LegalizerError::IncompatibleEdge { from: bb, to: succ });
+            }
+            self.visit_block(fn_id, succ, visited)?;
+        }
+        Ok(())
+    }
+
+    fn validate_local_ids(&self) -> Result<(), LegalizerError> {
+        self.validate_single_assignment()?;
+        self.validate_uses_defined()
+    }
+
+    fn validate_single_assignment(&self) -> Result<(), LegalizerError> {
+        let mut defs = DenseIndexSet::new();
+        for bb in self.program.basic_blocks.iter() {
+            for local in self.program.locals[bb.inputs].iter() {
+                if !defs.add(*local) {
+                    return Err(LegalizerError::DoubleDefinition(*local));
+                }
+            }
+            for op_idx in bb.operations.iter() {
+                for local in self.program.operations[op_idx].outputs(self.program) {
+                    if !defs.add(*local) {
+                        return Err(LegalizerError::DoubleDefinition(*local));
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn validate_uses_defined(&self) -> Result<(), LegalizerError> {
+        let mut fn_blocks: IndexVec<FunctionId, Vec<BasicBlockId>> =
+            index_vec![Vec::new(); self.program.functions.len()];
+        for (bb_id, owner) in self.block_owner.enumerate_idx() {
+            if let Some(fn_id) = owner {
+                fn_blocks[*fn_id].push(bb_id);
+            }
+        }
+        let mut fn_defs = DenseIndexSet::new();
+        for fn_id in self.program.functions.iter_idx() {
+            fn_defs.clear();
+            for bb_id in &fn_blocks[fn_id] {
+                for local_idx in self.program.basic_blocks[*bb_id].inputs.iter() {
+                    let local_id = self.program.locals[local_idx];
+                    fn_defs.add(local_id);
+                }
+                for op_idx in self.program.basic_blocks[*bb_id].operations.iter() {
+                    let op = &self.program.operations[op_idx];
+                    for output in op.outputs(self.program) {
+                        fn_defs.add(*output);
+                    }
+                }
+            }
+
+            for bb_id in &fn_blocks[fn_id] {
+                let bb = &self.program.basic_blocks[*bb_id];
+                for local_id in self.program.locals[bb.outputs].iter() {
+                    if !fn_defs.contains(*local_id) {
+                        return Err(LegalizerError::UndefinedLocal(fn_id, *local_id));
+                    }
+                }
+                for op_idx in bb.operations.iter() {
+                    for local_id in self.program.operations[op_idx].inputs(self.program) {
+                        if !fn_defs.contains(*local_id) {
+                            return Err(LegalizerError::UndefinedLocal(fn_id, *local_id));
+                        }
+                    }
+                }
+                if let Control::Branches(branch) = &bb.control {
+                    if !fn_defs.contains(branch.condition) {
+                        return Err(LegalizerError::UndefinedLocal(fn_id, branch.condition));
+                    }
+                }
             }
         }
         Ok(())
@@ -568,5 +535,23 @@ fn detect_cycle(
         }
     }
     color[fn_id] = 2; // black
+    Ok(())
+}
+
+fn validate_spans<I: Ord + Idx>(
+    spans: &mut Vec<TrackedSpan<I>>,
+    max_bound: usize,
+) -> Result<(), LegalizerError> {
+    spans.sort_by_key(|s| s.start);
+    for window in spans.windows(2) {
+        if window[0].end > window[1].start {
+            return Err(LegalizerError::OverlappingSpans(window[1].source, window[0].source));
+        }
+    }
+    if let Some(last) = spans.last() {
+        if last.end.idx() > max_bound {
+            return Err(LegalizerError::SpanOutOfBounds(last.source));
+        }
+    }
     Ok(())
 }
