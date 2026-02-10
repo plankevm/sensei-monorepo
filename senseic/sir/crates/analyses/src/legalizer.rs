@@ -50,6 +50,21 @@ impl<'a> Legalizer<'a> {
         todo!()
     }
 
+    fn validate_cfg(&mut self) -> Result<(), LegalizerError> {
+        // The call graph is acyclic aka no recursion mutual or otherwise is present
+        // The CFG of functions is disjoint (no two functions share the same basic block)
+        // All function end blocks either terminate or have the same output count, equal to the function's .outputs (when Control::InternalReturn)
+        // The input & output count of connected basic blocks lines up
+        todo!()
+    }
+
+    fn validate_local_ids(&mut self) -> Result<(), LegalizerError> {
+        // next_free_local_id & next_static_alloc_id are greater than all IDs used in the graph
+        // Validate that every local ID is only assigned once
+        // Validate that every referenced local ID is defined somewhere in the function (bb inputs, operation assignment)
+        todo!()
+    }
+
     fn validate_blocks(&mut self) -> Result<(), LegalizerError> {
         for (bb_id, bb) in self.program.basic_blocks.enumerate_idx() {
             self.validate_block_terminators(bb_id, bb)?;
@@ -84,14 +99,6 @@ impl<'a> Legalizer<'a> {
             }
         }
         Ok(())
-    }
-
-    fn validate_cfg(&mut self) -> Result<(), LegalizerError> {
-        // The call graph is acyclic aka no recursion mutual or otherwise is present
-        // The CFG of functions is disjoint (no two functions share the same basic block)
-        // All function end blocks either terminate or have the same output count, equal to the function's .outputs (when Control::InternalReturn)
-        // The input & output count of connected basic blocks lines up
-        todo!()
     }
 
     fn validate_block_terminators(
@@ -220,13 +227,6 @@ impl<'a> Legalizer<'a> {
             }
         }
         Ok(())
-    }
-
-    fn validate_local_ids(&mut self) -> Result<(), LegalizerError> {
-        // next_free_local_id & next_static_alloc_id are greater than all IDs used in the graph
-        // Validate that every local ID is only assigned once
-        // Validate that every referenced local ID is defined somewhere in the function (bb inputs, operation assignment)
-        todo!()
     }
 
     fn validate_entry_points(&mut self) -> Result<(), LegalizerError> {
