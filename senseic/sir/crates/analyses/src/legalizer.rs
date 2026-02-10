@@ -1,10 +1,7 @@
 use sir_data::{
     BasicBlock, BasicBlockId, Control, DataId, DenseIndexSet, EthIRProgram, FunctionId, Idx,
     IndexVec, LargeConstId, LocalId, LocalIdx, Operation, OperationIdx, StaticAllocId, index_vec,
-    operation::{
-        AllocatedIns, InlineOperands, InternalCallData, MemoryLoadData, MemoryStoreData,
-        SetDataOffsetData, SetLargeConstData, SetSmallConstData, StaticAllocData,
-    },
+    operation::{InternalCallData, ReferencedResource},
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -196,210 +193,52 @@ impl<'a> Legalizer<'a> {
 
         for op_id in bb.operations.iter() {
             let op = &self.program.operations[op_id];
-            match op {
-                Operation::AddMod(AllocatedIns { ins_start, outs: [out] })
-                | Operation::MulMod(AllocatedIns { ins_start, outs: [out] })
-                | Operation::Create(AllocatedIns { ins_start, outs: [out] })
-                | Operation::Create2(AllocatedIns { ins_start, outs: [out] })
-                | Operation::Call(AllocatedIns { ins_start, outs: [out] })
-                | Operation::CallCode(AllocatedIns { ins_start, outs: [out] })
-                | Operation::DelegateCall(AllocatedIns { ins_start, outs: [out] })
-                | Operation::StaticCall(AllocatedIns { ins_start, outs: [out] }) => {
-                    self.locals_spans.push(TrackedSpan {
-                        start: *ins_start,
-                        end: *ins_start + op.inputs(self.program).len() as u32,
-                        source: SpanSource::OpInputs(bb_id, op_id),
-                    });
-                    if *out >= self.program.next_free_local_id {
-                        return Err(LegalizerError::InvalidLocalId(*out));
+
+            for resource in op.referenced_resources().iter() {
+                match resource {
+                    ReferencedResource::LargeConst(id) => {
+                        if self.program.large_consts.get(id).is_none() {
+                            return Err(LegalizerError::InvalidLargeConstId(id));
+                        }
+                    }
+                    ReferencedResource::DataSegment(id) => {
+                        if self.program.data_segments_start.get(id).is_none() {
+                            return Err(LegalizerError::InvalidSegmentId(id));
+                        }
+                    }
+                    ReferencedResource::StaticAlloc(id) => {
+                        if id >= self.program.next_static_alloc_id {
+                            return Err(LegalizerError::InvalidStaticAllocId(id));
+                        }
+                    }
+                    ReferencedResource::Function(id) => {
+                        if self.program.functions.get(id).is_none() {
+                            return Err(LegalizerError::InvalidFunctionId(id));
+                        }
                     }
                 }
-                Operation::ExtCodeCopy(AllocatedIns { ins_start, outs: _ })
-                | Operation::Log2(AllocatedIns { ins_start, outs: _ })
-                | Operation::Log3(AllocatedIns { ins_start, outs: _ })
-                | Operation::Log4(AllocatedIns { ins_start, outs: _ }) => {
-                    self.locals_spans.push(TrackedSpan {
-                        start: *ins_start,
-                        end: *ins_start + op.inputs(self.program).len() as u32,
-                        source: SpanSource::OpInputs(bb_id, op_id),
-                    });
+            }
+
+            for local_id in op.inputs(self.program).iter().chain(op.outputs(self.program)) {
+                if *local_id >= self.program.next_free_local_id {
+                    return Err(LegalizerError::InvalidLocalId(*local_id));
                 }
-                Operation::InternalCall(InternalCallData {
-                    function,
-                    ins_start,
-                    outs_start,
-                }) => {
-                    if self.program.functions.get(*function).is_none() {
-                        return Err(LegalizerError::InvalidFunctionId(*function));
-                    }
-                    self.locals_spans.push(TrackedSpan {
-                        start: *ins_start,
-                        end: *ins_start + op.inputs(self.program).len() as u32,
-                        source: SpanSource::OpInputs(bb_id, op_id),
-                    });
-                    self.locals_spans.push(TrackedSpan {
-                        start: *outs_start,
-                        end: *outs_start + op.outputs(self.program).len() as u32,
-                        source: SpanSource::OpOutputs(bb_id, op_id),
-                    });
-                }
-                Operation::SetLargeConst(SetLargeConstData { sets, value }) => {
-                    if self.program.large_consts.get(*value).is_none() {
-                        return Err(LegalizerError::InvalidLargeConstId(*value));
-                    }
-                    if *sets >= self.program.next_free_local_id {
-                        return Err(LegalizerError::InvalidLocalId(*sets));
-                    }
-                }
-                Operation::SetDataOffset(SetDataOffsetData { sets, segment_id }) => {
-                    if self.program.data_segments_start.get(*segment_id).is_none() {
-                        return Err(LegalizerError::InvalidSegmentId(*segment_id));
-                    }
-                    if *sets >= self.program.next_free_local_id {
-                        return Err(LegalizerError::InvalidLocalId(*sets));
-                    }
-                }
-                Operation::StaticAllocZeroed(StaticAllocData { size: _, ptr_out, alloc_id })
-                | Operation::StaticAllocAnyBytes(StaticAllocData { size: _, ptr_out, alloc_id }) => {
-                    if *alloc_id >= self.program.next_static_alloc_id {
-                        return Err(LegalizerError::InvalidStaticAllocId(*alloc_id));
-                    }
-                    if *ptr_out >= self.program.next_free_local_id {
-                        return Err(LegalizerError::InvalidLocalId(*ptr_out));
-                    }
-                }
-                Operation::Add(InlineOperands { ins: [in0, in1], outs: [out] })
-                | Operation::Mul(InlineOperands { ins: [in0, in1], outs: [out] })
-                | Operation::Sub(InlineOperands { ins: [in0, in1], outs: [out] })
-                | Operation::Div(InlineOperands { ins: [in0, in1], outs: [out] })
-                | Operation::SDiv(InlineOperands { ins: [in0, in1], outs: [out] })
-                | Operation::Mod(InlineOperands { ins: [in0, in1], outs: [out] })
-                | Operation::SMod(InlineOperands { ins: [in0, in1], outs: [out] })
-                | Operation::Exp(InlineOperands { ins: [in0, in1], outs: [out] })
-                | Operation::SignExtend(InlineOperands { ins: [in0, in1], outs: [out] })
-                | Operation::Lt(InlineOperands { ins: [in0, in1], outs: [out] })
-                | Operation::Gt(InlineOperands { ins: [in0, in1], outs: [out] })
-                | Operation::SLt(InlineOperands { ins: [in0, in1], outs: [out] })
-                | Operation::SGt(InlineOperands { ins: [in0, in1], outs: [out] })
-                | Operation::Eq(InlineOperands { ins: [in0, in1], outs: [out] })
-                | Operation::And(InlineOperands { ins: [in0, in1], outs: [out] })
-                | Operation::Or(InlineOperands { ins: [in0, in1], outs: [out] })
-                | Operation::Xor(InlineOperands { ins: [in0, in1], outs: [out] })
-                | Operation::Byte(InlineOperands { ins: [in0, in1], outs: [out] })
-                | Operation::Shl(InlineOperands { ins: [in0, in1], outs: [out] })
-                | Operation::Shr(InlineOperands { ins: [in0, in1], outs: [out] })
-                | Operation::Sar(InlineOperands { ins: [in0, in1], outs: [out] })
-                | Operation::Keccak256(InlineOperands { ins: [in0, in1], outs: [out] }) => {
-                    if *in0 >= self.program.next_free_local_id {
-                        return Err(LegalizerError::InvalidLocalId(*in0));
-                    }
-                    if *in1 >= self.program.next_free_local_id {
-                        return Err(LegalizerError::InvalidLocalId(*in1));
-                    }
-                    if *out >= self.program.next_free_local_id {
-                        return Err(LegalizerError::InvalidLocalId(*out));
-                    }
-                }
-                Operation::Balance(InlineOperands { ins: [in0], outs: [out] })
-                | Operation::CallDataLoad(InlineOperands { ins: [in0], outs: [out] })
-                | Operation::ExtCodeSize(InlineOperands { ins: [in0], outs: [out] })
-                | Operation::ExtCodeHash(InlineOperands { ins: [in0], outs: [out] })
-                | Operation::BlockHash(InlineOperands { ins: [in0], outs: [out] })
-                | Operation::BlobHash(InlineOperands { ins: [in0], outs: [out] })
-                | Operation::SLoad(InlineOperands { ins: [in0], outs: [out] })
-                | Operation::TLoad(InlineOperands { ins: [in0], outs: [out] })
-                | Operation::IsZero(InlineOperands { ins: [in0], outs: [out] })
-                | Operation::Not(InlineOperands { ins: [in0], outs: [out] })
-                | Operation::DynamicAllocZeroed(InlineOperands { ins: [in0], outs: [out] })
-                | Operation::DynamicAllocAnyBytes(InlineOperands { ins: [in0], outs: [out] })
-                | Operation::SetCopy(InlineOperands { ins: [in0], outs: [out] }) => {
-                    if *in0 >= self.program.next_free_local_id {
-                        return Err(LegalizerError::InvalidLocalId(*in0));
-                    }
-                    if *out >= self.program.next_free_local_id {
-                        return Err(LegalizerError::InvalidLocalId(*out));
-                    }
-                }
-                Operation::Address(InlineOperands { ins: [], outs: [out] })
-                | Operation::Origin(InlineOperands { ins: [], outs: [out] })
-                | Operation::Caller(InlineOperands { ins: [], outs: [out] })
-                | Operation::CallValue(InlineOperands { ins: [], outs: [out] })
-                | Operation::CallDataSize(InlineOperands { ins: [], outs: [out] })
-                | Operation::CodeSize(InlineOperands { ins: [], outs: [out] })
-                | Operation::GasPrice(InlineOperands { ins: [], outs: [out] })
-                | Operation::ReturnDataSize(InlineOperands { ins: [], outs: [out] })
-                | Operation::Gas(InlineOperands { ins: [], outs: [out] })
-                | Operation::Coinbase(InlineOperands { ins: [], outs: [out] })
-                | Operation::Timestamp(InlineOperands { ins: [], outs: [out] })
-                | Operation::Number(InlineOperands { ins: [], outs: [out] })
-                | Operation::Difficulty(InlineOperands { ins: [], outs: [out] })
-                | Operation::GasLimit(InlineOperands { ins: [], outs: [out] })
-                | Operation::ChainId(InlineOperands { ins: [], outs: [out] })
-                | Operation::SelfBalance(InlineOperands { ins: [], outs: [out] })
-                | Operation::BaseFee(InlineOperands { ins: [], outs: [out] })
-                | Operation::BlobBaseFee(InlineOperands { ins: [], outs: [out] })
-                | Operation::AcquireFreePointer(InlineOperands { ins: [], outs: [out] })
-                | Operation::RuntimeStartOffset(InlineOperands { ins: [], outs: [out] })
-                | Operation::InitEndOffset(InlineOperands { ins: [], outs: [out] })
-                | Operation::RuntimeLength(InlineOperands { ins: [], outs: [out] }) => {
-                    if *out >= self.program.next_free_local_id {
-                        return Err(LegalizerError::InvalidLocalId(*out));
-                    }
-                }
-                Operation::SStore(InlineOperands { ins: [in0, in1], outs: [] })
-                | Operation::TStore(InlineOperands { ins: [in0, in1], outs: [] })
-                | Operation::Log0(InlineOperands { ins: [in0, in1], outs: [] })
-                | Operation::Return(InlineOperands { ins: [in0, in1], outs: [] })
-                | Operation::Revert(InlineOperands { ins: [in0, in1], outs: [] }) => {
-                    if *in0 >= self.program.next_free_local_id {
-                        return Err(LegalizerError::InvalidLocalId(*in0));
-                    }
-                    if *in1 >= self.program.next_free_local_id {
-                        return Err(LegalizerError::InvalidLocalId(*in1));
-                    }
-                }
-                Operation::CallDataCopy(InlineOperands { ins: [in0, in1, in2], outs: [] })
-                | Operation::CodeCopy(InlineOperands { ins: [in0, in1, in2], outs: [] })
-                | Operation::ReturnDataCopy(InlineOperands { ins: [in0, in1, in2], outs: [] })
-                | Operation::MemoryCopy(InlineOperands { ins: [in0, in1, in2], outs: [] })
-                | Operation::Log1(InlineOperands { ins: [in0, in1, in2], outs: [] }) => {
-                    if *in0 >= self.program.next_free_local_id {
-                        return Err(LegalizerError::InvalidLocalId(*in0));
-                    }
-                    if *in1 >= self.program.next_free_local_id {
-                        return Err(LegalizerError::InvalidLocalId(*in1));
-                    }
-                    if *in2 >= self.program.next_free_local_id {
-                        return Err(LegalizerError::InvalidLocalId(*in2));
-                    }
-                }
-                Operation::SelfDestruct(InlineOperands { ins: [in0], outs: [] }) => {
-                    if *in0 >= self.program.next_free_local_id {
-                        return Err(LegalizerError::InvalidLocalId(*in0));
-                    }
-                }
-                Operation::MemoryLoad(MemoryLoadData { out, ptr, size: _ }) => {
-                    if *out >= self.program.next_free_local_id {
-                        return Err(LegalizerError::InvalidLocalId(*out));
-                    }
-                    if *ptr >= self.program.next_free_local_id {
-                        return Err(LegalizerError::InvalidLocalId(*ptr));
-                    }
-                }
-                Operation::MemoryStore(MemoryStoreData { ins: [in0, in1], size: _ }) => {
-                    if *in0 >= self.program.next_free_local_id {
-                        return Err(LegalizerError::InvalidLocalId(*in0));
-                    }
-                    if *in1 >= self.program.next_free_local_id {
-                        return Err(LegalizerError::InvalidLocalId(*in1));
-                    }
-                }
-                Operation::SetSmallConst(SetSmallConstData { sets, value: _ }) => {
-                    if *sets >= self.program.next_free_local_id {
-                        return Err(LegalizerError::InvalidLocalId(*sets));
-                    }
-                }
-                Operation::Noop(_) | Operation::Stop(_) | Operation::Invalid(_) => {}
+            }
+
+            let spans = op.allocated_spans(self.program);
+            if let Some(span) = spans.input {
+                self.locals_spans.push(TrackedSpan {
+                    start: span.start,
+                    end: span.end,
+                    source: SpanSource::OpInputs(bb_id, op_id),
+                });
+            }
+            if let Some(span) = spans.output {
+                self.locals_spans.push(TrackedSpan {
+                    start: span.start,
+                    end: span.end,
+                    source: SpanSource::OpOutputs(bb_id, op_id),
+                });
             }
         }
         Ok(())
@@ -605,7 +444,14 @@ fn validate_spans<I: Ord + Idx>(
 mod tests {
     use super::*;
     use alloy_primitives::U256;
-    use sir_data::{Branch, Control, builder::EthIRBuilder};
+    use sir_data::{
+        Branch, Control,
+        builder::EthIRBuilder,
+        operation::{
+            InlineOperands, SetDataOffsetData, SetLargeConstData, SetSmallConstData,
+            StaticAllocData,
+        },
+    };
     use sir_parser::{EmitConfig, parse_or_panic};
 
     // Note: WrongOutputCount cannot be triggered via the builder because the builder
@@ -808,10 +654,7 @@ mod tests {
         let func_id = func.finish(entry_id);
         let program = builder.build(func_id, None);
 
-        assert_eq!(
-            legalize(&program).unwrap_err(),
-            LegalizerError::UndefinedLocal(func_id, cond)
-        );
+        assert_eq!(legalize(&program).unwrap_err(), LegalizerError::UndefinedLocal(func_id, cond));
     }
 
     #[test]
@@ -898,10 +741,7 @@ mod tests {
         let func_id = func.finish(bb_id);
         let program = builder.build(func_id, None);
 
-        assert_eq!(
-            legalize(&program).unwrap_err(),
-            LegalizerError::InvalidFunctionId(invalid_id)
-        );
+        assert_eq!(legalize(&program).unwrap_err(), LegalizerError::InvalidFunctionId(invalid_id));
     }
 
     #[test]

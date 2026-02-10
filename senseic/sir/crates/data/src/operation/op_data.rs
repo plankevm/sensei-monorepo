@@ -1,5 +1,6 @@
 use crate::{EthIRProgram, builder::EthIRBuilder, index::*};
 use alloy_primitives::{U256, ruint::FromUintError};
+use sensei_core::span::Span;
 
 pub(crate) trait VoidOpData {
     fn get_visited<'d, O, V: OpVisitor<'d, O>>(&'d self, visitor: &mut V) -> O;
@@ -162,6 +163,130 @@ impl<'a> OpVisitor<'a, &'a [LocalId]> for OutputsGetter<'a> {
     }
     fn visit_void(&mut self) -> &'a [LocalId] {
         &[]
+    }
+}
+
+#[derive(Debug)]
+pub struct AllocatedSpans {
+    pub input: Option<Span<LocalIdx>>,
+    pub output: Option<Span<LocalIdx>>,
+}
+
+impl AllocatedSpans {
+    pub const NONE: Self = Self { input: None, output: None };
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReferencedResource {
+    LargeConst(LargeConstId),
+    DataSegment(DataId),
+    StaticAlloc(StaticAllocId),
+    Function(FunctionId),
+}
+
+#[derive(Debug)]
+pub struct ReferencedResources([Option<ReferencedResource>; 2]);
+
+impl ReferencedResources {
+    pub fn iter(&self) -> impl Iterator<Item = ReferencedResource> + '_ {
+        self.0.iter().copied().flatten()
+    }
+}
+
+pub(crate) struct AllocatedSpansGetter<'a> {
+    pub(crate) ir: &'a EthIRProgram,
+}
+
+impl<'a> OpVisitor<'a, AllocatedSpans> for AllocatedSpansGetter<'a> {
+    fn visit_inline_operands<const INS: usize, const OUTS: usize>(
+        &mut self,
+        _data: &'a InlineOperands<INS, OUTS>,
+    ) -> AllocatedSpans {
+        AllocatedSpans::NONE
+    }
+
+    fn visit_allocated_ins<const INS: usize, const OUTS: usize>(
+        &mut self,
+        data: &'a AllocatedIns<INS, OUTS>,
+    ) -> AllocatedSpans {
+        AllocatedSpans {
+            input: Some(Span::new(data.ins_start, data.ins_start + INS as u32)),
+            output: None,
+        }
+    }
+
+    fn visit_static_alloc(&mut self, _data: &'a StaticAllocData) -> AllocatedSpans {
+        AllocatedSpans::NONE
+    }
+    fn visit_memory_load(&mut self, _data: &'a MemoryLoadData) -> AllocatedSpans {
+        AllocatedSpans::NONE
+    }
+    fn visit_memory_store(&mut self, _data: &'a MemoryStoreData) -> AllocatedSpans {
+        AllocatedSpans::NONE
+    }
+    fn visit_set_small_const(&mut self, _data: &'a SetSmallConstData) -> AllocatedSpans {
+        AllocatedSpans::NONE
+    }
+    fn visit_set_large_const(&mut self, _data: &'a SetLargeConstData) -> AllocatedSpans {
+        AllocatedSpans::NONE
+    }
+    fn visit_set_data_offset(&mut self, _data: &'a SetDataOffsetData) -> AllocatedSpans {
+        AllocatedSpans::NONE
+    }
+    fn visit_icall(&mut self, data: &'a InternalCallData) -> AllocatedSpans {
+        let fn_outputs = self.ir.functions.get(data.function).expect(
+            "AllocatedSpansGetter: invalid FunctionId; callers must validate referenced resources first",
+        ).outputs;
+        AllocatedSpans {
+            input: Some(Span::new(data.ins_start, data.outs_start)),
+            output: Some(Span::new(data.outs_start, data.outs_start + fn_outputs)),
+        }
+    }
+    fn visit_void(&mut self) -> AllocatedSpans {
+        AllocatedSpans::NONE
+    }
+}
+
+pub(crate) struct ReferencedResourceGetter;
+
+impl<'a> OpVisitor<'a, ReferencedResources> for ReferencedResourceGetter {
+    fn visit_inline_operands<const INS: usize, const OUTS: usize>(
+        &mut self,
+        _data: &'a InlineOperands<INS, OUTS>,
+    ) -> ReferencedResources {
+        ReferencedResources([None; 2])
+    }
+
+    fn visit_allocated_ins<const INS: usize, const OUTS: usize>(
+        &mut self,
+        _data: &'a AllocatedIns<INS, OUTS>,
+    ) -> ReferencedResources {
+        ReferencedResources([None; 2])
+    }
+
+    fn visit_static_alloc(&mut self, data: &'a StaticAllocData) -> ReferencedResources {
+        ReferencedResources([Some(ReferencedResource::StaticAlloc(data.alloc_id)), None])
+    }
+    fn visit_memory_load(&mut self, _data: &'a MemoryLoadData) -> ReferencedResources {
+        ReferencedResources([None; 2])
+    }
+    fn visit_memory_store(&mut self, _data: &'a MemoryStoreData) -> ReferencedResources {
+        ReferencedResources([None; 2])
+    }
+    fn visit_set_small_const(&mut self, _data: &'a SetSmallConstData) -> ReferencedResources {
+        ReferencedResources([None; 2])
+    }
+    fn visit_set_large_const(&mut self, data: &'a SetLargeConstData) -> ReferencedResources {
+        ReferencedResources([Some(ReferencedResource::LargeConst(data.value)), None])
+    }
+    fn visit_set_data_offset(&mut self, data: &'a SetDataOffsetData) -> ReferencedResources {
+        ReferencedResources([Some(ReferencedResource::DataSegment(data.segment_id)), None])
+    }
+    fn visit_icall(&mut self, data: &'a InternalCallData) -> ReferencedResources {
+        ReferencedResources([Some(ReferencedResource::Function(data.function)), None])
+    }
+    fn visit_void(&mut self) -> ReferencedResources {
+        ReferencedResources([None; 2])
     }
 }
 
