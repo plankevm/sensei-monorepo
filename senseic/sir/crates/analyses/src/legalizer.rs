@@ -1,7 +1,6 @@
 use sir_data::{
-    BasicBlock, BasicBlockId, Control, DataId, DenseIndexSet, EthIRProgram, Function, FunctionId,
-    Idx, IndexVec, LargeConstId, LocalId, LocalIdx, Operation, OperationIdx, StaticAllocId,
-    index_vec,
+    BasicBlock, BasicBlockId, Control, DataId, DenseIndexSet, EthIRProgram, FunctionId, Idx,
+    IndexVec, LargeConstId, LocalId, LocalIdx, Operation, OperationIdx, StaticAllocId, index_vec,
     operation::{
         AllocatedIns, InlineOperands, InternalCallData, MemoryLoadData, MemoryStoreData,
         SetDataOffsetData, SetLargeConstData, SetSmallConstData, StaticAllocData,
@@ -34,6 +33,8 @@ pub enum LegalizerError {
     WrongOutputCount { block: BasicBlockId, expected: u32 },
     RecursiveCall(FunctionId, FunctionId),
     InvalidLocalId(LocalId),
+    DoubleDefinition(LocalId),
+    UndefinedLocal(FunctionId, LocalId),
 }
 
 pub fn legalize(program: &EthIRProgram) -> Result<(), LegalizerError> {
@@ -50,14 +51,20 @@ struct Legalizer<'a> {
 
 impl<'a> Legalizer<'a> {
     fn new(program: &'a EthIRProgram) -> Self {
-        todo!()
+        Self {
+            program,
+            locals_spans: Vec::new(),
+            operations_spans: Vec::new(),
+            block_owner: IndexVec::new(),
+            call_edges: Vec::new(),
+        }
     }
 
     fn legalize(&mut self) -> Result<(), LegalizerError> {
         self.validate_entry_points()?;
         self.validate_blocks()?;
         self.validate_cfg()?;
-        todo!()
+        self.validate_local_ids()
     }
 
     fn validate_cfg(&mut self) -> Result<(), LegalizerError> {
@@ -136,9 +143,75 @@ impl<'a> Legalizer<'a> {
     }
 
     fn validate_local_ids(&mut self) -> Result<(), LegalizerError> {
-        // Validate that every local ID is only assigned once
-        // Validate that every referenced local ID is defined somewhere in the function (bb inputs, operation assignment)
-        todo!()
+        self.validate_single_assignment()?;
+        self.validate_uses_defined()
+    }
+
+    fn validate_single_assignment(&self) -> Result<(), LegalizerError> {
+        let mut defs = DenseIndexSet::new();
+        for bb in self.program.basic_blocks.iter() {
+            for local in self.program.locals[bb.inputs].iter() {
+                if !defs.add(*local) {
+                    return Err(LegalizerError::DoubleDefinition(*local));
+                }
+            }
+            for op_idx in bb.operations.iter() {
+                for local in self.program.operations[op_idx].outputs(self.program) {
+                    if !defs.add(*local) {
+                        return Err(LegalizerError::DoubleDefinition(*local));
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn validate_uses_defined(&self) -> Result<(), LegalizerError> {
+        let mut fn_blocks: IndexVec<FunctionId, Vec<BasicBlockId>> =
+            index_vec![Vec::new(); self.program.functions.len()];
+        for (bb_id, owner) in self.block_owner.enumerate_idx() {
+            if let Some(fn_id) = owner {
+                fn_blocks[*fn_id].push(bb_id);
+            }
+        }
+        let mut use_def = DenseIndexSet::new();
+        for fn_id in self.program.functions.iter_idx() {
+            use_def.clear();
+            for bb_id in &fn_blocks[fn_id] {
+                for local_idx in self.program.basic_blocks[*bb_id].inputs.iter() {
+                    let local_id = self.program.locals[local_idx];
+                    use_def.add(local_id);
+                }
+                for op_idx in self.program.basic_blocks[*bb_id].operations.iter() {
+                    let op = &self.program.operations[op_idx];
+                    for output in op.outputs(self.program) {
+                        use_def.add(*output);
+                    }
+                }
+            }
+
+            for bb_id in &fn_blocks[fn_id] {
+                let bb = &self.program.basic_blocks[*bb_id];
+                for local_id in self.program.locals[bb.outputs].iter() {
+                    if !use_def.contains(*local_id) {
+                        return Err(LegalizerError::UndefinedLocal(fn_id, *local_id));
+                    }
+                }
+                for op_idx in bb.operations.iter() {
+                    for local_id in self.program.operations[op_idx].inputs(self.program) {
+                        if !use_def.contains(*local_id) {
+                            return Err(LegalizerError::UndefinedLocal(fn_id, *local_id));
+                        }
+                    }
+                }
+                if let Control::Branches(branch) = &bb.control {
+                    if !use_def.contains(branch.condition) {
+                        return Err(LegalizerError::UndefinedLocal(fn_id, branch.condition));
+                    }
+                }
+            }
+        }
+        Ok(())
     }
 
     fn validate_blocks(&mut self) -> Result<(), LegalizerError> {
