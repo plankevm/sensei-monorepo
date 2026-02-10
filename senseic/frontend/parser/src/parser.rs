@@ -54,7 +54,7 @@ mod token_item_iter {
     }
 
     impl<'src> TokenItems<'src> {
-        const DEFAULT_FUEL: u32 = 256;
+        const DEFAULT_FUEL: u32 = 1024;
 
         pub(crate) fn new(lexer: Lexer<'src>) -> Self {
             TokenItems { lexer, peeked: None, fuel: Self::DEFAULT_FUEL }
@@ -67,7 +67,15 @@ mod token_item_iter {
             })
         }
 
-        pub(crate) fn peek(&mut self) -> (Token, SourceSpan) {
+        pub(super) fn lexer(&self) -> &Lexer<'src> {
+            &self.lexer
+        }
+
+        pub(super) fn fuel(&self) -> u32 {
+            self.fuel
+        }
+
+        pub(super) fn peek(&mut self) -> (Token, SourceSpan) {
             self.fuel =
                 self.fuel.checked_sub(1).expect("out of fuel: likely caused by infinite loop");
             let next = self.next_fuel_unchanged();

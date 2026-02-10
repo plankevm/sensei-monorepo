@@ -318,6 +318,10 @@ impl<'src> Lexer<'src> {
         Self { inner: Token::lexer(source) }
     }
 
+    pub fn remaining_source(&self) -> &'src str {
+        self.inner.remainder()
+    }
+
     pub fn next_with_eof(&mut self) -> (Token, SourceSpan) {
         let token = match self.inner.next() {
             Some(Ok(token) | Err(token)) => token,

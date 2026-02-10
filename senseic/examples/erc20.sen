@@ -1,0 +1,59 @@
+const TRANSFER: u256 = 0xa9059cbb;
+const BALANCE_OF: u256 = 0x70a08231;
+
+const addr = {
+    let Self = struct {} { raw: u256 };
+    (struct {} {
+        t: type,
+        new: func
+    }) {
+        t: Self,
+        new: fn (raw: u256) Self {
+            return Self { raw: raw };
+        }
+    }
+};
+
+const get_bal_slot = fn (owner: addr.t) u256 {
+    let hash_buf = malloc(32);
+    mstore32(hash_buf, owner.raw << 96);
+    return keccak256(hash_buf, 32);
+};
+
+init {
+    let deployer_slot = get_bal_slot(addr.new(caller()));
+    sstore(deployer_slot, comptime { 1000000 * raw_exp(10, 18) });
+
+    let runtime = malloc(runtime_length);
+    codecopy(runtime, runtime_start_offset, runtime_length);
+    evm_return(runtime, runtime_length);
+}
+
+run {
+    let selector = calldataload(0) >> 224;
+    if (selector == TRANSFER) {
+        let from_slot = get_bal_slot(addr.new(caller()));
+        let from_bal = sload(from_slot);
+        let transfer_amount = calldataload(0x24);
+        sstore(from_slot, from_bal - transfer_amount);
+
+        let to = addr.new(calldataload(4));
+        let to_slot = get_bal_slot(to);
+        let to_bal = sload(to_slot);
+        sstore(to_slot, to_bal + transfer_amount);
+
+        let ret_buf = malloc(32);
+        mstore32(ret_buf, 1);
+        evm_return(ret_buf, 32);
+    } else if (selector == BALANCE_OF) {
+        let owner = addr.new(calldataload(4));
+        let slot = get_bal_slot(owner);
+        let balance = sload(slot);
+
+        let ret_buf = malloc(32);
+        mstore32(ret_buf, balance);
+        evm_return(ret_buf, 32);
+    }
+
+    revert(malloc(0), 0);
+}

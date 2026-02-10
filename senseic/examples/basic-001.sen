@@ -1,10 +1,9 @@
 // const MyStruct = struct { x: u256, y: u256 };
 
-const alice bob charlie ;
 
 const wow = 34;
 
-const my_func = fn () -> MyStruct {
+const my_func = fn () MyStruct {
 
 };
 
