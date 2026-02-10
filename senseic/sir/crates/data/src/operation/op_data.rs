@@ -28,7 +28,7 @@ impl FromOpData for () {
             return Err(OpBuildError::UnexpectedExtraData { received: extra, expected: "Empty" });
         }
         check_ins_count(ins, 0)?;
-        check_ins_count(outs, 0)?;
+        check_outs_count(outs, 0)?;
 
         Ok(())
     }

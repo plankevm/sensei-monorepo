@@ -1,7 +1,7 @@
 use sir_data::{
     BasicBlock, BasicBlockId, Control, DataId, DenseIndexSet, EthIRProgram, FunctionId, Idx,
     IndexVec, LargeConstId, LocalId, LocalIdx, Operation, OperationIdx, StaticAllocId, index_vec,
-    operation::{InternalCallData, ReferencedResource},
+    operation::ReferencedResource,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -28,6 +28,7 @@ pub enum LegalizerError {
     SharedBasicBlock(BasicBlockId, FunctionId, FunctionId),
     IncompatibleEdge { from: BasicBlockId, to: BasicBlockId },
     WrongOutputCount { block: BasicBlockId, expected: u32, actual: u32 },
+    WrongCallInputCount { op: OperationIdx, expected: u32, actual: u32 },
     RecursiveCall(FunctionId, FunctionId),
     InvalidLocalId(LocalId),
     DoubleDefinition(LocalId),
@@ -299,8 +300,18 @@ impl<'a> Legalizer<'a> {
 
         for op_id in self.program.basic_blocks[bb].operations.iter() {
             let op = &self.program.operations[op_id];
-            if let Operation::InternalCall(InternalCallData { function: callee, .. }) = op {
-                self.call_edges.push((fn_id, *callee));
+            if let Operation::InternalCall(data) = op {
+                let target = &self.program.functions[data.function];
+                let expected_ins = target.get_inputs(&self.program.basic_blocks);
+                let actual_ins = op.inputs(self.program).len() as u32;
+                if actual_ins != expected_ins {
+                    return Err(LegalizerError::WrongCallInputCount {
+                        op: op_id,
+                        expected: expected_ins,
+                        actual: actual_ins,
+                    });
+                }
+                self.call_edges.push((fn_id, data.function));
             }
         }
 
@@ -429,7 +440,7 @@ fn validate_spans<I: Ord + Idx>(
     spans.sort_by_key(|s| s.start);
     for window in spans.windows(2) {
         if window[0].end > window[1].start {
-            return Err(LegalizerError::OverlappingSpans(window[1].source, window[0].source));
+            return Err(LegalizerError::OverlappingSpans(window[0].source, window[1].source));
         }
     }
     if let Some(last) = spans.last()
@@ -448,8 +459,8 @@ mod tests {
         Branch, Control,
         builder::EthIRBuilder,
         operation::{
-            InlineOperands, SetDataOffsetData, SetLargeConstData, SetSmallConstData,
-            StaticAllocData,
+            InlineOperands, InternalCallData, SetDataOffsetData, SetLargeConstData,
+            SetSmallConstData, StaticAllocData,
         },
     };
     use sir_parser::{EmitConfig, parse_or_panic};
@@ -641,11 +652,24 @@ mod tests {
         let mut func = builder.begin_function();
 
         let cond = func.new_local();
-        let fallback_id = BasicBlockId::new(1);
+        let case_a_id = BasicBlockId::new(1);
+        let case_b_id = BasicBlockId::new(2);
+        let fallback_id = BasicBlockId::new(3);
 
         let mut entry = func.begin_basic_block();
-        let switch = entry.begin_switch().finish(cond, Some(fallback_id));
+        let mut sw = entry.begin_switch();
+        sw.push_case(U256::from(1), case_a_id);
+        sw.push_case(U256::from(2), case_b_id);
+        let switch = sw.finish(cond, Some(fallback_id));
         let entry_id = entry.finish(Control::Switch(switch)).unwrap();
+
+        let mut case_a = func.begin_basic_block();
+        case_a.add_operation(Operation::Stop(()));
+        case_a.finish(Control::LastOpTerminates).unwrap();
+
+        let mut case_b = func.begin_basic_block();
+        case_b.add_operation(Operation::Stop(()));
+        case_b.finish(Control::LastOpTerminates).unwrap();
 
         let mut fallback = func.begin_basic_block();
         fallback.add_operation(Operation::Stop(()));
@@ -742,6 +766,41 @@ mod tests {
         let program = builder.build(func_id, None);
 
         assert_eq!(legalize(&program).unwrap_err(), LegalizerError::InvalidFunctionId(invalid_id));
+    }
+
+    #[test]
+    fn test_rejects_wrong_call_input_count() {
+        let mut program = parse_or_panic(
+            r#"
+            fn init:
+                entry {
+                    x = caller
+                    y = icall @helper x
+                    stop
+                }
+            fn helper:
+                body a -> b {
+                    b = iszero a
+                    iret
+                }
+            "#,
+            EmitConfig::init_only(),
+        );
+
+        let icall_idx = program
+            .operations
+            .iter_idx()
+            .find(|op_id| matches!(program.operations[*op_id], Operation::InternalCall(_)))
+            .unwrap();
+
+        if let Operation::InternalCall(data) = &mut program.operations[icall_idx] {
+            data.ins_start = data.outs_start;
+        }
+
+        assert_eq!(
+            legalize(&program).unwrap_err(),
+            LegalizerError::WrongCallInputCount { op: icall_idx, expected: 1, actual: 0 }
+        );
     }
 
     #[test]
@@ -1077,8 +1136,8 @@ mod tests {
         assert_eq!(
             legalize(&program).unwrap_err(),
             LegalizerError::OverlappingSpans(
-                SpanSource::Inputs(bb2_id),
-                SpanSource::Outputs(bb1_id)
+                SpanSource::Outputs(bb1_id),
+                SpanSource::Inputs(bb2_id)
             )
         );
     }
@@ -1105,8 +1164,8 @@ mod tests {
         assert_eq!(
             legalize(&program).unwrap_err(),
             LegalizerError::OverlappingSpans(
-                SpanSource::Operations(bb2_id),
-                SpanSource::Operations(bb1_id)
+                SpanSource::Operations(bb1_id),
+                SpanSource::Operations(bb2_id)
             )
         );
     }
