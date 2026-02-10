@@ -6,19 +6,17 @@ use std::cmp::{Ordering, PartialOrd};
 pub fn run(program: &mut EthIRProgram) {
     let mut sccp = SCCPAnalysis::new(program);
     sccp.analysis();
-    sccp.get_unreachable_blocks();
     sccp.apply();
 }
 
 pub struct SCCPAnalysis<'a> {
     program: &'a mut EthIRProgram,
     lattice: IndexVec<LocalId, LatticeValue>,
-    reachable: DenseIndexSet<BasicBlockId>,
+    pub reachable: DenseIndexSet<BasicBlockId>,
     cfg_worklist: Vec<BasicBlockId>,
     values_worklist: Vec<LocalId>,
     predecessors: IndexVec<BasicBlockId, Vec<BasicBlockId>>,
     uses: DefUse,
-    unreachable_blocks: DenseIndexSet<BasicBlockId>,
 }
 
 impl<'a> SCCPAnalysis<'a> {
@@ -46,19 +44,12 @@ impl<'a> SCCPAnalysis<'a> {
             values_worklist: Vec::new(),
             predecessors,
             uses,
-            unreachable_blocks: DenseIndexSet::new(),
         }
     }
 
     pub fn analysis(&mut self) {
         while let Some(bb_id) = self.cfg_worklist.pop() {
             self.process_block(bb_id);
-        }
-        for i in 0..self.program.basic_blocks.len() {
-            let bb_id = BasicBlockId::new(i as u32);
-            if !self.reachable.contains(bb_id) {
-                self.unreachable_blocks.add(bb_id);
-            }
         }
     }
 
@@ -69,10 +60,6 @@ impl<'a> SCCPAnalysis<'a> {
                 self.simplify_control(bb_id);
             }
         }
-    }
-
-    pub fn get_unreachable_blocks(&self) -> &DenseIndexSet<BasicBlockId> {
-        &self.unreachable_blocks
     }
 
     #[cfg(test)]
@@ -1217,9 +1204,8 @@ Basic Blocks:
         let mut sccp = SCCPAnalysis::new(&mut ir);
         sccp.analysis();
 
-        let unreachable = sccp.get_unreachable_blocks();
-        assert!(!unreachable.contains(BasicBlockId::new(1)));
-        assert!(unreachable.contains(BasicBlockId::new(2)));
+        assert!(sccp.reachable.contains(BasicBlockId::new(1)));
+        assert!(!sccp.reachable.contains(BasicBlockId::new(2)));
     }
 
     #[test]
