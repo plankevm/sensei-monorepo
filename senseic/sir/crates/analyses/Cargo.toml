@@ -10,3 +10,4 @@ sensei-core.workspace = true
 
 [dev-dependencies]
 sir-parser.workspace = true
+alloy-primitives.workspace = true

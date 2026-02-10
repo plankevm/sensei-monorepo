@@ -7,7 +7,7 @@ use sir_data::{
     },
 };
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SpanSource {
     Inputs(BasicBlockId),
     Outputs(BasicBlockId),
@@ -16,7 +16,7 @@ pub enum SpanSource {
     OpOutputs(BasicBlockId, OperationIdx),
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum LegalizerError {
     InitHasInputs(u32),
     RuntimeHasInputs(u32),
@@ -99,8 +99,8 @@ impl<'a> Legalizer<'a> {
         bb_id: BasicBlockId,
         bb: &BasicBlock,
     ) -> Result<(), LegalizerError> {
-        if matches!(bb.control, Control::LastOpTerminates) {
-            if bb.operations.is_empty()
+        if matches!(bb.control, Control::LastOpTerminates)
+            && (bb.operations.is_empty()
                 || !matches!(
                     &self.program.operations[bb.operations.end - 1],
                     Operation::Return(_)
@@ -108,10 +108,9 @@ impl<'a> Legalizer<'a> {
                         | Operation::Revert(_)
                         | Operation::Invalid(_)
                         | Operation::SelfDestruct(_)
-                )
-            {
-                return Err(LegalizerError::MissingTerminator(bb_id));
-            }
+                ))
+        {
+            return Err(LegalizerError::MissingTerminator(bb_id));
         }
         for op_id in bb.operations.iter() {
             let op = &self.program.operations[op_id];
@@ -139,26 +138,32 @@ impl<'a> Legalizer<'a> {
         bb_id: BasicBlockId,
         bb: &BasicBlock,
     ) -> Result<(), LegalizerError> {
-        self.locals_spans.push(TrackedSpan {
-            start: bb.inputs.start,
-            end: bb.inputs.end,
-            source: SpanSource::Inputs(bb_id),
-        });
-        self.locals_spans.push(TrackedSpan {
-            start: bb.outputs.start,
-            end: bb.outputs.end,
-            source: SpanSource::Outputs(bb_id),
-        });
-        self.operations_spans.push(TrackedSpan {
-            start: bb.operations.start,
-            end: bb.operations.end,
-            source: SpanSource::Operations(bb_id),
-        });
+        if !bb.inputs.is_empty() {
+            self.locals_spans.push(TrackedSpan {
+                start: bb.inputs.start,
+                end: bb.inputs.end,
+                source: SpanSource::Inputs(bb_id),
+            });
+        }
+        if !bb.outputs.is_empty() {
+            self.locals_spans.push(TrackedSpan {
+                start: bb.outputs.start,
+                end: bb.outputs.end,
+                source: SpanSource::Outputs(bb_id),
+            });
+        }
+        if !bb.operations.is_empty() {
+            self.operations_spans.push(TrackedSpan {
+                start: bb.operations.start,
+                end: bb.operations.end,
+                source: SpanSource::Operations(bb_id),
+            });
+        }
 
-        if let Control::Branches(branch) = &bb.control {
-            if branch.condition >= self.program.next_free_local_id {
-                return Err(LegalizerError::InvalidLocalId(branch.condition));
-            }
+        if let Control::Branches(branch) = &bb.control
+            && branch.condition >= self.program.next_free_local_id
+        {
+            return Err(LegalizerError::InvalidLocalId(branch.condition));
         }
 
         for op_id in bb.operations.iter() {
@@ -406,16 +411,15 @@ impl<'a> Legalizer<'a> {
         }
         visited.add(bb);
 
-        if matches!(self.program.basic_blocks[bb].control, Control::InternalReturn) {
-            if self.program.basic_blocks[bb].outputs.len()
+        if matches!(self.program.basic_blocks[bb].control, Control::InternalReturn)
+            && self.program.basic_blocks[bb].outputs.len()
                 != self.program.functions[fn_id].get_outputs()
-            {
-                return Err(LegalizerError::WrongOutputCount {
-                    block: bb,
-                    expected: self.program.functions[fn_id].get_outputs(),
-                    actual: self.program.basic_blocks[bb].outputs.len(),
-                });
-            }
+        {
+            return Err(LegalizerError::WrongOutputCount {
+                block: bb,
+                expected: self.program.functions[fn_id].get_outputs(),
+                actual: self.program.basic_blocks[bb].outputs.len(),
+            });
         }
 
         if let Some(owner) = self.block_owner[bb] {
@@ -503,10 +507,10 @@ impl<'a> Legalizer<'a> {
                         }
                     }
                 }
-                if let Control::Branches(branch) = &bb.control {
-                    if !fn_defs.contains(branch.condition) {
-                        return Err(LegalizerError::UndefinedLocal(fn_id, branch.condition));
-                    }
+                if let Control::Branches(branch) = &bb.control
+                    && !fn_defs.contains(branch.condition)
+                {
+                    return Err(LegalizerError::UndefinedLocal(fn_id, branch.condition));
                 }
             }
         }
@@ -539,7 +543,7 @@ fn detect_cycle(
 }
 
 fn validate_spans<I: Ord + Idx>(
-    spans: &mut Vec<TrackedSpan<I>>,
+    spans: &mut [TrackedSpan<I>],
     max_bound: usize,
 ) -> Result<(), LegalizerError> {
     spans.sort_by_key(|s| s.start);
@@ -548,10 +552,640 @@ fn validate_spans<I: Ord + Idx>(
             return Err(LegalizerError::OverlappingSpans(window[1].source, window[0].source));
         }
     }
-    if let Some(last) = spans.last() {
-        if last.end.idx() > max_bound {
-            return Err(LegalizerError::SpanOutOfBounds(last.source));
-        }
+    if let Some(last) = spans.last()
+        && last.end.idx() > max_bound
+    {
+        return Err(LegalizerError::SpanOutOfBounds(last.source));
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alloy_primitives::U256;
+    use sir_data::{Branch, Control, builder::EthIRBuilder};
+    use sir_parser::{EmitConfig, parse_or_panic};
+
+    // Note: WrongOutputCount cannot be triggered via the builder because the builder
+    // catches conflicting function outputs (ConflictingFunctionOutputs error).
+    // This check exists for malformed IR constructed outside the builder.
+
+    #[test]
+    fn test_valid_ir_passes() {
+        let program = parse_or_panic(
+            r#"
+            fn init:
+                entry {
+                    x = const 42
+                    y = large_const 0xdeadbeefcafebabe1234567890abcdef
+                    z = chainid
+                    w = add x z
+                    stop
+                }
+            "#,
+            EmitConfig::init_only(),
+        );
+        assert!(legalize(&program).is_ok());
+    }
+
+    #[test]
+    fn test_valid_ir_with_branches() {
+        let program = parse_or_panic(
+            r#"
+            fn init:
+                entry {
+                    cond = calldatasize
+                    => cond ? @then : @else
+                }
+                then {
+                    ptr = freeptr
+                    val = mload256 ptr
+                    stop
+                }
+                else {
+                    invalid
+                }
+            "#,
+            EmitConfig::init_only(),
+        );
+        assert!(legalize(&program).is_ok());
+    }
+
+    #[test]
+    fn test_valid_ir_with_internal_call() {
+        let program = parse_or_panic(
+            r#"
+            fn init:
+                entry {
+                    x = caller
+                    y = icall @helper x
+                    stop
+                }
+            fn helper:
+                body a -> b {
+                    b = iszero a
+                    iret
+                }
+            "#,
+            EmitConfig::init_only(),
+        );
+        assert!(legalize(&program).is_ok());
+    }
+
+    #[test]
+    fn test_valid_ir_with_block_io() {
+        let program = parse_or_panic(
+            r#"
+            fn init:
+                entry -> a b c {
+                    a = selfbalance
+                    b = chainid
+                    c = gas
+                    => @next
+                }
+                next x y z {
+                    sum = add x y
+                    result = add sum z
+                    stop
+                }
+            "#,
+            EmitConfig::init_only(),
+        );
+        assert!(legalize(&program).is_ok());
+    }
+
+    #[test]
+    fn test_rejects_missing_terminator() {
+        let program = parse_or_panic(
+            r#"
+            fn init:
+                entry {
+                    x = caller
+                }
+            "#,
+            EmitConfig::init_only(),
+        );
+        assert_eq!(
+            legalize(&program).unwrap_err(),
+            LegalizerError::MissingTerminator(BasicBlockId::new(0))
+        );
+    }
+
+    #[test]
+    fn test_rejects_incompatible_edge() {
+        let program = parse_or_panic(
+            r#"
+            fn init:
+                entry -> x {
+                    x = large_const 0xdeadbeef
+                    => @next
+                }
+                next {
+                    stop
+                }
+            "#,
+            EmitConfig::init_only(),
+        );
+        assert_eq!(
+            legalize(&program).unwrap_err(),
+            LegalizerError::IncompatibleEdge {
+                from: BasicBlockId::new(0),
+                to: BasicBlockId::new(1)
+            }
+        );
+    }
+
+    #[test]
+    fn test_valid_loop() {
+        let program = parse_or_panic(
+            r#"
+            fn init:
+                entry {
+                    limit = large_const 0xffffffffffffffff
+                    => @loop_header
+                }
+                loop_header {
+                    cond = returndatasize
+                    => cond ? @loop_header : @exit
+                }
+                exit {
+                    stop
+                }
+            "#,
+            EmitConfig::init_only(),
+        );
+        assert!(legalize(&program).is_ok());
+    }
+
+    #[test]
+    fn test_valid_diamond() {
+        let program = parse_or_panic(
+            r#"
+            fn init:
+                entry {
+                    cond = gas
+                    => cond ? @left : @right
+                }
+                left {
+                    ptr_l = freeptr
+                    val_l = const 1
+                    mstore256 ptr_l val_l
+                    => @merge
+                }
+                right {
+                    ptr_r = freeptr
+                    val_r = large_const 0xcafebabe
+                    mstore256 ptr_r val_r
+                    => @merge
+                }
+                merge {
+                    stop
+                }
+            "#,
+            EmitConfig::init_only(),
+        );
+        assert!(legalize(&program).is_ok());
+    }
+
+    #[test]
+    fn test_rejects_incompatible_merge() {
+        let mut builder = EthIRBuilder::new();
+        let mut func = builder.begin_function();
+
+        let cond = func.new_local();
+        let out_left = func.new_local();
+        let merge_id = BasicBlockId::new(3);
+        let left_id = BasicBlockId::new(1);
+        let right_id = BasicBlockId::new(2);
+
+        let mut entry = func.begin_basic_block();
+        entry.add_operation(Operation::Gas(InlineOperands { ins: [], outs: [cond] }));
+        let entry_id = entry
+            .finish(Control::Branches(Branch {
+                condition: cond,
+                non_zero_target: left_id,
+                zero_target: right_id,
+            }))
+            .unwrap();
+
+        let mut left = func.begin_basic_block();
+        left.add_operation(Operation::SetSmallConst(SetSmallConstData {
+            sets: out_left,
+            value: 1,
+        }));
+        left.set_outputs(&[out_left]);
+        left.finish(Control::ContinuesTo(merge_id)).unwrap();
+
+        let mut right = func.begin_basic_block();
+        right.add_operation(Operation::Noop(()));
+        right.finish(Control::ContinuesTo(merge_id)).unwrap();
+
+        let merge_in = func.new_local();
+        let mut merge = func.begin_basic_block();
+        merge.set_inputs(&[merge_in]);
+        merge.add_operation(Operation::Stop(()));
+        merge.finish(Control::LastOpTerminates).unwrap();
+
+        let func_id = func.finish(entry_id);
+        let program = builder.build(func_id, None);
+
+        assert_eq!(
+            legalize(&program).unwrap_err(),
+            LegalizerError::IncompatibleEdge {
+                from: right_id,
+                to: merge_id
+            }
+        );
+    }
+
+    #[test]
+    fn test_rejects_direct_recursion() {
+        let mut builder = EthIRBuilder::new();
+        let func_id = FunctionId::new(0);
+
+        let mut func = builder.begin_function();
+        let mut bb = func.begin_basic_block();
+        bb.add_operation(Operation::InternalCall(InternalCallData {
+            function: func_id,
+            ins_start: LocalIdx::new(0),
+            outs_start: LocalIdx::new(0),
+        }));
+        bb.add_operation(Operation::Stop(()));
+        let bb_id = bb.finish(Control::LastOpTerminates).unwrap();
+        func.finish(bb_id);
+
+        let program = builder.build(func_id, None);
+
+        assert_eq!(
+            legalize(&program).unwrap_err(),
+            LegalizerError::RecursiveCall(func_id, func_id)
+        );
+    }
+
+    #[test]
+    fn test_rejects_mutual_recursion() {
+        let mut builder = EthIRBuilder::new();
+
+        let func_a_id = FunctionId::new(0);
+        let func_b_id = FunctionId::new(1);
+
+        let mut func_a = builder.begin_function();
+        let mut bb_a = func_a.begin_basic_block();
+        bb_a.add_operation(Operation::InternalCall(InternalCallData {
+            function: func_b_id,
+            ins_start: LocalIdx::new(0),
+            outs_start: LocalIdx::new(0),
+        }));
+        bb_a.add_operation(Operation::Stop(()));
+        let bb_a_id = bb_a.finish(Control::LastOpTerminates).unwrap();
+        func_a.finish(bb_a_id);
+
+        let mut func_b = builder.begin_function();
+        let mut bb_b = func_b.begin_basic_block();
+        bb_b.add_operation(Operation::InternalCall(InternalCallData {
+            function: func_a_id,
+            ins_start: LocalIdx::new(0),
+            outs_start: LocalIdx::new(0),
+        }));
+        bb_b.add_operation(Operation::Stop(()));
+        let bb_b_id = bb_b.finish(Control::LastOpTerminates).unwrap();
+        func_b.finish(bb_b_id);
+
+        let program = builder.build(func_a_id, None);
+
+        assert_eq!(
+            legalize(&program).unwrap_err(),
+            LegalizerError::RecursiveCall(func_b_id, func_a_id)
+        );
+    }
+
+    #[test]
+    fn test_rejects_double_definition() {
+        let mut builder = EthIRBuilder::new();
+        let mut func = builder.begin_function();
+
+        let local = func.new_local();
+
+        let mut bb = func.begin_basic_block();
+        bb.add_operation(Operation::SetSmallConst(SetSmallConstData { sets: local, value: 1 }));
+        bb.add_operation(Operation::SetSmallConst(SetSmallConstData { sets: local, value: 2 }));
+        bb.add_operation(Operation::Stop(()));
+        let bb_id = bb.finish(Control::LastOpTerminates).unwrap();
+
+        let func_id = func.finish(bb_id);
+        let program = builder.build(func_id, None);
+
+        assert_eq!(legalize(&program).unwrap_err(), LegalizerError::DoubleDefinition(local));
+    }
+
+    #[test]
+    fn test_rejects_use_of_undefined_local() {
+        let mut builder = EthIRBuilder::new();
+        let mut func = builder.begin_function();
+
+        // Create two locals - use one only as input (never defined)
+        let undefined_local = func.new_local();
+        let out = func.new_local();
+
+        let mut bb = func.begin_basic_block();
+        // Use undefined_local as input without ever defining it
+        bb.add_operation(Operation::IsZero(InlineOperands { ins: [undefined_local], outs: [out] }));
+        bb.add_operation(Operation::Stop(()));
+        let bb_id = bb.finish(Control::LastOpTerminates).unwrap();
+
+        let func_id = func.finish(bb_id);
+        let program = builder.build(func_id, None);
+
+        assert_eq!(
+            legalize(&program).unwrap_err(),
+            LegalizerError::UndefinedLocal(func_id, undefined_local)
+        );
+    }
+
+    #[test]
+    fn test_rejects_init_has_inputs() {
+        let mut builder = EthIRBuilder::new();
+        let mut func = builder.begin_function();
+
+        let input = func.new_local();
+        let mut bb = func.begin_basic_block();
+        bb.set_inputs(&[input]);
+        bb.add_operation(Operation::Stop(()));
+        let bb_id = bb.finish(Control::LastOpTerminates).unwrap();
+
+        let func_id = func.finish(bb_id);
+        let program = builder.build(func_id, None);
+
+        assert_eq!(legalize(&program).unwrap_err(), LegalizerError::InitHasInputs(1));
+    }
+
+    #[test]
+    fn test_rejects_runtime_has_inputs() {
+        let mut builder = EthIRBuilder::new();
+
+        let mut init_func = builder.begin_function();
+        let mut init_bb = init_func.begin_basic_block();
+        init_bb.add_operation(Operation::Stop(()));
+        let init_bb_id = init_bb.finish(Control::LastOpTerminates).unwrap();
+        let init_func_id = init_func.finish(init_bb_id);
+
+        let mut main_func = builder.begin_function();
+        let input1 = main_func.new_local();
+        let input2 = main_func.new_local();
+        let input3 = main_func.new_local();
+        let mut main_bb = main_func.begin_basic_block();
+        main_bb.set_inputs(&[input1, input2, input3]);
+        main_bb.add_operation(Operation::Stop(()));
+        let main_bb_id = main_bb.finish(Control::LastOpTerminates).unwrap();
+        let main_func_id = main_func.finish(main_bb_id);
+
+        let program = builder.build(init_func_id, Some(main_func_id));
+
+        assert_eq!(legalize(&program).unwrap_err(), LegalizerError::RuntimeHasInputs(3));
+    }
+
+    #[test]
+    fn test_rejects_terminator_not_last() {
+        let mut builder = EthIRBuilder::new();
+        let mut func = builder.begin_function();
+
+        let mut bb = func.begin_basic_block();
+        bb.add_operation(Operation::Stop(()));
+        bb.add_operation(Operation::Stop(()));
+        let bb_id = bb.finish(Control::LastOpTerminates).unwrap();
+
+        let func_id = func.finish(bb_id);
+        let program = builder.build(func_id, None);
+
+        assert_eq!(
+            legalize(&program).unwrap_err(),
+            LegalizerError::TerminatorNotLast(bb_id, OperationIdx::new(0))
+        );
+    }
+
+    #[test]
+    fn test_rejects_terminator_control_mismatch() {
+        let mut builder = EthIRBuilder::new();
+        let mut func = builder.begin_function();
+
+        let next_bb_id = BasicBlockId::new(1);
+        let mut bb = func.begin_basic_block();
+        bb.add_operation(Operation::Stop(()));
+        let bb_id = bb.finish(Control::ContinuesTo(next_bb_id)).unwrap();
+
+        {
+            let mut next_bb = func.begin_basic_block();
+            next_bb.add_operation(Operation::Stop(()));
+            next_bb.finish(Control::LastOpTerminates).unwrap();
+        }
+
+        let func_id = func.finish(bb_id);
+        let program = builder.build(func_id, None);
+
+        assert_eq!(
+            legalize(&program).unwrap_err(),
+            LegalizerError::TerminatorControlMismatch(bb_id, OperationIdx::new(0))
+        );
+    }
+
+    #[test]
+    fn test_rejects_invalid_large_const_id() {
+        let mut builder = EthIRBuilder::new();
+        let valid_id = builder.alloc_u256(U256::from(42));
+        assert_eq!(valid_id, LargeConstId::new(0));
+
+        let mut func = builder.begin_function();
+        let local = func.new_local();
+        let invalid_id = LargeConstId::new(1);
+
+        let mut bb = func.begin_basic_block();
+        bb.add_operation(Operation::SetLargeConst(SetLargeConstData {
+            sets: local,
+            value: invalid_id,
+        }));
+        bb.add_operation(Operation::Stop(()));
+        let bb_id = bb.finish(Control::LastOpTerminates).unwrap();
+
+        let func_id = func.finish(bb_id);
+        let program = builder.build(func_id, None);
+
+        assert_eq!(
+            legalize(&program).unwrap_err(),
+            LegalizerError::InvalidLargeConstId(invalid_id)
+        );
+    }
+
+    #[test]
+    fn test_rejects_invalid_segment_id() {
+        let mut builder = EthIRBuilder::new();
+        let valid_id = builder.push_data_bytes(&[0xde, 0xad, 0xbe, 0xef]);
+        assert_eq!(valid_id, DataId::new(0));
+
+        let mut func = builder.begin_function();
+        let local = func.new_local();
+        let invalid_id = DataId::new(1);
+
+        let mut bb = func.begin_basic_block();
+        bb.add_operation(Operation::SetDataOffset(SetDataOffsetData {
+            sets: local,
+            segment_id: invalid_id,
+        }));
+        bb.add_operation(Operation::Stop(()));
+        let bb_id = bb.finish(Control::LastOpTerminates).unwrap();
+
+        let func_id = func.finish(bb_id);
+        let program = builder.build(func_id, None);
+
+        assert_eq!(legalize(&program).unwrap_err(), LegalizerError::InvalidSegmentId(invalid_id));
+    }
+
+    #[test]
+    fn test_rejects_invalid_static_alloc_id() {
+        let mut builder = EthIRBuilder::new();
+        let mut func = builder.begin_function();
+        let local = func.new_local();
+        let invalid_id = StaticAllocId::new(999);
+
+        let mut bb = func.begin_basic_block();
+        bb.add_operation(Operation::StaticAllocZeroed(StaticAllocData {
+            size: 32,
+            ptr_out: local,
+            alloc_id: invalid_id,
+        }));
+        bb.add_operation(Operation::Stop(()));
+        let bb_id = bb.finish(Control::LastOpTerminates).unwrap();
+
+        let func_id = func.finish(bb_id);
+        let program = builder.build(func_id, None);
+
+        assert_eq!(
+            legalize(&program).unwrap_err(),
+            LegalizerError::InvalidStaticAllocId(invalid_id)
+        );
+    }
+
+    #[test]
+    fn test_rejects_invalid_local_id() {
+        let mut builder = EthIRBuilder::new();
+        let mut func = builder.begin_function();
+
+        let invalid_id = LocalId::new(0);
+        let mut bb = func.begin_basic_block();
+        bb.add_operation(Operation::SetSmallConst(SetSmallConstData {
+            sets: invalid_id,
+            value: 1,
+        }));
+        bb.add_operation(Operation::Stop(()));
+        let bb_id = bb.finish(Control::LastOpTerminates).unwrap();
+
+        let func_id = func.finish(bb_id);
+        let program = builder.build(func_id, None);
+
+        assert_eq!(legalize(&program).unwrap_err(), LegalizerError::InvalidLocalId(invalid_id));
+    }
+
+    #[test]
+    fn test_rejects_shared_basic_block() {
+        let mut builder = EthIRBuilder::new();
+
+        let mut func_a = builder.begin_function();
+        let mut bb_shared = func_a.begin_basic_block();
+        bb_shared.add_operation(Operation::Stop(()));
+        let bb_shared_id = bb_shared.finish(Control::LastOpTerminates).unwrap();
+        let func_a_id = func_a.finish(bb_shared_id);
+
+        let mut program = builder.build(func_a_id, None);
+
+        let func_b_id = program.functions.push(sir_data::Function::new(bb_shared_id, 0));
+
+        assert_eq!(
+            legalize(&program).unwrap_err(),
+            LegalizerError::SharedBasicBlock(bb_shared_id, func_a_id, func_b_id)
+        );
+    }
+
+    #[test]
+    fn test_rejects_overlapping_local_spans() {
+        let mut builder = EthIRBuilder::new();
+        let mut func = builder.begin_function();
+
+        let local = func.new_local();
+
+        let mut bb1 = func.begin_basic_block();
+        bb1.add_operation(Operation::SetSmallConst(SetSmallConstData { sets: local, value: 1 }));
+        bb1.set_outputs(&[local]);
+        let bb1_id = bb1.finish(Control::ContinuesTo(BasicBlockId::new(1))).unwrap();
+
+        let in2 = func.new_local();
+        let mut bb2 = func.begin_basic_block();
+        bb2.set_inputs(&[in2]);
+        bb2.add_operation(Operation::Stop(()));
+        bb2.finish(Control::LastOpTerminates).unwrap();
+
+        let func_id = func.finish(bb1_id);
+        let mut program = builder.build(func_id, None);
+
+        let bb2_id = BasicBlockId::new(1);
+        program.basic_blocks[bb2_id].inputs = program.basic_blocks[bb1_id].outputs;
+
+        assert_eq!(
+            legalize(&program).unwrap_err(),
+            LegalizerError::OverlappingSpans(
+                SpanSource::Inputs(bb2_id),
+                SpanSource::Outputs(bb1_id)
+            )
+        );
+    }
+
+    #[test]
+    fn test_rejects_overlapping_operation_spans() {
+        let mut builder = EthIRBuilder::new();
+        let mut func = builder.begin_function();
+
+        let mut bb1 = func.begin_basic_block();
+        bb1.add_operation(Operation::Stop(()));
+        let bb1_id = bb1.finish(Control::LastOpTerminates).unwrap();
+
+        let mut bb2 = func.begin_basic_block();
+        bb2.add_operation(Operation::Stop(()));
+        bb2.finish(Control::LastOpTerminates).unwrap();
+
+        let func_id = func.finish(bb1_id);
+        let mut program = builder.build(func_id, None);
+
+        let bb2_id = BasicBlockId::new(1);
+        program.basic_blocks[bb2_id].operations = program.basic_blocks[bb1_id].operations;
+
+        assert_eq!(
+            legalize(&program).unwrap_err(),
+            LegalizerError::OverlappingSpans(
+                SpanSource::Operations(bb2_id),
+                SpanSource::Operations(bb1_id)
+            )
+        );
+    }
+
+    #[test]
+    fn test_rejects_span_out_of_bounds() {
+        let mut builder = EthIRBuilder::new();
+        let mut func = builder.begin_function();
+
+        let out_local = func.new_local();
+
+        let mut bb = func.begin_basic_block();
+        bb.add_operation(Operation::SetSmallConst(SetSmallConstData { sets: out_local, value: 1 }));
+        bb.set_outputs(&[out_local]);
+        let bb_id = bb.finish(Control::InternalReturn).unwrap();
+
+        let func_id = func.finish(bb_id);
+        let mut program = builder.build(func_id, None);
+
+        program.locals.truncate(0);
+
+        assert_eq!(
+            legalize(&program).unwrap_err(),
+            LegalizerError::SpanOutOfBounds(SpanSource::Outputs(bb_id))
+        );
+    }
 }
