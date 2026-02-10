@@ -20,6 +20,48 @@ const get_bal_slot = fn (owner: addr.t) u256 {
     return keccak256(hash_buf, 32);
 };
 
+const abi_calldata_size = fn (comptime T: type) u256 {
+    if (T == u256) {
+        return 32;
+    }
+    if (!meta_is_struct(T)) {
+        revert(malloc(0), 0);
+    }
+
+    let mut i = 0;
+    let mut total_size = 0;
+
+    while (i < meta_field_count(T)) {
+        total_size = total_size + abi_calldata_size(meta_get_field_type(T, i));
+        i = i + 1;
+    }
+
+    total_size
+};
+
+const abi_decode_calldata = fn (offset: u256, comptime T: type) T {
+    if (T == u256) {
+        return calldataload(offset);
+    }
+    if (!meta_is_struct(T)) {
+        revert(malloc(0), 0);
+    }
+
+    let mut offset = offset;
+    let mut decoded = meta_default(T);
+    let mut i = 0;
+
+    inline while (i < meta_field_count(T)) {
+        let FT = meta_get_field_type(T, i);
+        decoded = meta_set_field(T, i)(decoded, abi_decode_calldata(offset, FT));
+        offset = offset + abi_calldata_size(FT);
+
+        i = i + 1;
+    }
+
+    return decoded;
+};
+
 init {
     let deployer_slot = get_bal_slot(addr.new(caller()));
     sstore(deployer_slot, comptime { 1000000 * raw_exp(10, 18) });
@@ -32,22 +74,28 @@ init {
 run {
     let selector = calldataload(0) >> 224;
     if (selector == TRANSFER) {
+        let params = abi_decode_calldata(4, struct {} {
+            to: addr.t,
+            amount: u256
+        });
+
         let from_slot = get_bal_slot(addr.new(caller()));
         let from_bal = sload(from_slot);
-        let transfer_amount = calldataload(0x24);
-        sstore(from_slot, from_bal - transfer_amount);
+        sstore(from_slot, from_bal - params.amount);
 
-        let to = addr.new(calldataload(4));
-        let to_slot = get_bal_slot(to);
+        let to_slot = get_bal_slot(params.to);
         let to_bal = sload(to_slot);
-        sstore(to_slot, to_bal + transfer_amount);
+        sstore(to_slot, to_bal + params.amount);
 
         let ret_buf = malloc(32);
         mstore32(ret_buf, 1);
         evm_return(ret_buf, 32);
     } else if (selector == BALANCE_OF) {
-        let owner = addr.new(calldataload(4));
-        let slot = get_bal_slot(owner);
+        let params = abi_decode_calldata(4, struct {} {
+            owner: addr.t
+        });
+
+        let slot = get_bal_slot(params.owner);
         let balance = sload(slot);
 
         let ret_buf = malloc(32);
