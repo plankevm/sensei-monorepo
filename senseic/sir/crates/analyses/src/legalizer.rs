@@ -34,6 +34,8 @@ pub enum LegalizerError {
     RecursiveCall(FunctionId, FunctionId),
     InvalidLocalId(LocalId),
     DoubleDefinition(LocalId),
+    InvalidFunctionId(FunctionId),
+    InvalidBasicBlockId(BasicBlockId),
     UndefinedLocal(FunctionId, LocalId),
 }
 
@@ -80,6 +82,13 @@ impl<'a> Legalizer<'a> {
             if !main_bb.inputs.is_empty() {
                 return Err(LegalizerError::RuntimeHasInputs(main_bb.inputs.len()));
             }
+        }
+        Ok(())
+    }
+
+    fn validate_basic_block_id(&self, bb_id: BasicBlockId) -> Result<(), LegalizerError> {
+        if self.program.basic_blocks.get(bb_id).is_none() {
+            return Err(LegalizerError::InvalidBasicBlockId(bb_id));
         }
         Ok(())
     }
@@ -160,10 +169,29 @@ impl<'a> Legalizer<'a> {
             });
         }
 
-        if let Control::Branches(branch) = &bb.control
-            && branch.condition >= self.program.next_free_local_id
-        {
-            return Err(LegalizerError::InvalidLocalId(branch.condition));
+        match &bb.control {
+            Control::Branches(branch) => {
+                if branch.condition >= self.program.next_free_local_id {
+                    return Err(LegalizerError::InvalidLocalId(branch.condition));
+                }
+                self.validate_basic_block_id(branch.non_zero_target)?;
+                self.validate_basic_block_id(branch.zero_target)?;
+            }
+            Control::Switch(switch) => {
+                if switch.condition >= self.program.next_free_local_id {
+                    return Err(LegalizerError::InvalidLocalId(switch.condition));
+                }
+                if let Some(fallback) = switch.fallback {
+                    self.validate_basic_block_id(fallback)?;
+                }
+                for &target in self.program.cases[switch.cases].get_bb_ids(self.program).iter() {
+                    self.validate_basic_block_id(target)?;
+                }
+            }
+            Control::ContinuesTo(target) => {
+                self.validate_basic_block_id(*target)?;
+            }
+            Control::LastOpTerminates | Control::InternalReturn => {}
         }
 
         for op_id in bb.operations.iter() {
@@ -197,10 +225,13 @@ impl<'a> Legalizer<'a> {
                     });
                 }
                 Operation::InternalCall(InternalCallData {
-                    function: _,
+                    function,
                     ins_start,
                     outs_start,
                 }) => {
+                    if self.program.functions.get(*function).is_none() {
+                        return Err(LegalizerError::InvalidFunctionId(*function));
+                    }
                     self.locals_spans.push(TrackedSpan {
                         start: *ins_start,
                         end: *ins_start + op.inputs(self.program).len() as u32,
@@ -507,10 +538,20 @@ impl<'a> Legalizer<'a> {
                         }
                     }
                 }
-                if let Control::Branches(branch) = &bb.control
-                    && !fn_defs.contains(branch.condition)
-                {
-                    return Err(LegalizerError::UndefinedLocal(fn_id, branch.condition));
+                match &bb.control {
+                    Control::Branches(branch) => {
+                        if !fn_defs.contains(branch.condition) {
+                            return Err(LegalizerError::UndefinedLocal(fn_id, branch.condition));
+                        }
+                    }
+                    Control::Switch(switch) => {
+                        if !fn_defs.contains(switch.condition) {
+                            return Err(LegalizerError::UndefinedLocal(fn_id, switch.condition));
+                        }
+                    }
+                    Control::ContinuesTo(_)
+                    | Control::LastOpTerminates
+                    | Control::InternalReturn => {}
                 }
             }
         }
@@ -749,6 +790,31 @@ mod tests {
     }
 
     #[test]
+    fn test_rejects_undefined_switch_condition() {
+        let mut builder = EthIRBuilder::new();
+        let mut func = builder.begin_function();
+
+        let cond = func.new_local();
+        let fallback_id = BasicBlockId::new(1);
+
+        let mut entry = func.begin_basic_block();
+        let switch = entry.begin_switch().finish(cond, Some(fallback_id));
+        let entry_id = entry.finish(Control::Switch(switch)).unwrap();
+
+        let mut fallback = func.begin_basic_block();
+        fallback.add_operation(Operation::Stop(()));
+        fallback.finish(Control::LastOpTerminates).unwrap();
+
+        let func_id = func.finish(entry_id);
+        let program = builder.build(func_id, None);
+
+        assert_eq!(
+            legalize(&program).unwrap_err(),
+            LegalizerError::UndefinedLocal(func_id, cond)
+        );
+    }
+
+    #[test]
     fn test_rejects_incompatible_merge() {
         let mut builder = EthIRBuilder::new();
         let mut func = builder.begin_function();
@@ -792,10 +858,49 @@ mod tests {
 
         assert_eq!(
             legalize(&program).unwrap_err(),
-            LegalizerError::IncompatibleEdge {
-                from: right_id,
-                to: merge_id
-            }
+            LegalizerError::IncompatibleEdge { from: right_id, to: merge_id }
+        );
+    }
+
+    #[test]
+    fn test_rejects_invalid_basic_block_id() {
+        let mut builder = EthIRBuilder::new();
+        let mut func = builder.begin_function();
+        let invalid_bb = BasicBlockId::new(999);
+
+        let mut bb = func.begin_basic_block();
+        bb.add_operation(Operation::Noop(()));
+        let bb_id = bb.finish(Control::ContinuesTo(invalid_bb)).unwrap();
+
+        let func_id = func.finish(bb_id);
+        let program = builder.build(func_id, None);
+
+        assert_eq!(
+            legalize(&program).unwrap_err(),
+            LegalizerError::InvalidBasicBlockId(invalid_bb)
+        );
+    }
+
+    #[test]
+    fn test_rejects_invalid_function_id() {
+        let mut builder = EthIRBuilder::new();
+        let invalid_id = FunctionId::new(999);
+
+        let mut func = builder.begin_function();
+        let mut bb = func.begin_basic_block();
+        bb.add_operation(Operation::InternalCall(InternalCallData {
+            function: invalid_id,
+            ins_start: LocalIdx::new(0),
+            outs_start: LocalIdx::new(0),
+        }));
+        bb.add_operation(Operation::Stop(()));
+        let bb_id = bb.finish(Control::LastOpTerminates).unwrap();
+        let func_id = func.finish(bb_id);
+        let program = builder.build(func_id, None);
+
+        assert_eq!(
+            legalize(&program).unwrap_err(),
+            LegalizerError::InvalidFunctionId(invalid_id)
         );
     }
 
