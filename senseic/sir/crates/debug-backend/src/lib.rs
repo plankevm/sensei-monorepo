@@ -1,8 +1,6 @@
-use sensei_core::{DenseIndexSet, IncIterable};
+use sensei_core::{DenseIndexSet, Idx, IncIterable};
 use sir_assembler::{AsmReference, Assembler, MarkId, MarkReference, op};
-use sir_data::{
-    BasicBlockId, BasicBlockIdMarker, Control, DataId, EthIRProgram, FunctionId, LocalId, Span,
-};
+use sir_data::{BasicBlockId, Control, DataId, EthIRProgram, FunctionId, LocalId, Span};
 
 use crate::static_memory_layout::StaticMemoryLayout;
 
@@ -68,7 +66,7 @@ pub(crate) struct Translator<'ir> {
     pub ir: &'ir EthIRProgram,
     pub memory_layout: StaticMemoryLayout,
     pub mark_map: MarkMap,
-    pub translated_bbs: DenseIndexSet<BasicBlockIdMarker>,
+    pub translated_bbs: DenseIndexSet<BasicBlockId>,
     pub bbs_to_be_translated: Vec<(FunctionId, BasicBlockId)>,
     pub translating_init_code: bool,
     pub asm: Assembler,

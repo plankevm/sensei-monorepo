@@ -14,16 +14,16 @@ pub struct EthIRProgram {
     pub init_entry: FunctionId,
     pub main_entry: Option<FunctionId>,
     // IR Statements
-    pub functions: IndexVec<FunctionIdMarker, Function>,
-    pub basic_blocks: IndexVec<BasicBlockIdMarker, BasicBlock>,
-    pub operations: IndexVec<OperationIndexMarker, Operation>,
-    pub data_segments_start: IndexVec<DataIdMarker, DataOffset>,
+    pub functions: IndexVec<FunctionId, Function>,
+    pub basic_blocks: IndexVec<BasicBlockId, BasicBlock>,
+    pub operations: IndexVec<OperationIdx, Operation>,
+    pub data_segments_start: IndexVec<DataId, DataOffset>,
     // IR Data
-    pub locals: IndexVec<LocalIndexMarker, LocalId>,
-    pub data_bytes: IndexVec<DataOffsetMarker, u8>,
-    pub large_consts: IndexVec<LargeConstIdMarker, U256>,
-    pub cases: IndexVec<CasesIdMarker, Cases>,
-    pub cases_bb_ids: IndexVec<CasesBasicBlocksIndexMarker, BasicBlockId>,
+    pub locals: IndexVec<LocalIdx, LocalId>,
+    pub data_bytes: IndexVec<DataOffset, u8>,
+    pub large_consts: IndexVec<LargeConstId, U256>,
+    pub cases: IndexVec<CasesId, Cases>,
+    pub cases_bb_ids: IndexVec<CasesBasicBlocksIdx, BasicBlockId>,
     // Codegeneration helpers
     pub next_free_local_id: LocalId,
     pub next_static_alloc_id: StaticAllocId,
@@ -114,7 +114,7 @@ impl Function {
         self.entry_bb_id
     }
 
-    pub fn get_inputs(&self, basic_blocks: &IndexVec<BasicBlockIdMarker, BasicBlock>) -> u32 {
+    pub fn get_inputs(&self, basic_blocks: &IndexVec<BasicBlockId, BasicBlock>) -> u32 {
         let inputs = basic_blocks[self.entry()].inputs;
         inputs.end - inputs.start
     }
@@ -127,9 +127,9 @@ impl Function {
 #[derive(Debug, Clone)]
 pub struct BasicBlock {
     /// Input locals.
-    pub inputs: Span<LocalIndex>,
-    pub outputs: Span<LocalIndex>,
-    pub operations: Span<OperationIndex>,
+    pub inputs: Span<LocalIdx>,
+    pub outputs: Span<LocalIdx>,
+    pub operations: Span<OperationIdx>,
     pub control: Control,
 }
 
@@ -208,22 +208,19 @@ pub struct Switch {
 #[derive(Debug, Clone, Copy)]
 pub struct Cases {
     pub values_start_id: LargeConstId,
-    pub targets_start_id: CasesBasicBlocksIndex,
+    pub targets_start_id: CasesBasicBlocksIdx,
     pub cases_count: u32,
 }
 
 impl Cases {
-    pub fn get_values<'ir>(
-        &self,
-        ir: &'ir EthIRProgram,
-    ) -> RelSlice<'ir, LargeConstIdMarker, U256> {
+    pub fn get_values<'ir>(&self, ir: &'ir EthIRProgram) -> RelSlice<'ir, LargeConstId, U256> {
         ir.large_consts.rel_slice(self.values_start_id..self.values_start_id + self.cases_count)
     }
 
     pub fn get_bb_ids<'ir>(
         &self,
         ir: &'ir EthIRProgram,
-    ) -> RelSlice<'ir, CasesBasicBlocksIndexMarker, BasicBlockId> {
+    ) -> RelSlice<'ir, CasesBasicBlocksIdx, BasicBlockId> {
         ir.cases_bb_ids.rel_slice(self.targets_start_id..self.targets_start_id + self.cases_count)
     }
 

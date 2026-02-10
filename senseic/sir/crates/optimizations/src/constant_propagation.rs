@@ -12,13 +12,13 @@ pub fn run(program: &mut EthIRProgram) {
 
 pub struct SCCPAnalysis<'a> {
     program: &'a mut EthIRProgram,
-    lattice: IndexVec<LocalIdMarker, LatticeValue>,
-    reachable: DenseIndexSet<BasicBlockIdMarker>,
+    lattice: IndexVec<LocalId, LatticeValue>,
+    reachable: DenseIndexSet<BasicBlockId>,
     cfg_worklist: Vec<BasicBlockId>,
     values_worklist: Vec<LocalId>,
-    predecessors: IndexVec<BasicBlockIdMarker, Vec<BasicBlockId>>,
+    predecessors: IndexVec<BasicBlockId, Vec<BasicBlockId>>,
     uses: DefUse,
-    unreachable_blocks: DenseIndexSet<BasicBlockIdMarker>,
+    unreachable_blocks: DenseIndexSet<BasicBlockId>,
 }
 
 impl<'a> SCCPAnalysis<'a> {
@@ -71,12 +71,12 @@ impl<'a> SCCPAnalysis<'a> {
         }
     }
 
-    pub fn get_unreachable_blocks(&self) -> &DenseIndexSet<BasicBlockIdMarker> {
+    pub fn get_unreachable_blocks(&self) -> &DenseIndexSet<BasicBlockId> {
         &self.unreachable_blocks
     }
 
     #[cfg(test)]
-    fn get_lattice(&self) -> &IndexVec<LocalIdMarker, LatticeValue> {
+    fn get_lattice(&self) -> &IndexVec<LocalId, LatticeValue> {
         &self.lattice
     }
 
@@ -507,7 +507,7 @@ macro_rules! define_consts {
             $($name),*
         }
 
-        fn constant(op: &Operation, large_consts: &IndexVec<LargeConstIdMarker, U256>) -> Option<(LocalId, LatticeValue)> {
+        fn constant(op: &Operation, large_consts: &IndexVec<LargeConstId, U256>) -> Option<(LocalId, LatticeValue)> {
             match op {
                 $(
                     Operation::$name(InlineOperands { ins: [], outs: [out] }) => {
@@ -553,7 +553,7 @@ mod tests {
     use sir_parser::{EmitConfig, parse_or_panic};
     use sir_test_utils::assert_trim_strings_eq_with_diff;
 
-    fn run_const_prop(source: &str) -> (String, IndexVec<LocalIdMarker, LatticeValue>) {
+    fn run_const_prop(source: &str) -> (String, IndexVec<LocalId, LatticeValue>) {
         let mut ir = parse_or_panic(source, EmitConfig::init_only());
         let mut sccp = SCCPAnalysis::new(&mut ir);
         sccp.analysis();

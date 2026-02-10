@@ -1,48 +1,27 @@
 use std::collections::HashMap;
 
 use inturn::Interner;
-use sensei_core::{IndexVec, Span, X32};
+use sensei_core::{IndexVec, Span, newtype_index};
 use sensei_parser::cst;
 
 // ---------------------------------------------------------------------------
-// Index marker types (empty enums, matching SIR pattern)
+// Index types
 // ---------------------------------------------------------------------------
 
-pub struct NodeIndex;
-pub type NodeIdx = X32<NodeIndex>;
-
-pub struct NodeRefIndex;
-pub type NodeRefIdx = X32<NodeRefIndex>;
-
-pub struct FuncDefIndex;
-pub type FuncDefIdx = X32<FuncDefIndex>;
-
-pub struct ParamIndex;
-pub type ParamIdx = X32<ParamIndex>;
-
-pub struct StructDefIndex;
-pub type StructDefIdx = X32<StructDefIndex>;
-
-pub struct FieldDefIndex;
-pub type FieldDefIdx = X32<FieldDefIndex>;
-
-pub struct InitFieldIndex;
-pub type InitFieldIdx = X32<InitFieldIndex>;
-
-pub struct LetIndex;
-pub type LetIdx = X32<LetIndex>;
-
-pub struct ConstIndex;
-pub type ConstIdx = X32<ConstIndex>;
-
-pub struct TypeIndex;
-pub type TypeIdx = X32<TypeIndex>;
-
-pub struct LimbIndex;
-pub type LimbIdx = X32<LimbIndex>;
-
-pub struct StringId;
-pub type StrId = X32<StringId>;
+newtype_index! {
+    pub struct NodeIdx;
+    pub struct NodeRefIdx;
+    pub struct FuncDefIdx;
+    pub struct ParamIdx;
+    pub struct StructDefIdx;
+    pub struct FieldDefIdx;
+    pub struct InitFieldIdx;
+    pub struct LetIdx;
+    pub struct ConstIdx;
+    pub struct TypeIdx;
+    pub struct LimbIdx;
+    pub struct StrId;
+}
 
 // ---------------------------------------------------------------------------
 // Builtin
@@ -157,7 +136,7 @@ pub enum Type {
 
 #[derive(Debug)]
 pub struct TypeInterner {
-    types: IndexVec<TypeIndex, Type>,
+    types: IndexVec<TypeIdx, Type>,
     map: HashMap<Type, TypeIdx>,
 }
 
@@ -245,26 +224,26 @@ pub struct TopLevelConst {
 // ---------------------------------------------------------------------------
 
 pub struct Hir {
-    pub node_kinds: IndexVec<NodeIndex, NodeKind>,
-    pub node_sources: IndexVec<NodeIndex, cst::NodeIdx>,
+    pub node_kinds: IndexVec<NodeIdx, NodeKind>,
+    pub node_sources: IndexVec<NodeIdx, cst::NodeIdx>,
 
-    pub node_refs: IndexVec<NodeRefIndex, NodeIdx>,
+    pub node_refs: IndexVec<NodeRefIdx, NodeIdx>,
 
-    pub func_defs: IndexVec<FuncDefIndex, FuncDef>,
-    pub params: IndexVec<ParamIndex, Param>,
+    pub func_defs: IndexVec<FuncDefIdx, FuncDef>,
+    pub params: IndexVec<ParamIdx, Param>,
 
-    pub struct_defs: IndexVec<StructDefIndex, StructDef>,
-    pub field_defs: IndexVec<FieldDefIndex, FieldDef>,
+    pub struct_defs: IndexVec<StructDefIdx, StructDef>,
+    pub field_defs: IndexVec<FieldDefIdx, FieldDef>,
 
-    pub init_fields: IndexVec<InitFieldIndex, InitField>,
+    pub init_fields: IndexVec<InitFieldIdx, InitField>,
 
-    pub lets: IndexVec<LetIndex, LetBinding>,
+    pub lets: IndexVec<LetIdx, LetBinding>,
 
     pub strings: Interner<StrId>,
     pub types: TypeInterner,
-    pub limbs: IndexVec<LimbIndex, u32>,
+    pub limbs: IndexVec<LimbIdx, u32>,
 
-    pub consts: IndexVec<ConstIndex, TopLevelConst>,
+    pub consts: IndexVec<ConstIdx, TopLevelConst>,
 
     pub root: NodeIdx,
 }

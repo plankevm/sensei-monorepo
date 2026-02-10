@@ -1,3 +1,4 @@
+use sensei_core::Idx;
 use sir_assembler::{Assembler, op};
 use sir_data::{EthIRProgram, FunctionId, LocalId};
 

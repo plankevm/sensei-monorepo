@@ -1,13 +1,14 @@
-use sensei_core::{X32, span::IncIterable};
-use sir_data::{BasicBlockId, BasicBlockIdMarker, EthIRProgram, IndexVec, index_vec};
+use sensei_core::{newtype_index, span::IncIterable};
+use sir_data::{BasicBlockId, EthIRProgram, IndexVec, index_vec};
 
-pub enum InOutGroupIdMarker {}
-pub type InOutGroupId = X32<InOutGroupIdMarker>;
+newtype_index! {
+    pub struct InOutGroupId;
+}
 
 #[derive(Debug)]
 pub struct ControlFlowGraphInOutBundling {
-    out_group: IndexVec<BasicBlockIdMarker, Option<InOutGroupId>>,
-    in_group: IndexVec<BasicBlockIdMarker, Option<InOutGroupId>>,
+    out_group: IndexVec<BasicBlockId, Option<InOutGroupId>>,
+    in_group: IndexVec<BasicBlockId, Option<InOutGroupId>>,
     next_group_id: InOutGroupId,
 }
 
@@ -15,7 +16,7 @@ impl ControlFlowGraphInOutBundling {
     pub fn analyze(ir: &EthIRProgram) -> Self {
         let mut out_group = index_vec![None; ir.basic_blocks.len()];
         let mut in_group = index_vec![None; ir.basic_blocks.len()];
-        let mut next_group_id: InOutGroupId = X32::ZERO;
+        let mut next_group_id = InOutGroupId::ZERO;
 
         for (bb_id, bb) in ir.basic_blocks.enumerate_idx() {
             let existing_group_id = bb.control.iter_outgoing(ir).find_map(|to| in_group[to]);

@@ -15,17 +15,17 @@ pub struct EthIRBuilder {
     next_local_id: LocalId,
     next_alloc_id: StaticAllocId,
     // IR Statements
-    pub(crate) functions: IndexVec<FunctionIdMarker, Function>,
-    pub(crate) basic_blocks: IndexVec<BasicBlockIdMarker, BasicBlock>,
-    pub(crate) operations: IndexVec<OperationIndexMarker, Operation>,
-    pub(crate) data_segments_start: IndexVec<DataIdMarker, DataOffset>,
+    pub(crate) functions: IndexVec<FunctionId, Function>,
+    pub(crate) basic_blocks: IndexVec<BasicBlockId, BasicBlock>,
+    pub(crate) operations: IndexVec<OperationIdx, Operation>,
+    pub(crate) data_segments_start: IndexVec<DataId, DataOffset>,
 
     // IR Data
-    pub(crate) locals: IndexVec<LocalIndexMarker, LocalId>,
-    pub(crate) data_bytes: IndexVec<DataOffsetMarker, u8>,
-    pub(crate) large_consts: IndexVec<LargeConstIdMarker, U256>,
-    pub(crate) cases: IndexVec<CasesIdMarker, Cases>,
-    pub(crate) cases_bb_ids: IndexVec<CasesBasicBlocksIndexMarker, BasicBlockId>,
+    pub(crate) locals: IndexVec<LocalIdx, LocalId>,
+    pub(crate) data_bytes: IndexVec<DataOffset, u8>,
+    pub(crate) large_consts: IndexVec<LargeConstId, U256>,
+    pub(crate) cases: IndexVec<CasesId, Cases>,
+    pub(crate) cases_bb_ids: IndexVec<CasesBasicBlocksIdx, BasicBlockId>,
 }
 
 impl EthIRBuilder {
@@ -63,7 +63,7 @@ impl EthIRBuilder {
         }
     }
 
-    pub fn view_bb_backing(&self) -> &IndexVec<BasicBlockIdMarker, BasicBlock> {
+    pub fn view_bb_backing(&self) -> &IndexVec<BasicBlockId, BasicBlock> {
         &self.basic_blocks
     }
 
@@ -75,7 +75,7 @@ impl EthIRBuilder {
         self.next_alloc_id.get_and_inc()
     }
 
-    pub fn alloc_locals(&mut self, locals: &[LocalId]) -> Span<LocalIndex> {
+    pub fn alloc_locals(&mut self, locals: &[LocalId]) -> Span<LocalIdx> {
         let start = self.locals.len_idx();
         self.locals.as_mut_vec().extend_from_slice(locals);
         let end = self.locals.len_idx();
@@ -196,9 +196,9 @@ impl<'ir> AsMut<EthIRBuilder> for FunctionBuilder<'ir> {
 #[must_use]
 pub struct BasicBlockBuilder<'func, 'ir: 'func> {
     pub fn_builder: &'func mut FunctionBuilder<'ir>,
-    operations: Span<OperationIndex>,
-    inputs: Span<LocalIndex>,
-    outputs: Span<LocalIndex>,
+    operations: Span<OperationIdx>,
+    inputs: Span<LocalIdx>,
+    outputs: Span<LocalIdx>,
 }
 
 impl<'func, 'ir: 'func> BasicBlockBuilder<'func, 'ir> {
@@ -206,7 +206,7 @@ impl<'func, 'ir: 'func> BasicBlockBuilder<'func, 'ir> {
         self.fn_builder.new_local()
     }
 
-    pub fn add_operation(&mut self, op: Operation) -> OperationIndex {
+    pub fn add_operation(&mut self, op: Operation) -> OperationIdx {
         let idx = self.fn_builder.ir_builder.operations.push(op);
         assert_eq!(idx, self.operations.end, "operations not contiguous");
         self.operations.end = self.fn_builder.ir_builder.operations.next_idx();
@@ -256,7 +256,7 @@ impl<'func, 'ir: 'func> AsMut<EthIRBuilder> for BasicBlockBuilder<'func, 'ir> {
 pub struct SwitchBuilder<'ctx, C: AsMut<EthIRBuilder>> {
     context: &'ctx mut C,
     values_start: LargeConstId,
-    targets_start: CasesBasicBlocksIndex,
+    targets_start: CasesBasicBlocksIdx,
     cases_count: u32,
 }
 
@@ -289,9 +289,9 @@ impl<'ctx, C: AsMut<EthIRBuilder>> SwitchBuilder<'ctx, C> {
     }
 }
 
-fn overwrite_span_via_copy<M, T: Copy>(
-    span: &mut Span<X32<M>>,
-    backing: &mut IndexVec<M, T>,
+fn overwrite_span_via_copy<I: Idx, T: Copy>(
+    span: &mut Span<I>,
+    backing: &mut IndexVec<I, T>,
     new_values: &[T],
 ) {
     let len = (span.end.get() - span.start.get()) as usize;

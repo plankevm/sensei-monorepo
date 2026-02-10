@@ -1,13 +1,9 @@
-use sir_data::{
-    BasicBlockId, BasicBlockIdMarker, DenseIndexSet, EthIRProgram, IndexVec, index_vec,
-};
+use sir_data::{BasicBlockId, DenseIndexSet, EthIRProgram, IndexVec, index_vec};
 
 use crate::compute_predecessors;
 
 // iterative dominator algorithm using RPO
-pub fn compute_dominators(
-    program: &EthIRProgram,
-) -> IndexVec<BasicBlockIdMarker, Option<BasicBlockId>> {
+pub fn compute_dominators(program: &EthIRProgram) -> IndexVec<BasicBlockId, Option<BasicBlockId>> {
     let mut dominators = index_vec![None; program.basic_blocks.len()];
 
     for func in program.functions.iter() {
@@ -20,7 +16,7 @@ pub fn compute_dominators(
 fn compute_function_dominators(
     program: &EthIRProgram,
     entry: BasicBlockId,
-    dominators: &mut IndexVec<BasicBlockIdMarker, Option<BasicBlockId>>,
+    dominators: &mut IndexVec<BasicBlockId, Option<BasicBlockId>>,
 ) {
     dominators[entry] = Some(entry);
 
@@ -59,8 +55,8 @@ fn compute_function_dominators(
 fn intersect(
     bb1: BasicBlockId,
     bb2: BasicBlockId,
-    dominators: &IndexVec<BasicBlockIdMarker, Option<BasicBlockId>>,
-    bb_to_rpo_pos: &IndexVec<BasicBlockIdMarker, u32>,
+    dominators: &IndexVec<BasicBlockId, Option<BasicBlockId>>,
+    bb_to_rpo_pos: &IndexVec<BasicBlockId, u32>,
 ) -> BasicBlockId {
     let mut finger1 = bb1;
     let mut finger2 = bb2;
@@ -80,7 +76,7 @@ fn intersect(
 fn dfs_postorder(
     program: &EthIRProgram,
     bb: BasicBlockId,
-    visited: &mut DenseIndexSet<BasicBlockIdMarker>,
+    visited: &mut DenseIndexSet<BasicBlockId>,
     postorder: &mut Vec<BasicBlockId>,
 ) {
     if visited.contains(bb) {
@@ -96,6 +92,7 @@ fn dfs_postorder(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use sir_data::Idx;
     use sir_parser::{EmitConfig, parse_or_panic};
 
     fn bb(n: u32) -> BasicBlockId {

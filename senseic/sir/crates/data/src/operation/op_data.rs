@@ -201,7 +201,7 @@ impl Default for InlineOperands<0, 0> {
 /// Operation data where inputs are allocated in the IR but outputs are stored inline.
 #[derive(Debug, Clone)]
 pub struct AllocatedIns<const INS: usize, const OUTS: usize> {
-    pub ins_start: LocalIndex,
+    pub ins_start: LocalIdx,
     pub outs: [LocalId; OUTS],
 }
 
@@ -437,8 +437,8 @@ impl SetDataOffsetData {
 #[derive(Debug, Clone)]
 pub struct InternalCallData {
     pub function: FunctionId,
-    pub ins_start: LocalIndex,
-    pub outs_start: LocalIndex,
+    pub ins_start: LocalIdx,
+    pub outs_start: LocalIdx,
 }
 
 impl InternalCallData {

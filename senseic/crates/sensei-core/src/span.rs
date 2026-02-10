@@ -42,7 +42,7 @@ impl<T: Eq> Span<T> {
 
 impl<I: Idx> Span<I> {
     pub fn dummy() -> Self {
-        Self { start: I::max(), end: I::new(0) }
+        Self { start: I::max_value(), end: I::new(0) }
     }
 
     pub fn is_dummy(self) -> bool {
