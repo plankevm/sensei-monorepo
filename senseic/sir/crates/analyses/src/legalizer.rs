@@ -1,6 +1,6 @@
 use sir_data::{
-    BasicBlock, BasicBlockId, Control, DataId, EthIRProgram, FunctionId, Idx, IndexVec,
-    LargeConstId, LocalIdx, Operation, OperationIdx, StaticAllocId,
+    BasicBlock, BasicBlockId, Control, DataId, DenseIndexSet, EthIRProgram, Function, FunctionId,
+    Idx, IndexVec, LargeConstId, LocalIdx, Operation, OperationIdx, StaticAllocId, index_vec,
     operation::{
         AllocatedIns, InternalCallData, SetDataOffsetData, SetLargeConstData, StaticAllocData,
     },
@@ -27,6 +27,10 @@ pub enum LegalizerError {
     InvalidStaticAllocId(StaticAllocId),
     OverlappingSpans(SpanSource, SpanSource),
     SpanOutOfBounds(SpanSource),
+    SharedBasicBlock(BasicBlockId, FunctionId, FunctionId),
+    IncompatibleEdge { from: BasicBlockId, to: BasicBlockId },
+    WrongOutputCount { block: BasicBlockId, expected: u32 },
+    RecursiveCall(FunctionId, FunctionId),
 }
 
 pub fn legalize(program: &EthIRProgram) -> Result<(), LegalizerError> {
@@ -37,6 +41,8 @@ struct Legalizer<'a> {
     program: &'a EthIRProgram,
     locals_spans: Vec<TrackedSpan<LocalIdx>>,
     operations_spans: Vec<TrackedSpan<OperationIdx>>,
+    block_owner: IndexVec<BasicBlockId, Option<FunctionId>>,
+    call_edges: Vec<(FunctionId, FunctionId)>,
 }
 
 impl<'a> Legalizer<'a> {
@@ -47,15 +53,83 @@ impl<'a> Legalizer<'a> {
     fn legalize(&mut self) -> Result<(), LegalizerError> {
         self.validate_entry_points()?;
         self.validate_blocks()?;
+        self.validate_cfg()?;
         todo!()
     }
 
     fn validate_cfg(&mut self) -> Result<(), LegalizerError> {
-        // The call graph is acyclic aka no recursion mutual or otherwise is present
-        // The CFG of functions is disjoint (no two functions share the same basic block)
-        // All function end blocks either terminate or have the same output count, equal to the function's .outputs (when Control::InternalReturn)
-        // The input & output count of connected basic blocks lines up
-        todo!()
+        let mut visited = DenseIndexSet::new();
+        for (fn_id, function) in self.program.functions.enumerate_idx() {
+            visited.clear();
+            self.visit_block(fn_id, function.entry(), &mut visited)?;
+        }
+        self.validate_call_graph()
+    }
+
+    fn validate_call_graph(&self) -> Result<(), LegalizerError> {
+        let mut callees: IndexVec<FunctionId, Vec<FunctionId>> =
+            index_vec![Vec::new(); self.program.functions.len()];
+        for (caller, callee) in &self.call_edges {
+            callees[*caller].push(*callee);
+        }
+
+        // 0 = unvisited, 1 = in progress, 2 = done
+        let mut color: IndexVec<FunctionId, u8> = index_vec![0; self.program.functions.len()];
+        for fn_id in self.program.functions.iter_idx() {
+            if color[fn_id] == 0 {
+                detect_cycle(fn_id, &callees, &mut color)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn visit_block(
+        &mut self,
+        fn_id: FunctionId,
+        bb: BasicBlockId,
+        visited: &mut DenseIndexSet<BasicBlockId>,
+    ) -> Result<(), LegalizerError> {
+        if visited.contains(bb) {
+            return Ok(());
+        }
+        visited.add(bb);
+
+        // function end blocks have output count equal to the function's .outputs when Control::InternalReturn
+        if matches!(self.program.basic_blocks[bb].control, Control::InternalReturn) {
+            if self.program.basic_blocks[bb].outputs.len()
+                != self.program.functions[fn_id].get_outputs()
+            {
+                return Err(LegalizerError::WrongOutputCount {
+                    block: bb,
+                    expected: self.program.functions[fn_id].get_outputs(),
+                });
+            }
+        }
+
+        // check no two functions share the same basic block
+        if let Some(owner) = self.block_owner[bb] {
+            return Err(LegalizerError::SharedBasicBlock(bb, owner, fn_id));
+        }
+        self.block_owner[bb] = Some(fn_id);
+
+        // update call_edges
+        for op_id in self.program.basic_blocks[bb].operations.iter() {
+            let op = &self.program.operations[op_id];
+            if let Operation::InternalCall(InternalCallData { function: callee, .. }) = op {
+                self.call_edges.push((fn_id, *callee));
+            }
+        }
+
+        for succ in self.program.basic_blocks[bb].control.iter_outgoing(self.program) {
+            // input & output count of connected basic blocks
+            if self.program.basic_blocks[bb].outputs.len()
+                != self.program.basic_blocks[succ].inputs.len()
+            {
+                return Err(LegalizerError::IncompatibleEdge { from: bb, to: succ });
+            }
+            self.visit_block(fn_id, succ, visited)?;
+        }
+        Ok(())
     }
 
     fn validate_local_ids(&mut self) -> Result<(), LegalizerError> {
@@ -233,16 +307,14 @@ impl<'a> Legalizer<'a> {
         // init & runtime entry points have 0 inputs
         let entry_bb =
             &self.program.basic_blocks[self.program.functions[self.program.init_entry].entry()];
-        let entry_input_count = entry_bb.inputs.end.get() - entry_bb.inputs.start.get();
-        if entry_input_count != 0 {
-            return Err(LegalizerError::InitHasInputs(entry_input_count));
+        if !entry_bb.inputs.is_empty() {
+            return Err(LegalizerError::InitHasInputs(entry_bb.inputs.len()));
         }
 
         if let Some(main_entry) = self.program.main_entry {
             let main_bb = &self.program.basic_blocks[self.program.functions[main_entry].entry()];
-            let main_input_count = main_bb.inputs.end.get() - main_bb.inputs.start.get();
-            if main_input_count != 0 {
-                return Err(LegalizerError::RuntimeHasInputs(main_input_count));
+            if !main_bb.inputs.is_empty() {
+                return Err(LegalizerError::RuntimeHasInputs(main_bb.inputs.len()));
             }
         }
         Ok(())
@@ -253,4 +325,22 @@ struct TrackedSpan<I> {
     start: I,
     end: I,
     source: SpanSource,
+}
+
+fn detect_cycle(
+    fn_id: FunctionId,
+    callees: &IndexVec<FunctionId, Vec<FunctionId>>,
+    color: &mut IndexVec<FunctionId, u8>,
+) -> Result<(), LegalizerError> {
+    color[fn_id] = 1; // gray
+    for &callee in &callees[fn_id] {
+        if color[callee] == 1 {
+            return Err(LegalizerError::RecursiveCall(fn_id, callee));
+        }
+        if color[callee] == 0 {
+            detect_cycle(callee, callees, color)?;
+        }
+    }
+    color[fn_id] = 2; // black
+    Ok(())
 }
