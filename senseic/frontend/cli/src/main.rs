@@ -26,14 +26,15 @@ fn main() {
     let mut collector = ErrorCollector::default();
     let cst = parse(&arena, lexer, 64, &mut collector);
 
+    let display = DisplayCST::new(&cst, &source).show_line(show_lines);
+    println!("{}", display);
+
     if !collector.errors.is_empty() {
         let line_index = LineIndex::new(&source);
         for error in &collector.errors {
             eprintln!("{}\n", format_error(error, &source, &line_index));
         }
+
+        std::process::exit(1);
     }
-
-    let display = DisplayCST::new(&cst, &source).show_line(show_lines);
-
-    println!("{}", display);
 }
