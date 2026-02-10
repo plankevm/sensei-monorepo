@@ -6,7 +6,7 @@ use crate::{
 };
 use allocator_api2::vec::Vec;
 use bumpalo::Bump;
-use sensei_core::{IndexVec, Span, span::IncIterable};
+use sensei_core::{Idx, IndexVec, Span, span::IncIterable};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 struct OpPriority(u8);
@@ -83,7 +83,7 @@ mod token_item_iter {
 }
 
 struct Parser<'ast, 'd, 'src, D: DiagnosticsContext> {
-    nodes: IndexVec<NodeIndex, cst::Node, &'ast Bump>,
+    nodes: IndexVec<cst::NodeIdx, cst::Node, &'ast Bump>,
     expected: Vec<Token, &'ast Bump>,
     tokens: TokenItems<'src>,
     diagnostics: &'d mut D,

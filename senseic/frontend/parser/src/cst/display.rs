@@ -1,16 +1,16 @@
 use crate::{
-    cst::{NodeIdx, TokenIdx, TokenIndex},
+    cst::{NodeIdx, TokenIdx},
     error_report::LineIndex,
     lexer::{Lexer, SourceSpan},
 };
-use sensei_core::{IndexVec, Span};
+use sensei_core::{Idx, IndexVec, Span};
 
 use crate::cst::ConcreteSyntaxTree;
 
 #[derive(Debug)]
 pub struct DisplayCST<'src, 'ast> {
     line_index: LineIndex,
-    token_source_offsets: IndexVec<TokenIndex, u32>,
+    token_source_offsets: IndexVec<TokenIdx, u32>,
     source: &'src str,
     cst: &'ast ConcreteSyntaxTree<'ast>,
     show_line: bool,

@@ -1,10 +1,8 @@
-use sir_data::{
-    BasicBlockId, BasicBlockIdMarker, DataOffset, EthIRProgram, FunctionId, IndexVec, index_vec,
-};
+use sir_data::{BasicBlockId, DataOffset, EthIRProgram, FunctionId, Idx, IndexVec, index_vec};
 
 #[derive(Debug, Clone)]
 pub struct BasicBlockOwnershipAndReachability {
-    ownership: IndexVec<BasicBlockIdMarker, Option<FunctionId>>,
+    ownership: IndexVec<BasicBlockId, Option<FunctionId>>,
 }
 
 impl BasicBlockOwnershipAndReachability {
@@ -19,7 +17,7 @@ impl BasicBlockOwnershipAndReachability {
     }
 
     fn mark_reachable_blocks(
-        ownership: &mut IndexVec<BasicBlockIdMarker, Option<FunctionId>>,
+        ownership: &mut IndexVec<BasicBlockId, Option<FunctionId>>,
         program: &EthIRProgram,
         current: BasicBlockId,
         owner: FunctionId,
@@ -104,7 +102,7 @@ impl BasicBlockOwnershipAndReachability {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use sir_data::{Branch, Control, X32, builder::EthIRBuilder, operation::*};
+    use sir_data::{Branch, Control, builder::EthIRBuilder, operation::*};
 
     #[test]
     fn test_simple_ownership() {
@@ -113,7 +111,7 @@ mod tests {
 
         let mut bb0 = func.begin_basic_block();
         bb0.add_operation(Operation::Noop(()));
-        let bb0_id = bb0.finish(Control::ContinuesTo(X32::new(1))).unwrap();
+        let bb0_id = bb0.finish(Control::ContinuesTo(BasicBlockId::new(1))).unwrap();
 
         let mut bb1 = func.begin_basic_block();
         bb1.add_operation(Operation::Stop(()));

@@ -1,15 +1,14 @@
 use alloy_primitives::U256;
-use sensei_core::{IndexVec, Span, X32, index_vec};
+use sensei_core::{Idx, IndexVec, Span, index_vec, newtype_index};
 pub mod op;
 
 const ASSUMED_MARK_COUNT_WITHOUT_HINT: usize = 128;
 const MAX_ASSEMBLER_CONVERGENCE_ITERS: usize = 1024;
 
-pub struct MarkIdMarker;
-pub type MarkId = X32<MarkIdMarker>;
-
-pub struct AsmBytesIndex;
-pub type AsmBytesIdx = X32<AsmBytesIndex>;
+newtype_index! {
+    pub struct MarkId;
+    pub struct AsmBytesIdx;
+}
 
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -127,7 +126,7 @@ impl AsmSection {
         }
     }
 
-    fn compiled_size(&self, mark_map: &IndexVec<MarkIdMarker, u32>) -> Option<u32> {
+    fn compiled_size(&self, mark_map: &IndexVec<MarkId, u32>) -> Option<u32> {
         match self {
             AsmSection::Mark(_) => Some(0),
             AsmSection::Ops(bytes_span) | AsmSection::Data(bytes_span) => {
@@ -182,7 +181,7 @@ const _ASSERT_STORED_ASM_SECTION_MEM_SIZE: () = const {
 
 #[derive(Debug, Clone)]
 pub struct Assembler {
-    bytes: IndexVec<AsmBytesIndex, u8>,
+    bytes: IndexVec<AsmBytesIdx, u8>,
     sections: Vec<StoredAsmSection>,
 }
 
@@ -316,7 +315,7 @@ impl Assembler {
 
     fn converge_mark_offsets(
         &self,
-        mark_to_offset: &mut IndexVec<MarkIdMarker, u32>,
+        mark_to_offset: &mut IndexVec<MarkId, u32>,
     ) -> Result<(), AssembleError> {
         let mut min_size = 0;
         for section in self.iter_sections() {
@@ -361,8 +360,8 @@ impl Assembler {
         &self,
         result: &mut Vec<u8>,
         mark_id_count_hint: Option<usize>,
-    ) -> Result<IndexVec<MarkIdMarker, u32>, AssembleError> {
-        let mut mark_to_offset: IndexVec<MarkIdMarker, u32> =
+    ) -> Result<IndexVec<MarkId, u32>, AssembleError> {
+        let mut mark_to_offset: IndexVec<MarkId, u32> =
             index_vec![0; mark_id_count_hint.unwrap_or(ASSUMED_MARK_COUNT_WITHOUT_HINT)];
 
         self.converge_mark_offsets(&mut mark_to_offset)?;

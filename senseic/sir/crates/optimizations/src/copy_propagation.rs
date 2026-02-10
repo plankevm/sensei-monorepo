@@ -1,8 +1,7 @@
 use std::collections::HashMap;
 
 use sir_data::{
-    Control, EthIRProgram, LocalId, LocalIdMarker, LocalIndexMarker, Operation, RelSliceMut, Span,
-    X32,
+    Control, EthIRProgram, LocalId, LocalIdx, Operation, RelSliceMut, Span,
     operation::{
         AllocatedIns, InlineOperands, InternalCallData, MemoryLoadData, MemoryStoreData,
         OpVisitorMut, SetDataOffsetData, SetLargeConstData, SetSmallConstData, StaticAllocData,
@@ -11,10 +10,10 @@ use sir_data::{
 
 struct CopyReplacer<'a> {
     copy_map: &'a HashMap<LocalId, LocalId>,
-    locals: RelSliceMut<'a, LocalIndexMarker, LocalId>,
+    locals: RelSliceMut<'a, LocalIdx, LocalId>,
 }
 
-fn replace_if_copied(input: &mut X32<LocalIdMarker>, copy_map: &HashMap<LocalId, LocalId>) {
+fn replace_if_copied(input: &mut LocalId, copy_map: &HashMap<LocalId, LocalId>) {
     if let Some(replacement) = copy_map.get(input) {
         *input = *replacement;
     }

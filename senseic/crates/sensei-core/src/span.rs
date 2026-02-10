@@ -1,16 +1,7 @@
-use crate::index::X32;
+use crate::{Idx, newtype_index};
 
 pub trait IncIterable: Eq + Ord {
     fn get_and_inc(&mut self) -> Self;
-}
-
-impl<M> IncIterable for X32<M> {
-    #[inline(always)]
-    fn get_and_inc(&mut self) -> Self {
-        let current = *self;
-        *self += 1;
-        current
-    }
 }
 
 impl IncIterable for u32 {
@@ -27,7 +18,7 @@ pub struct Span<T> {
     pub end: T,
 }
 
-impl<M> std::fmt::Display for Span<X32<M>> {
+impl<I: Idx> std::fmt::Display for Span<I> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}..{}", self.start.get(), self.end.get())
     }
@@ -49,9 +40,9 @@ impl<T: Eq> Span<T> {
     }
 }
 
-impl<M> Span<X32<M>> {
-    pub const fn dummy() -> Self {
-        Self { start: X32::MAX, end: X32::ZERO }
+impl<I: Idx> Span<I> {
+    pub fn dummy() -> Self {
+        Self { start: I::max_value(), end: I::new(0) }
     }
 
     pub fn is_dummy(self) -> bool {
@@ -67,16 +58,17 @@ impl<T: IncIterable> Span<T> {
 }
 
 const _SPAN_OPTION_SIZE: () = const {
-    struct ExampleMarker;
-    type Index = X32<ExampleMarker>;
-    assert!(std::mem::size_of::<Option<Span<Index>>>() == 8);
+    newtype_index! {
+        struct ExampleIdx;
+    }
+    assert!(std::mem::size_of::<Option<Span<ExampleIdx>>>() == 8);
 };
 
 pub trait ToUsize {
     fn to_usize(self) -> usize;
 }
 
-impl<M> ToUsize for X32<M> {
+impl<I: Idx> ToUsize for I {
     fn to_usize(self) -> usize {
         self.get() as usize
     }

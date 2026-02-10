@@ -1,14 +1,13 @@
 use crate::const_print::const_assert_eq;
 use bumpalo::Bump;
-use sensei_core::{IndexVec, Span, X32};
+use sensei_core::{Idx, IndexVec, Span, newtype_index};
 
 pub mod display;
 
-pub struct TokenIndex;
-pub type TokenIdx = X32<TokenIndex>;
-
-pub struct NodeIndex;
-pub type NodeIdx = X32<NodeIndex>;
+newtype_index! {
+    pub struct TokenIdx;
+    pub struct NodeIdx;
+}
 
 #[derive(Debug, Clone)]
 pub struct Node {
@@ -133,7 +132,7 @@ impl NodeKind {
 
 #[derive(Debug, Clone)]
 pub struct ConcreteSyntaxTree<'ast> {
-    pub nodes: IndexVec<NodeIndex, Node, &'ast Bump>,
+    pub nodes: IndexVec<NodeIdx, Node, &'ast Bump>,
 }
 
 impl<'ast> ConcreteSyntaxTree<'ast> {
