@@ -1,6 +1,6 @@
 use sir_data::{
-    BasicBlock, BasicBlockId, Control, DataId, EthIRProgram, LargeConstId, LocalIndex, Operation,
-    OperationIndex, StaticAllocId,
+    BasicBlock, BasicBlockId, Control, DataId, EthIRProgram, FunctionId, Idx, IndexVec,
+    LargeConstId, LocalIdx, Operation, OperationIdx, StaticAllocId,
     operation::{
         AllocatedIns, InternalCallData, SetDataOffsetData, SetLargeConstData, StaticAllocData,
     },
@@ -11,16 +11,16 @@ pub enum SpanSource {
     Inputs(BasicBlockId),
     Outputs(BasicBlockId),
     Operations(BasicBlockId),
-    OpInputs(BasicBlockId, OperationIndex),
-    OpOutputs(BasicBlockId, OperationIndex),
+    OpInputs(BasicBlockId, OperationIdx),
+    OpOutputs(BasicBlockId, OperationIdx),
 }
 
 #[derive(Debug)]
 pub enum LegalizerError {
     InitHasInputs(u32),
     RuntimeHasInputs(u32),
-    TerminatorNotLast(BasicBlockId, OperationIndex),
-    TerminatorControlMismatch(BasicBlockId, OperationIndex),
+    TerminatorNotLast(BasicBlockId, OperationIdx),
+    TerminatorControlMismatch(BasicBlockId, OperationIdx),
     MissingTerminator(BasicBlockId),
     InvalidLargeConstId(LargeConstId),
     InvalidSegmentId(DataId),
@@ -35,8 +35,8 @@ pub fn legalize(program: &EthIRProgram) -> Result<(), LegalizerError> {
 
 struct Legalizer<'a> {
     program: &'a EthIRProgram,
-    locals_spans: Vec<TrackedSpan<LocalIndex>>,
-    operations_spans: Vec<TrackedSpan<OperationIndex>>,
+    locals_spans: Vec<TrackedSpan<LocalIdx>>,
+    operations_spans: Vec<TrackedSpan<OperationIdx>>,
 }
 
 impl<'a> Legalizer<'a> {
