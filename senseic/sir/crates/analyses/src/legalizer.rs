@@ -3,6 +3,7 @@ use sir_data::{
     IndexVec, LargeConstId, LocalId, LocalIdx, Operation, OperationIdx, StaticAllocId, index_vec,
 };
 
+/// Identifies which IR construct a tracked span belongs to, used in span overlap diagnostics.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SpanSource {
     Inputs(BasicBlockId),
@@ -68,6 +69,9 @@ impl<'a> Legalizer<'a> {
     }
 
     fn validate_entry_points(&self) -> Result<(), LegalizerError> {
+        if self.program.functions.get(self.program.init_entry).is_none() {
+            return Err(LegalizerError::InvalidFunctionId(self.program.init_entry));
+        }
         let entry_bb =
             &self.program.basic_blocks[self.program.functions[self.program.init_entry].entry()];
         if !entry_bb.inputs.is_empty() {
@@ -75,6 +79,9 @@ impl<'a> Legalizer<'a> {
         }
 
         if let Some(main_entry) = self.program.main_entry {
+            if self.program.functions.get(main_entry).is_none() {
+                return Err(LegalizerError::InvalidFunctionId(main_entry));
+            }
             let main_bb = &self.program.basic_blocks[self.program.functions[main_entry].entry()];
             if !main_bb.inputs.is_empty() {
                 return Err(LegalizerError::RuntimeHasInputs(main_bb.inputs.len()));
@@ -106,15 +113,16 @@ impl<'a> Legalizer<'a> {
         bb: &BasicBlock,
     ) -> Result<(), LegalizerError> {
         if matches!(bb.control, Control::LastOpTerminates)
-            && (bb.operations.is_empty()
-                || !matches!(
-                    &self.program.operations[bb.operations.end - 1],
+            && self.program.operations[bb.operations].last().is_none_or(|op| {
+                !matches!(
+                    op,
                     Operation::Return(_)
                         | Operation::Stop(_)
                         | Operation::Revert(_)
                         | Operation::Invalid(_)
                         | Operation::SelfDestruct(_)
-                ))
+                )
+            })
         {
             return Err(LegalizerError::MissingTerminator(bb_id));
         }
@@ -247,7 +255,7 @@ impl<'a> Legalizer<'a> {
         let mut visited = DenseIndexSet::new();
         for (fn_id, function) in self.program.functions.enumerate_idx() {
             visited.clear();
-            self.visit_block(fn_id, function.entry(), &mut visited)?;
+            self.validate_cfg_visit_block(fn_id, function.entry(), &mut visited)?;
         }
         self.validate_call_graph()
     }
@@ -259,17 +267,41 @@ impl<'a> Legalizer<'a> {
             callees[*caller].push(*callee);
         }
 
-        // 0 = unvisited, 1 = in progress, 2 = done
-        let mut color: IndexVec<FunctionId, u8> = index_vec![0; self.program.functions.len()];
+        #[derive(PartialEq, Clone, Copy)]
+        enum Color {
+            White,
+            Gray,
+            Black,
+        }
+
+        fn detect_cycle(
+            fn_id: FunctionId,
+            callees: &IndexVec<FunctionId, Vec<FunctionId>>,
+            color: &mut IndexVec<FunctionId, Color>,
+        ) -> Result<(), LegalizerError> {
+            color[fn_id] = Color::Gray;
+            for &callee in &callees[fn_id] {
+                if color[callee] == Color::Gray {
+                    return Err(LegalizerError::RecursiveCall(fn_id, callee));
+                }
+                if color[callee] == Color::White {
+                    detect_cycle(callee, callees, color)?;
+                }
+            }
+            color[fn_id] = Color::Black;
+            Ok(())
+        }
+
+        let mut color = index_vec![Color::White; self.program.functions.len()];
         for fn_id in self.program.functions.iter_idx() {
-            if color[fn_id] == 0 {
+            if color[fn_id] == Color::White {
                 detect_cycle(fn_id, &callees, &mut color)?;
             }
         }
         Ok(())
     }
 
-    fn visit_block(
+    fn validate_cfg_visit_block(
         &mut self,
         fn_id: FunctionId,
         bb: BasicBlockId,
@@ -298,19 +330,18 @@ impl<'a> Legalizer<'a> {
 
         for op_id in self.program.basic_blocks[bb].operations.iter() {
             let op = &self.program.operations[op_id];
-            if let Operation::InternalCall(data) = op {
-                let target = &self.program.functions[data.function];
-                let expected_ins = target.get_inputs(&self.program.basic_blocks);
-                let actual_ins = op.inputs(self.program).len() as u32;
-                if actual_ins != expected_ins {
-                    return Err(LegalizerError::WrongCallInputCount {
-                        op: op_id,
-                        expected: expected_ins,
-                        actual: actual_ins,
-                    });
-                }
-                self.call_edges.push((fn_id, data.function));
+            let Operation::InternalCall(data) = op else { continue };
+            let expected_ins =
+                self.program.functions[data.function].get_inputs(&self.program.basic_blocks);
+            let actual_ins = data.outs_start - data.ins_start;
+            if actual_ins != expected_ins {
+                return Err(LegalizerError::WrongCallInputCount {
+                    op: op_id,
+                    expected: expected_ins,
+                    actual: actual_ins,
+                });
             }
+            self.call_edges.push((fn_id, data.function));
         }
 
         for succ in self.program.basic_blocks[bb].control.iter_outgoing(self.program) {
@@ -319,7 +350,7 @@ impl<'a> Legalizer<'a> {
             {
                 return Err(LegalizerError::IncompatibleEdge { from: bb, to: succ });
             }
-            self.visit_block(fn_id, succ, visited)?;
+            self.validate_cfg_visit_block(fn_id, succ, visited)?;
         }
         Ok(())
     }
@@ -360,9 +391,8 @@ impl<'a> Legalizer<'a> {
         for fn_id in self.program.functions.iter_idx() {
             fn_defs.clear();
             for bb_id in &fn_blocks[fn_id] {
-                for local_idx in self.program.basic_blocks[*bb_id].inputs.iter() {
-                    let local_id = self.program.locals[local_idx];
-                    fn_defs.add(local_id);
+                for local_id in &self.program.locals[self.program.basic_blocks[*bb_id].inputs] {
+                    fn_defs.add(*local_id);
                 }
                 for op_idx in self.program.basic_blocks[*bb_id].operations.iter() {
                     let op = &self.program.operations[op_idx];
@@ -411,24 +441,6 @@ struct TrackedSpan<I> {
     start: I,
     end: I,
     source: SpanSource,
-}
-
-fn detect_cycle(
-    fn_id: FunctionId,
-    callees: &IndexVec<FunctionId, Vec<FunctionId>>,
-    color: &mut IndexVec<FunctionId, u8>,
-) -> Result<(), LegalizerError> {
-    color[fn_id] = 1; // gray
-    for &callee in &callees[fn_id] {
-        if color[callee] == 1 {
-            return Err(LegalizerError::RecursiveCall(fn_id, callee));
-        }
-        if color[callee] == 0 {
-            detect_cycle(callee, callees, color)?;
-        }
-    }
-    color[fn_id] = 2; // black
-    Ok(())
 }
 
 fn validate_spans<I: Ord + Idx>(

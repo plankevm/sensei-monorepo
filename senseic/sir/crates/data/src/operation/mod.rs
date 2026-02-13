@@ -234,7 +234,6 @@ impl Operation {
     pub fn allocated_spans(&self, ir: &EthIRProgram) -> AllocatedSpans {
         self.visit_data(&mut AllocatedSpansGetter { ir })
     }
-
 }
 
 #[cfg(test)]

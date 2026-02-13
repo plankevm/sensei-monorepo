@@ -217,9 +217,7 @@ impl<'a> OpVisitor<'a, AllocatedSpans> for AllocatedSpansGetter<'a> {
         AllocatedSpans::NONE
     }
     fn visit_icall(&mut self, data: &'a InternalCallData) -> AllocatedSpans {
-        let fn_outputs = self.ir.functions.get(data.function).expect(
-            "AllocatedSpansGetter: invalid FunctionId; callers must validate referenced resources first",
-        ).outputs;
+        let fn_outputs = self.ir.functions[data.function].outputs;
         AllocatedSpans {
             input: Some(Span::new(data.ins_start, data.outs_start)),
             output: Some(Span::new(data.outs_start, data.outs_start + fn_outputs)),
