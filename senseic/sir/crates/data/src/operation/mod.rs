@@ -220,7 +220,7 @@ define_operations! {
     RuntimeLength(InlineOperands<0, 1>) "runtime_length",
 }
 
-use op_data::{AllocatedSpansGetter, InputsGetter, OutputsGetter, ReferencedResourceGetter};
+use op_data::{AllocatedSpansGetter, InputsGetter, OutputsGetter};
 
 impl Operation {
     pub fn inputs<'a>(&'a self, ir: &'a EthIRProgram) -> &'a [LocalId] {
@@ -235,9 +235,6 @@ impl Operation {
         self.visit_data(&mut AllocatedSpansGetter { ir })
     }
 
-    pub fn referenced_resources(&self) -> ReferencedResources {
-        self.visit_data(&mut ReferencedResourceGetter)
-    }
 }
 
 #[cfg(test)]
