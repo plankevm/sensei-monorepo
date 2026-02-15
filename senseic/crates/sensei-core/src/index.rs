@@ -66,6 +66,11 @@ macro_rules! newtype_index {
                     None => $crate::index::panic_idx_overflow()
                 }
             }
+
+            pub const fn const_get(self) -> u32 {
+                // Safety: `NonZero<u32>` guarantees `.get()` yields a value that's at least 1.
+                unsafe { self.0.get().unchecked_sub(1) }
+            }
         }
 
         impl $crate::Idx for $name {
