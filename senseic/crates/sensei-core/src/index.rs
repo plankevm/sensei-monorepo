@@ -23,16 +23,14 @@ pub trait Idx:
     + TryFrom<usize>
     + Debug
 {
+    const ZERO: Self;
+    const MAX: Self;
+
     fn from_raw(raw: NonZero<u32>) -> Self;
     fn to_raw(self) -> NonZero<u32>;
 
     fn max_value() -> Self {
-        Self::new(u32::MAX - 1)
-    }
-
-    fn new(x: u32) -> Self {
-        let nz = NonZero::new(x.wrapping_add(1)).unwrap_or_else(|| panic_idx_overflow());
-        Self::from_raw(nz)
+        Self::from_raw(NonZero::new(u32::MAX).unwrap())
     }
 
     fn get(self) -> u32 {
@@ -58,16 +56,22 @@ macro_rules! newtype_index {
 
         #[allow(dead_code)]
         impl $name {
-            /// The zero index (representing logical index 0).
-            pub const ZERO: Self = Self(::core::num::NonZero::new(1).unwrap());
-            /// The maximum representable index.
-            pub const MAX: Self = Self(::core::num::NonZero::new(u32::MAX).unwrap());
             /// Maximum value as usize for bounds checking.
             pub const MAX_USIZE: usize = u32::MAX as usize - 1;
 
+            pub const fn new(x: u32) -> Self {
+                use ::core::num::NonZero;
+                match NonZero::new(x.wrapping_add(1)) {
+                    Some(nz) => Self(nz),
+                    None => $crate::index::panic_idx_overflow()
+                }
+            }
         }
 
         impl $crate::Idx for $name {
+            const ZERO: Self = Self::new(0);
+            const MAX: Self = Self(::core::num::NonZero::new(u32::MAX).unwrap());
+
             #[inline]
             fn from_raw(raw: ::core::num::NonZero<u32>) -> $name {
                 $name(raw)
@@ -135,6 +139,12 @@ macro_rules! newtype_index {
             fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
                 use $crate::Idx;
                 write!(f, "{}({})", ::core::stringify!($name), self.idx())
+            }
+        }
+
+        impl ::core::default::Default for $name {
+            fn default() -> Self {
+                Self::new(0)
             }
         }
 

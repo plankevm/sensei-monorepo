@@ -31,8 +31,8 @@ pub struct EthIRBuilder {
 impl EthIRBuilder {
     pub fn new() -> Self {
         Self {
-            next_local_id: LocalId::new(0),
-            next_alloc_id: StaticAllocId::new(0),
+            next_local_id: LocalId::default(),
+            next_alloc_id: StaticAllocId::default(),
             functions: IndexVec::new(),
             basic_blocks: IndexVec::new(),
             operations: IndexVec::new(),

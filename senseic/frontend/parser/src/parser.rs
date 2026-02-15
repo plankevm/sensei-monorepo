@@ -67,10 +67,12 @@ mod token_item_iter {
             })
         }
 
+        #[allow(unused)]
         pub(super) fn lexer(&self) -> &Lexer<'src> {
             &self.lexer
         }
 
+        #[allow(unused)]
         pub(super) fn fuel(&self) -> u32 {
             self.fuel
         }

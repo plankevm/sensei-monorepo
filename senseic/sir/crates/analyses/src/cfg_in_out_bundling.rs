@@ -16,7 +16,7 @@ impl ControlFlowGraphInOutBundling {
     pub fn analyze(ir: &EthIRProgram) -> Self {
         let mut out_group = index_vec![None; ir.basic_blocks.len()];
         let mut in_group = index_vec![None; ir.basic_blocks.len()];
-        let mut next_group_id = InOutGroupId::ZERO;
+        let mut next_group_id = InOutGroupId::default();
 
         for (bb_id, bb) in ir.basic_blocks.enumerate_idx() {
             let existing_group_id = bb.control.iter_outgoing(ir).find_map(|to| in_group[to]);
