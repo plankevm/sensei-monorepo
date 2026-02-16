@@ -3,6 +3,8 @@ use sir_data::{
     IndexVec, LargeConstId, LocalId, LocalIdx, Operation, OperationIdx, StaticAllocId, index_vec,
 };
 
+use crate::compute_dominators;
+
 /// Identifies which IR construct a tracked span belongs to, used in span overlap diagnostics.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SpanSource {
@@ -32,6 +34,16 @@ pub enum UseKind {
     Operation(OperationIdx),
     Control,
     BlockOutput,
+}
+
+impl std::fmt::Display for UseKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            UseKind::Operation(op) => write!(f, "operation {op}"),
+            UseKind::Control => write!(f, "control"),
+            UseKind::BlockOutput => write!(f, "block output"),
+        }
+    }
 }
 
 #[derive(Debug, PartialEq, Eq, thiserror::Error)]
@@ -74,7 +86,7 @@ pub enum LegalizerError {
     InvalidFunctionId(FunctionId),
     #[error("invalid basic block id {0}")]
     InvalidBasicBlockId(BasicBlockId),
-    #[error("local ${local} not in scope at @{block} ({use_kind:?})")]
+    #[error("local ${local} not in scope at @{block} ({use_kind})")]
     LocalNotInScope { block: BasicBlockId, local: LocalId, use_kind: UseKind },
 }
 
@@ -398,7 +410,7 @@ impl<'a> Legalizer<'a> {
 
     fn validate_local_ids(&self) -> Result<(), LegalizerError> {
         self.validate_single_assignment()?;
-        self.validate_uses_defined()
+        self.validate_scope()
     }
 
     fn validate_single_assignment(&self) -> Result<(), LegalizerError> {
@@ -420,76 +432,102 @@ impl<'a> Legalizer<'a> {
         Ok(())
     }
 
-    fn validate_uses_defined(&self) -> Result<(), LegalizerError> {
-        let mut fn_blocks: IndexVec<FunctionId, Vec<BasicBlockId>> =
-            index_vec![Vec::new(); self.program.functions.len()];
-        for (bb_id, owner) in self.block_owner.enumerate_idx() {
-            if let Some(fn_id) = owner {
-                fn_blocks[*fn_id].push(bb_id);
+    fn validate_scope(&self) -> Result<(), LegalizerError> {
+        let dominators = compute_dominators(self.program);
+
+        let mut dom_children: IndexVec<BasicBlockId, Vec<BasicBlockId>> =
+            index_vec![Vec::new(); self.program.basic_blocks.len()];
+
+        for (bb_id, &idom) in dominators.enumerate_idx() {
+            if let Some(parent) = idom
+                && parent != bb_id
+            {
+                dom_children[parent].push(bb_id);
             }
         }
-        let mut fn_defs = DenseIndexSet::new();
-        for fn_id in self.program.functions.iter_idx() {
-            fn_defs.clear();
-            for bb_id in &fn_blocks[fn_id] {
-                for local_id in &self.program.locals[self.program.basic_blocks[*bb_id].inputs] {
-                    fn_defs.add(*local_id);
-                }
-                for op_idx in self.program.basic_blocks[*bb_id].operations.iter() {
-                    let op = &self.program.operations[op_idx];
-                    for output in op.outputs(self.program) {
-                        fn_defs.add(*output);
-                    }
+
+        let mut in_scope = DenseIndexSet::new();
+        let mut added = Vec::new();
+        for function in self.program.functions.iter() {
+            in_scope.clear();
+            self.validate_block_scope(function.entry(), &mut in_scope, &mut added, &dom_children)?;
+        }
+        Ok(())
+    }
+
+    fn validate_block_scope(
+        &self,
+        bb_id: BasicBlockId,
+        in_scope: &mut DenseIndexSet<LocalId>,
+        added: &mut Vec<LocalId>,
+        dom_children: &IndexVec<BasicBlockId, Vec<BasicBlockId>>,
+    ) -> Result<(), LegalizerError> {
+        let bb = &self.program.basic_blocks[bb_id];
+        let prev_len = added.len();
+
+        for &local in &self.program.locals[bb.inputs] {
+            added.push(local);
+            in_scope.add(local);
+        }
+
+        for op_idx in bb.operations.iter() {
+            for local_id in self.program.operations[op_idx].inputs(self.program) {
+                if !in_scope.contains(*local_id) {
+                    return Err(LegalizerError::LocalNotInScope {
+                        block: bb_id,
+                        local: *local_id,
+                        use_kind: UseKind::Operation(op_idx),
+                    });
                 }
             }
 
-            for bb_id in &fn_blocks[fn_id] {
-                let bb = &self.program.basic_blocks[*bb_id];
-                for local_id in self.program.locals[bb.outputs].iter() {
-                    if !fn_defs.contains(*local_id) {
-                        return Err(LegalizerError::LocalNotInScope {
-                            block: *bb_id,
-                            local: *local_id,
-                            use_kind: UseKind::BlockOutput,
-                        });
-                    }
-                }
-                for op_idx in bb.operations.iter() {
-                    for local_id in self.program.operations[op_idx].inputs(self.program) {
-                        if !fn_defs.contains(*local_id) {
-                            return Err(LegalizerError::LocalNotInScope {
-                                block: *bb_id,
-                                local: *local_id,
-                                use_kind: UseKind::Operation(op_idx),
-                            });
-                        }
-                    }
-                }
-                match &bb.control {
-                    Control::Branches(branch) => {
-                        if !fn_defs.contains(branch.condition) {
-                            return Err(LegalizerError::LocalNotInScope {
-                                block: *bb_id,
-                                local: branch.condition,
-                                use_kind: UseKind::Control,
-                            });
-                        }
-                    }
-                    Control::Switch(switch) => {
-                        if !fn_defs.contains(switch.condition) {
-                            return Err(LegalizerError::LocalNotInScope {
-                                block: *bb_id,
-                                local: switch.condition,
-                                use_kind: UseKind::Control,
-                            });
-                        }
-                    }
-                    Control::ContinuesTo(_)
-                    | Control::LastOpTerminates
-                    | Control::InternalReturn => {}
-                }
+            for &local_id in self.program.operations[op_idx].outputs(self.program) {
+                added.push(local_id);
+                in_scope.add(local_id);
             }
         }
+
+        for &local_id in &self.program.locals[bb.outputs] {
+            if !in_scope.contains(local_id) {
+                return Err(LegalizerError::LocalNotInScope {
+                    block: bb_id,
+                    local: local_id,
+                    use_kind: UseKind::BlockOutput,
+                });
+            }
+        }
+
+        match &bb.control {
+            Control::Branches(branch) => {
+                if !in_scope.contains(branch.condition) {
+                    return Err(LegalizerError::LocalNotInScope {
+                        block: bb_id,
+                        local: branch.condition,
+                        use_kind: UseKind::Control,
+                    });
+                }
+            }
+            Control::Switch(switch) => {
+                if !in_scope.contains(switch.condition) {
+                    return Err(LegalizerError::LocalNotInScope {
+                        block: bb_id,
+                        local: switch.condition,
+                        use_kind: UseKind::Control,
+                    });
+                }
+            }
+            _ => {}
+        }
+
+        for &child in &dom_children[bb_id] {
+            self.validate_block_scope(child, in_scope, added, dom_children)?;
+        }
+
+        for &local in &added[prev_len..] {
+            in_scope.remove(local);
+        }
+        added.truncate(prev_len);
+
         Ok(())
     }
 }
@@ -714,42 +752,56 @@ mod tests {
     }
 
     #[test]
-    fn test_rejects_undefined_switch_condition() {
-        let mut builder = EthIRBuilder::new();
-        let mut func = builder.begin_function();
+    fn test_valid_local_from_dominator_ancestor() {
+        let program = parse_or_panic(
+            r#"
+            fn init:
+                entry {
+                    x = gas
+                    => @a
+                }
+                a {
+                    => @b
+                }
+                b {
+                    => @c
+                }
+                c {
+                    y = iszero x
+                    stop
+                }
+            "#,
+            EmitConfig::init_only(),
+        );
+        assert!(legalize(&program).is_ok());
+    }
 
-        let cond = func.new_local();
-        let case_a_id = BasicBlockId::new(1);
-        let case_b_id = BasicBlockId::new(2);
-        let fallback_id = BasicBlockId::new(3);
-
-        let mut entry = func.begin_basic_block();
-        let mut sw = entry.begin_switch();
-        sw.push_case(U256::from(1), case_a_id);
-        sw.push_case(U256::from(2), case_b_id);
-        let switch = sw.finish(cond, Some(fallback_id));
-        let entry_id = entry.finish(Control::Switch(switch)).unwrap();
-
-        let mut case_a = func.begin_basic_block();
-        case_a.add_operation(Operation::Stop(()));
-        case_a.finish(Control::LastOpTerminates).unwrap();
-
-        let mut case_b = func.begin_basic_block();
-        case_b.add_operation(Operation::Stop(()));
-        case_b.finish(Control::LastOpTerminates).unwrap();
-
-        let mut fallback = func.begin_basic_block();
-        fallback.add_operation(Operation::Stop(()));
-        fallback.finish(Control::LastOpTerminates).unwrap();
-
-        let func_id = func.finish(entry_id);
-        let program = builder.build(func_id, None);
-
+    #[test]
+    fn test_rejects_local_not_in_scope_control() {
+        let program = parse_or_panic(
+            r#"
+            fn init:
+                entry {
+                    => @header
+                }
+                header {
+                    => cond ? @body : @exit
+                }
+                body {
+                    cond = gas
+                    => @header
+                }
+                exit {
+                    stop
+                }
+            "#,
+            EmitConfig::init_only(),
+        );
         assert_eq!(
             legalize(&program).unwrap_err(),
             LegalizerError::LocalNotInScope {
-                block: entry_id,
-                local: cond,
+                block: BasicBlockId::new(1),
+                local: LocalId::new(0),
                 use_kind: UseKind::Control,
             }
         );
@@ -958,29 +1010,70 @@ mod tests {
     }
 
     #[test]
-    fn test_rejects_use_of_undefined_local() {
-        let mut builder = EthIRBuilder::new();
-        let mut func = builder.begin_function();
-
-        // Create two locals - use one only as input (never defined)
-        let undefined_local = func.new_local();
-        let out = func.new_local();
-
-        let mut bb = func.begin_basic_block();
-        // Use undefined_local as input without ever defining it
-        bb.add_operation(Operation::IsZero(InlineOperands { ins: [undefined_local], outs: [out] }));
-        bb.add_operation(Operation::Stop(()));
-        let bb_id = bb.finish(Control::LastOpTerminates).unwrap();
-
-        let func_id = func.finish(bb_id);
-        let program = builder.build(func_id, None);
-
+    fn test_rejects_local_not_in_scope_operation() {
+        let program = parse_or_panic(
+            r#"
+            fn init:
+                entry {
+                    x = gas
+                    => x ? @left : @right
+                }
+                left {
+                    c = gas
+                    => c ? @left_inner : @left_exit
+                }
+                left_inner {
+                    y = const 1
+                    stop
+                }
+                left_exit {
+                    stop
+                }
+                right {
+                    z = iszero y
+                    stop
+                }
+            "#,
+            EmitConfig::init_only(),
+        );
         assert_eq!(
             legalize(&program).unwrap_err(),
             LegalizerError::LocalNotInScope {
-                block: bb_id,
-                local: undefined_local,
-                use_kind: UseKind::Operation(OperationIdx::new(0)),
+                block: BasicBlockId::new(4),
+                local: LocalId::new(2),
+                use_kind: UseKind::Operation(OperationIdx::new(5)),
+            }
+        );
+    }
+
+    #[test]
+    fn test_rejects_local_not_in_scope_block_output() {
+        let program = parse_or_panic(
+            r#"
+            fn init:
+                entry {
+                    c = gas
+                    => c ? @left : @right
+                }
+                left {
+                    x = const 1
+                    stop
+                }
+                right -> x {
+                    => @next
+                }
+                next y {
+                    stop
+                }
+            "#,
+            EmitConfig::init_only(),
+        );
+        assert_eq!(
+            legalize(&program).unwrap_err(),
+            LegalizerError::LocalNotInScope {
+                block: BasicBlockId::new(2),
+                local: LocalId::new(1),
+                use_kind: UseKind::BlockOutput,
             }
         );
     }
