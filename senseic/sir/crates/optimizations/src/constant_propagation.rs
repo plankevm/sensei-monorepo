@@ -1,5 +1,5 @@
 use alloy_primitives::{I256, U256, U512};
-use sir_analyses::{DefUse, UseLocation, compute_def_use, compute_predecessors};
+use sir_analyses::{DefUse, UseKind, compute_def_use, compute_predecessors};
 use sir_data::{operation::*, *};
 use std::cmp::{Ordering, PartialOrd};
 
@@ -16,7 +16,6 @@ pub struct SCCPAnalysis<'a> {
     cfg_worklist: Vec<BasicBlockId>,
     values_worklist: Vec<LocalId>,
     predecessors: IndexVec<BasicBlockId, Vec<BasicBlockId>>,
-    uses: DefUse,
 }
 
 impl<'a> SCCPAnalysis<'a> {
@@ -35,7 +34,6 @@ impl<'a> SCCPAnalysis<'a> {
                 lattice[input] = LatticeValue::Overdefined;
             }
         }
-        let uses = compute_def_use(program);
         Self {
             program,
             lattice,
@@ -43,13 +41,13 @@ impl<'a> SCCPAnalysis<'a> {
             cfg_worklist,
             values_worklist: Vec::new(),
             predecessors,
-            uses,
         }
     }
 
     pub fn analysis(&mut self) {
+        let uses = compute_def_use(self.program);
         while let Some(bb_id) = self.cfg_worklist.pop() {
-            self.process_block(bb_id);
+            self.process_block(bb_id, &uses);
         }
     }
 
@@ -224,19 +222,26 @@ impl<'a> SCCPAnalysis<'a> {
         }
     }
 
-    fn process_values(&mut self) {
+    fn process_values(&mut self, uses: &DefUse) {
         while let Some(value) = self.values_worklist.pop() {
-            for UseLocation { block_id, op_id } in &self.uses[value] {
-                if !self.reachable.contains(*block_id) {
+            for use_loc in &uses[value] {
+                if !self.reachable.contains(use_loc.block_id) {
                     continue;
                 }
+                self.process_use(use_loc.block_id, use_loc.kind);
+            }
+        }
+    }
 
-                let outputs = self.program.operations[*op_id].outputs(self.program);
+    fn process_use(&mut self, block_id: BasicBlockId, kind: UseKind) {
+        match kind {
+            UseKind::Operation(op_id) => {
+                let outputs = self.program.operations[op_id].outputs(self.program);
                 if outputs.iter().all(|o| matches!(self.lattice[*o], LatticeValue::Overdefined)) {
-                    continue;
+                    return;
                 }
 
-                if let Some((out, value)) = self.evaluate(&self.program.operations[*op_id]) {
+                if let Some((out, value)) = self.evaluate(&self.program.operations[op_id]) {
                     if self.lattice[out].meet(LatticeValue::Const(value)) {
                         self.values_worklist.push(out);
                     }
@@ -248,14 +253,29 @@ impl<'a> SCCPAnalysis<'a> {
                     }
                 }
             }
+            UseKind::Control => {
+                self.process_control(block_id);
+            }
+            UseKind::BlockOutput => {
+                for succ in self.program.basic_blocks[block_id].control.iter_outgoing(self.program)
+                {
+                    flow_outputs_to(
+                        self.program,
+                        &mut self.lattice,
+                        &mut self.values_worklist,
+                        block_id,
+                        succ,
+                    );
+                }
+            }
         }
     }
 
-    fn process_block(&mut self, bb_id: BasicBlockId) {
+    fn process_block(&mut self, bb_id: BasicBlockId, uses: &DefUse) {
         self.process_inputs(bb_id);
         self.process_operations(bb_id);
         self.process_control(bb_id);
-        self.process_values();
+        self.process_values(uses);
     }
 
     fn mark_reachable(&mut self, from: BasicBlockId, to: BasicBlockId) {
@@ -263,19 +283,7 @@ impl<'a> SCCPAnalysis<'a> {
             self.reachable.add(to);
             self.cfg_worklist.push(to);
         }
-        self.flow_outputs_to(from, to);
-    }
-
-    fn flow_outputs_to(&mut self, from: BasicBlockId, to: BasicBlockId) {
-        let from_outputs = self.program.basic_blocks[from].outputs;
-        let to_inputs = self.program.basic_blocks[to].inputs;
-        for (i, &output) in self.program.locals[from_outputs].iter().enumerate() {
-            let value = self.lattice[output];
-            let input = self.program.locals[to_inputs][i];
-            if self.lattice[input].meet(value) {
-                self.values_worklist.push(input);
-            }
-        }
+        flow_outputs_to(self.program, &mut self.lattice, &mut self.values_worklist, from, to);
     }
 
     // TODO: (worth?) A minor optimization is to skip the evaluation if output is Overdefined
@@ -449,6 +457,24 @@ impl<'a> SCCPAnalysis<'a> {
 
     fn binary_const_u256(&self, a: LocalId, b: LocalId) -> Option<(U256, U256)> {
         Some((self.const_u256(a)?, self.const_u256(b)?))
+    }
+}
+
+fn flow_outputs_to(
+    program: &EthIRProgram,
+    lattice: &mut IndexVec<LocalId, LatticeValue>,
+    values_worklist: &mut Vec<LocalId>,
+    from: BasicBlockId,
+    to: BasicBlockId,
+) {
+    let from_outputs = program.basic_blocks[from].outputs;
+    let to_inputs = program.basic_blocks[to].inputs;
+    for (i, &output) in program.locals[from_outputs].iter().enumerate() {
+        let value = lattice[output];
+        let input = program.locals[to_inputs][i];
+        if lattice[input].meet(value) {
+            values_worklist.push(input);
+        }
     }
 }
 
@@ -1245,5 +1271,75 @@ Basic Blocks:
         assert_eq!(lattice[LocalId::new(5)], LatticeValue::EvmConst(EvmConstKind::Address));
         assert_eq!(lattice[LocalId::new(6)], LatticeValue::Overdefined);
         assert_eq!(lattice[LocalId::new(7)], LatticeValue::Overdefined);
+    }
+
+    #[test]
+    fn test_overdefined_input_makes_both_branch_targets_reachable() {
+        let input = r#"
+            fn init:
+                entry {
+                    stop
+                }
+            fn test:
+                entry cond {
+                    => cond ? @A : @B
+                }
+                A -> out_a {
+                    out_a = const 1
+                    => @C
+                }
+                B -> out_b {
+                    out_b = const 0
+                    => @C
+                }
+                C input_x {
+                    => input_x ? @true_target : @false_target
+                }
+                true_target { stop }
+                false_target { stop }
+        "#;
+
+        let mut ir = parse_or_panic(input, EmitConfig::init_only());
+        let mut sccp = SCCPAnalysis::new(&mut ir);
+        sccp.analysis();
+
+        assert!(sccp.reachable.contains(BasicBlockId::new(5)), "true_target should be reachable");
+        assert!(sccp.reachable.contains(BasicBlockId::new(6)), "false_target should be reachable");
+    }
+
+    #[test]
+    fn test_block_output_use_propagates_overdefined_to_successor() {
+        let input = r#"
+            fn init:
+                entry {
+                    stop
+                }
+            fn test:
+                entry x {
+                    => x ? @A : @B
+                }
+                A -> val_a {
+                    val_a = const 5
+                    => @C
+                }
+                B -> val_b {
+                    val_b = const 10
+                    => @C
+                }
+                C pass_through -> pass_through {
+                    => @D
+                }
+                D final_val {
+                    stop
+                }
+        "#;
+
+        let mut ir = parse_or_panic(input, EmitConfig::init_only());
+        let mut sccp = SCCPAnalysis::new(&mut ir);
+        sccp.analysis();
+        let lattice = sccp.get_lattice();
+
+        assert_eq!(lattice[LocalId::new(3)], LatticeValue::Overdefined);
+        assert_eq!(lattice[LocalId::new(4)], LatticeValue::Overdefined);
     }
 }
