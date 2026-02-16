@@ -13,27 +13,59 @@ pub enum SpanSource {
     OpOutputs(BasicBlockId, OperationIdx),
 }
 
-#[derive(Debug, PartialEq, Eq)]
+impl std::fmt::Display for SpanSource {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SpanSource::Inputs(bb) => write!(f, "@{bb} inputs"),
+            SpanSource::Outputs(bb) => write!(f, "@{bb} outputs"),
+            SpanSource::Operations(bb) => write!(f, "@{bb} operations"),
+            SpanSource::OpInputs(bb, op) => write!(f, "@{bb} operation {op} inputs"),
+            SpanSource::OpOutputs(bb, op) => write!(f, "@{bb} operation {op} outputs"),
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Eq, thiserror::Error)]
 pub enum LegalizerError {
+    #[error("init entry block must not have inputs, found {0}")]
     InitHasInputs(u32),
+    #[error("runtime entry block must not have inputs, found {0}")]
     RuntimeHasInputs(u32),
+    #[error("terminator operation {1} is not last in @{0}")]
     TerminatorNotLast(BasicBlockId, OperationIdx),
+    #[error("terminator operation {1} in @{0} without LastOpTerminates control")]
     TerminatorControlMismatch(BasicBlockId, OperationIdx),
+    #[error("@{0} has no terminator operation")]
     MissingTerminator(BasicBlockId),
+    #[error("invalid large constant id {0}")]
     InvalidLargeConstId(LargeConstId),
+    #[error("invalid data segment id {0}")]
     InvalidSegmentId(DataId),
+    #[error("invalid static allocation id {0}")]
     InvalidStaticAllocId(StaticAllocId),
+    #[error("overlapping spans: {0} and {1}")]
     OverlappingSpans(SpanSource, SpanSource),
+    #[error("span out of bounds: {0}")]
     SpanOutOfBounds(SpanSource),
+    #[error("@{0} shared between functions @{1} and @{2}")]
     SharedBasicBlock(BasicBlockId, FunctionId, FunctionId),
+    #[error("incompatible edge: @{from} outputs don't match @{to} inputs")]
     IncompatibleEdge { from: BasicBlockId, to: BasicBlockId },
+    #[error("@{block} has {actual} outputs, expected {expected}")]
     WrongOutputCount { block: BasicBlockId, expected: u32, actual: u32 },
+    #[error("operation {op} has {actual} call inputs, expected {expected}")]
     WrongCallInputCount { op: OperationIdx, expected: u32, actual: u32 },
+    #[error("recursive call detected: @{0} calls @{1}")]
     RecursiveCall(FunctionId, FunctionId),
+    #[error("invalid local id ${0}")]
     InvalidLocalId(LocalId),
+    #[error("local ${0} defined more than once")]
     DoubleDefinition(LocalId),
+    #[error("invalid function id @{0}")]
     InvalidFunctionId(FunctionId),
+    #[error("invalid basic block id {0}")]
     InvalidBasicBlockId(BasicBlockId),
+    #[error("local ${1} used but not defined in function @{0}")]
     UndefinedLocal(FunctionId, LocalId),
 }
 
