@@ -94,3 +94,39 @@ impl<I: Idx> StringInterner<I> {
         unsafe { std::str::from_utf8_unchecked(self.0.get(index)) }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::newtype_index;
+
+    newtype_index! {
+        struct TestIdx;
+    }
+
+    #[test]
+    fn basic_interning_and_retrieval() {
+        let mut interner = BytesInterner::<TestIdx>::new();
+
+        let id1 = interner.intern(b"hello");
+        let id2 = interner.intern(b"world");
+        let id3 = interner.intern(b"");
+
+        assert_eq!(interner.get(id1), b"hello");
+        assert_eq!(interner.get(id2), b"world");
+        assert_eq!(interner.get(id3), b"");
+    }
+
+    #[test]
+    fn duplicate_contents_return_same_id() {
+        let mut interner = BytesInterner::<TestIdx>::new();
+
+        let id1 = interner.intern(b"duplicate");
+        let id2 = interner.intern(b"other");
+        let id3 = interner.intern(b"duplicate");
+
+        assert_eq!(id1, id3);
+        assert_ne!(id1, id2);
+        assert_eq!(interner.get(id1), interner.get(id3));
+    }
+}
