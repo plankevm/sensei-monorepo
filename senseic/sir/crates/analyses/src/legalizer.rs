@@ -25,6 +25,15 @@ impl std::fmt::Display for SpanSource {
     }
 }
 
+// TODO: this enum is defined in def_use.rs as part of PR#22. it should (probably) only exist in one
+// place
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UseKind {
+    Operation(OperationIdx),
+    Control,
+    BlockOutput,
+}
+
 #[derive(Debug, PartialEq, Eq, thiserror::Error)]
 pub enum LegalizerError {
     #[error("init entry block must not have inputs, found {0}")]
@@ -65,8 +74,8 @@ pub enum LegalizerError {
     InvalidFunctionId(FunctionId),
     #[error("invalid basic block id {0}")]
     InvalidBasicBlockId(BasicBlockId),
-    #[error("local ${1} used but not defined in function @{0}")]
-    UndefinedLocal(FunctionId, LocalId),
+    #[error("local ${local} not in scope at @{block} ({use_kind:?})")]
+    LocalNotInScope { block: BasicBlockId, local: LocalId, use_kind: UseKind },
 }
 
 pub fn legalize(program: &EthIRProgram) -> Result<(), LegalizerError> {
@@ -438,25 +447,41 @@ impl<'a> Legalizer<'a> {
                 let bb = &self.program.basic_blocks[*bb_id];
                 for local_id in self.program.locals[bb.outputs].iter() {
                     if !fn_defs.contains(*local_id) {
-                        return Err(LegalizerError::UndefinedLocal(fn_id, *local_id));
+                        return Err(LegalizerError::LocalNotInScope {
+                            block: *bb_id,
+                            local: *local_id,
+                            use_kind: UseKind::BlockOutput,
+                        });
                     }
                 }
                 for op_idx in bb.operations.iter() {
                     for local_id in self.program.operations[op_idx].inputs(self.program) {
                         if !fn_defs.contains(*local_id) {
-                            return Err(LegalizerError::UndefinedLocal(fn_id, *local_id));
+                            return Err(LegalizerError::LocalNotInScope {
+                                block: *bb_id,
+                                local: *local_id,
+                                use_kind: UseKind::Operation(op_idx),
+                            });
                         }
                     }
                 }
                 match &bb.control {
                     Control::Branches(branch) => {
                         if !fn_defs.contains(branch.condition) {
-                            return Err(LegalizerError::UndefinedLocal(fn_id, branch.condition));
+                            return Err(LegalizerError::LocalNotInScope {
+                                block: *bb_id,
+                                local: branch.condition,
+                                use_kind: UseKind::Control,
+                            });
                         }
                     }
                     Control::Switch(switch) => {
                         if !fn_defs.contains(switch.condition) {
-                            return Err(LegalizerError::UndefinedLocal(fn_id, switch.condition));
+                            return Err(LegalizerError::LocalNotInScope {
+                                block: *bb_id,
+                                local: switch.condition,
+                                use_kind: UseKind::Control,
+                            });
                         }
                     }
                     Control::ContinuesTo(_)
@@ -720,7 +745,14 @@ mod tests {
         let func_id = func.finish(entry_id);
         let program = builder.build(func_id, None);
 
-        assert_eq!(legalize(&program).unwrap_err(), LegalizerError::UndefinedLocal(func_id, cond));
+        assert_eq!(
+            legalize(&program).unwrap_err(),
+            LegalizerError::LocalNotInScope {
+                block: entry_id,
+                local: cond,
+                use_kind: UseKind::Control,
+            }
+        );
     }
 
     #[test]
@@ -945,7 +977,11 @@ mod tests {
 
         assert_eq!(
             legalize(&program).unwrap_err(),
-            LegalizerError::UndefinedLocal(func_id, undefined_local)
+            LegalizerError::LocalNotInScope {
+                block: bb_id,
+                local: undefined_local,
+                use_kind: UseKind::Operation(OperationIdx::new(0)),
+            }
         );
     }
 
