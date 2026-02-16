@@ -1,5 +1,6 @@
 use crate::{EthIRProgram, builder::EthIRBuilder, index::*};
 use alloy_primitives::{U256, ruint::FromUintError};
+use sensei_core::span::Span;
 
 pub(crate) trait VoidOpData {
     fn get_visited<'d, O, V: OpVisitor<'d, O>>(&'d self, visitor: &mut V) -> O;
@@ -27,7 +28,7 @@ impl FromOpData for () {
             return Err(OpBuildError::UnexpectedExtraData { received: extra, expected: "Empty" });
         }
         check_ins_count(ins, 0)?;
-        check_ins_count(outs, 0)?;
+        check_outs_count(outs, 0)?;
 
         Ok(())
     }
@@ -162,6 +163,68 @@ impl<'a> OpVisitor<'a, &'a [LocalId]> for OutputsGetter<'a> {
     }
     fn visit_void(&mut self) -> &'a [LocalId] {
         &[]
+    }
+}
+
+#[derive(Debug)]
+pub struct AllocatedSpans {
+    pub input: Option<Span<LocalIdx>>,
+    pub output: Option<Span<LocalIdx>>,
+}
+
+impl AllocatedSpans {
+    pub const NONE: Self = Self { input: None, output: None };
+}
+
+pub(crate) struct AllocatedSpansGetter<'a> {
+    pub(crate) ir: &'a EthIRProgram,
+}
+
+impl<'a> OpVisitor<'a, AllocatedSpans> for AllocatedSpansGetter<'a> {
+    fn visit_inline_operands<const INS: usize, const OUTS: usize>(
+        &mut self,
+        _data: &'a InlineOperands<INS, OUTS>,
+    ) -> AllocatedSpans {
+        AllocatedSpans::NONE
+    }
+
+    fn visit_allocated_ins<const INS: usize, const OUTS: usize>(
+        &mut self,
+        data: &'a AllocatedIns<INS, OUTS>,
+    ) -> AllocatedSpans {
+        AllocatedSpans {
+            input: Some(Span::new(data.ins_start, data.ins_start + INS as u32)),
+            output: None,
+        }
+    }
+
+    fn visit_static_alloc(&mut self, _data: &'a StaticAllocData) -> AllocatedSpans {
+        AllocatedSpans::NONE
+    }
+    fn visit_memory_load(&mut self, _data: &'a MemoryLoadData) -> AllocatedSpans {
+        AllocatedSpans::NONE
+    }
+    fn visit_memory_store(&mut self, _data: &'a MemoryStoreData) -> AllocatedSpans {
+        AllocatedSpans::NONE
+    }
+    fn visit_set_small_const(&mut self, _data: &'a SetSmallConstData) -> AllocatedSpans {
+        AllocatedSpans::NONE
+    }
+    fn visit_set_large_const(&mut self, _data: &'a SetLargeConstData) -> AllocatedSpans {
+        AllocatedSpans::NONE
+    }
+    fn visit_set_data_offset(&mut self, _data: &'a SetDataOffsetData) -> AllocatedSpans {
+        AllocatedSpans::NONE
+    }
+    fn visit_icall(&mut self, data: &'a InternalCallData) -> AllocatedSpans {
+        let fn_outputs = self.ir.functions[data.function].outputs;
+        AllocatedSpans {
+            input: Some(Span::new(data.ins_start, data.outs_start)),
+            output: Some(Span::new(data.outs_start, data.outs_start + fn_outputs)),
+        }
+    }
+    fn visit_void(&mut self) -> AllocatedSpans {
+        AllocatedSpans::NONE
     }
 }
 

@@ -220,7 +220,7 @@ define_operations! {
     RuntimeLength(InlineOperands<0, 1>) "runtime_length",
 }
 
-use op_data::{InputsGetter, OutputsGetter};
+use op_data::{AllocatedSpansGetter, InputsGetter, OutputsGetter};
 
 impl Operation {
     pub fn inputs<'a>(&'a self, ir: &'a EthIRProgram) -> &'a [LocalId] {
@@ -229,6 +229,10 @@ impl Operation {
 
     pub fn outputs<'a>(&'a self, ir: &'a EthIRProgram) -> &'a [LocalId] {
         self.visit_data(&mut OutputsGetter { ir })
+    }
+
+    pub fn allocated_spans(&self, ir: &EthIRProgram) -> AllocatedSpans {
+        self.visit_data(&mut AllocatedSpansGetter { ir })
     }
 }
 

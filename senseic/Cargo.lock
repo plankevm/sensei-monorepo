@@ -1631,15 +1631,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "sensei-hir"
-version = "0.1.0"
-dependencies = [
- "inturn",
- "sensei-core",
- "sensei-parser",
-]
-
-[[package]]
 name = "sensei-parser"
 version = "0.1.0"
 dependencies = [
@@ -1758,9 +1749,11 @@ dependencies = [
 name = "sir-analyses"
 version = "0.1.0"
 dependencies = [
+ "alloy-primitives",
  "sensei-core",
  "sir-data",
  "sir-parser",
+ "thiserror",
 ]
 
 [[package]]
@@ -1778,6 +1771,7 @@ name = "sir-cli"
 version = "0.1.0"
 dependencies = [
  "clap",
+ "sir-analyses",
  "sir-debug-backend",
  "sir-optimizations",
  "sir-parser",
