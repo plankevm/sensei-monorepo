@@ -18,14 +18,21 @@ cargo +nightly clippy --workspace --all-targets --all-features -- -D warnings
 Cargo workspace with general-purpose crates in `crates/` and frontend crates in `frontend/`:
 
 - **Docs** (`docs`): Documentation
-- **sensei-core** (`crates/sensei-core`):
-    - `index.rs`: `X32` easily new-typed index 
+- **sensei-core** (`crates/sensei-core`): Core utilities
+    - `index.rs`: `X32` easily new-typed index
+    - `index_vec.rs`: IndexVec collection type
     - `span.rs`: Range-like start, end with a more convenient API
     - `bigint.rs`: Arena allocated big int with parsing helpers
-- **sensei-parser** (`frontend/parser`):
+    - `intern.rs`: String interning
+    - `dense_index_set.rs`: Dense index set implementation
+- **sensei-parser** (`frontend/parser`): LSP-grade error resilient parser
     - `lexer.rs`: Token lexer using the `logos` crate
-    - `cst.rs`: Homogeneous syntax tree that stores well-formed nodes & errors
-    - `parser.rs`: LSP-grade error resilient parser
+    - `cst/`: Homogeneous syntax tree that stores well-formed nodes & errors
+    - `parser.rs`: Main parser implementation
+    - `ast.rs`: AST definitions
+    - `diagnostics.rs`: Diagnostic context trait
+- **sensei-hir** (`frontend/hir`): High-level IR
+- **sensei-cli** (`frontend/cli`): CLI frontend
 
 
 ## Coding Style

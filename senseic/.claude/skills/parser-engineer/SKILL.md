@@ -12,6 +12,8 @@ frontend/parser/src/
 ├── lib.rs              # Crate root, re-exports
 ├── lexer.rs            # Token definitions (logos) and Lexer implementation
 ├── parser.rs           # Main parser implementation
+├── ast.rs              # AST definitions
+├── const_print.rs      # Constant printing utilities
 ├── cst/
 │   ├── mod.rs          # CST types: Node, NodeKind, NodeIdx, TokenIdx
 │   └── display.rs      # Pretty-printing CST for tests/debugging
@@ -19,7 +21,8 @@ frontend/parser/src/
 ├── error_report.rs     # Error formatting, LineIndex
 └── tests/
     ├── mod.rs          # Test utilities: assert_parses_to_cst_no_errors, etc.
-    └── errorless.rs    # Happy-path parsing tests
+    ├── errorless.rs    # Happy-path parsing tests
+    └── resiliency.rs   # Error recovery tests
 ```
 
 **Key Types:**

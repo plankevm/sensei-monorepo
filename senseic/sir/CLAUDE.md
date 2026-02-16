@@ -60,8 +60,10 @@ When designing new components, think about data layout upfront:
   - **`data`** (`sir-data`): Core IR types and foundational utilities
   - **`analyses`** (`sir-analyses`): Analysis passes built on top of the IR
   - **`parser`** (`sir-parser`): Front-end for parsing source into the IR
-  - **`debug-backend`** (`sir-debug-backend`): Minimal SIR->EVM backend focused on simplicity of
-  - **`assembler`** (`sir-assembler`): Converts assembly to bytecode.
+  - **`debug-backend`** (`sir-debug-backend`): Minimal SIR->EVM backend focused on simplicity
+  - **`assembler`** (`sir-assembler`): Converts assembly to bytecode
+  - **`cli`** (`sir-cli`): CLI tool for SIR
+  - **`optimizations`** (`sir-optimizations`): Optimization passes
 - **`/test-utils`**: Shared helpers and fixtures for integration tests
 - **`/docs`**: Reference material for opcodes, forks, and other EVM context
 
