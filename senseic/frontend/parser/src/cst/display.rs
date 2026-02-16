@@ -1,7 +1,7 @@
 use crate::{
-    cst::{NodeIdx, TokenIdx},
+    cst::NodeIdx,
     error_report::LineIndex,
-    lexer::{Lexer, SourceSpan},
+    lexer::{Lexer, SourceByteOffset, SourceSpan, TokenIdx},
 };
 use sensei_core::{Idx, IndexVec, Span};
 
@@ -10,7 +10,7 @@ use crate::cst::ConcreteSyntaxTree;
 #[derive(Debug)]
 pub struct DisplayCST<'src, 'ast> {
     line_index: LineIndex,
-    token_source_offsets: IndexVec<TokenIdx, u32>,
+    token_source_offsets: IndexVec<TokenIdx, SourceByteOffset>,
     source: &'src str,
     cst: &'ast ConcreteSyntaxTree<'ast>,
     show_line: bool,
@@ -48,8 +48,11 @@ impl<'src, 'ast> DisplayCST<'src, 'ast> {
 
     fn token_src_span(&self, token: TokenIdx) -> SourceSpan {
         let start = self.token_source_offsets[token];
-        let end =
-            self.token_source_offsets.get(token + 1).copied().unwrap_or(self.source.len() as u32);
+        let end = self
+            .token_source_offsets
+            .get(token + 1)
+            .copied()
+            .unwrap_or(SourceByteOffset::new(self.source.len() as u32));
         Span::new(start, end)
     }
 
@@ -64,7 +67,7 @@ impl<'src, 'ast> DisplayCST<'src, 'ast> {
             .token_source_offsets
             .get(tokens.end + 1)
             .copied()
-            .unwrap_or(self.source.len() as u32);
+            .unwrap_or(SourceByteOffset::new(self.source.len() as u32));
         Span::new(start, end)
     }
 
@@ -87,8 +90,8 @@ impl<'src, 'ast> DisplayCST<'src, 'ast> {
             Self::write_indent(f, indent_level)?;
             write!(f, "{:?}", self.token_src(ti),)?;
             if self.show_line {
-                let (start_line, start_col) = self.line_index.line_col(src_span.start);
-                let (end_line, end_col) = self.line_index.line_col(src_span.end - 1);
+                let (start_line, start_col) = self.line_index.line_col(src_span.start.get());
+                let (end_line, end_col) = self.line_index.line_col((src_span.end - 1).get());
                 write!(f, " {}:{}-{}:{}", start_line, start_col, end_line, end_col)?
             }
             writeln!(f)?;

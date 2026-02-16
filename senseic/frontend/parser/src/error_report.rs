@@ -1,8 +1,8 @@
 use crate::{
-    cst::TokenIdx,
     diagnostics::DiagnosticsContext,
-    lexer::{SourceSpan, Token},
+    lexer::{SourceSpan, Token, TokenIdx},
 };
+use sensei_core::Idx;
 
 #[derive(Debug, Clone)]
 pub enum ParserError {
@@ -114,8 +114,8 @@ fn format_lexer_error(
     source: &str,
     line_index: &LineIndex,
 ) -> String {
-    let (line, col_start) = line_index.line_col(span.start);
-    let (_, col_end) = line_index.line_col(span.end);
+    let (line, col_start) = line_index.line_col(span.start.get());
+    let (_, col_end) = line_index.line_col(span.end.get());
     let line_text = line_index.line_text(source, line);
     let snippet = &source[span.usize_range()];
 
@@ -144,8 +144,8 @@ fn format_unexpected_token(
     source: &str,
     line_index: &LineIndex,
 ) -> String {
-    let (line, col_start) = line_index.line_col(span.start);
-    let (_, col_end) = line_index.line_col(span.end);
+    let (line, col_start) = line_index.line_col(span.start.get());
+    let (_, col_end) = line_index.line_col(span.end.get());
     let line_text = line_index.line_text(source, line);
 
     let expected_str = match expected.len() {
@@ -175,7 +175,7 @@ fn format_missing_token(
     source: &str,
     line_index: &LineIndex,
 ) -> String {
-    let (line, col) = line_index.line_col(at_span.start);
+    let (line, col) = line_index.line_col(at_span.start.get());
     let line_text = line_index.line_text(source, line);
 
     format!(
@@ -196,9 +196,9 @@ fn format_unclosed_delimiter(
     source: &str,
     line_index: &LineIndex,
 ) -> String {
-    let (open_line, open_col) = line_index.line_col(open_span.start);
-    let (_, open_col_end) = line_index.line_col(open_span.end);
-    let (found_line, found_col) = line_index.line_col(found_span.start);
+    let (open_line, open_col) = line_index.line_col(open_span.start.get());
+    let (_, open_col_end) = line_index.line_col(open_span.end.get());
+    let (found_line, found_col) = line_index.line_col(found_span.start.get());
     let open_line_text = line_index.line_text(source, open_line);
 
     let mut result = format!(

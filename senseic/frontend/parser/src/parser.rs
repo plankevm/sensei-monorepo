@@ -123,7 +123,7 @@ where
             expected: Vec::with_capacity_in(8, arena),
             diagnostics,
             current_token_idx: TokenIdx::ZERO,
-            last_src_span: Span::new(0, 0),
+            last_src_span: Span::new(SourceByteOffset::ZERO, SourceByteOffset::ZERO),
             last_unexpected: None,
         }
     }

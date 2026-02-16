@@ -1,11 +1,10 @@
-use crate::const_print::const_assert_eq;
+use crate::{const_print::const_assert_eq, lexer::TokenIdx};
 use bumpalo::Bump;
 use sensei_core::{Idx, IndexVec, Span, newtype_index};
 
 pub mod display;
 
 newtype_index! {
-    pub struct TokenIdx;
     pub struct NodeIdx;
 }
 
