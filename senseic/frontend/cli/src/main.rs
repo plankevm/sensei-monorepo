@@ -1,7 +1,7 @@
 use sensei_parser::{
     cst::display::DisplayCST,
     error_report::{ErrorCollector, LineIndex, format_error},
-    lexer::Lexer,
+    lexer::Lexed,
     parser::parse,
 };
 
@@ -20,11 +20,11 @@ fn main() {
 
     let source = std::fs::read_to_string(&file_path).expect("Failed to read file");
 
-    let lexer = Lexer::new(&source);
+    let lexed = Lexed::lex(&source);
     let mut collector = ErrorCollector::default();
-    let cst = parse(lexer, 64, &mut collector);
+    let cst = parse(&lexed, &mut collector);
 
-    let display = DisplayCST::new(&cst, &source).show_line(show_lines);
+    let display = DisplayCST::new(&cst, &source, &lexed).show_line(show_lines);
     println!("{}", display);
 
     if !collector.errors.is_empty() {

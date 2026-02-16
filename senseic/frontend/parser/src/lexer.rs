@@ -318,11 +318,17 @@ impl Lexed {
         let mut tokens = IndexVec::with_capacity(source.len().div_ceil(LEN_TO_TOKEN_CAPACITY));
         let mut source_ends = IndexVec::with_capacity(source.len().div_ceil(LEN_TO_TOKEN_CAPACITY));
         let mut last_end = SourceByteOffset::ZERO;
-        for (tok, span) in Lexer::new(source) {
+
+        let mut lexer = Lexer::new(source);
+        loop {
+            let (tok, span) = lexer.next_with_eof();
             tokens.push(tok);
             source_ends.push(span.end);
             debug_assert!(last_end == span.start);
             last_end = span.end;
+            if tok == Token::Eof {
+                break;
+            }
         }
 
         Self { tokens, source_ends }

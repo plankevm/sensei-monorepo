@@ -1,6 +1,6 @@
 use crate::{
     diagnostics::DiagnosticsContext,
-    lexer::{SourceSpan, Token, TokenIdx},
+    lexer::{SourceByteOffset, SourceSpan, Token, TokenIdx},
 };
 use sensei_core::Idx;
 
@@ -46,23 +46,23 @@ impl DiagnosticsContext for ErrorCollector {
 
 #[derive(Debug)]
 pub struct LineIndex {
-    line_starts: Vec<u32>,
-    source_len: u32,
+    line_starts: Vec<SourceByteOffset>,
+    source_len: SourceByteOffset,
 }
 
 impl LineIndex {
     pub fn new(source: &str) -> Self {
-        let mut line_starts = vec![0u32];
+        let mut line_starts = vec![SourceByteOffset::ZERO];
         for (i, ch) in source.char_indices() {
             if ch == '\n' {
-                line_starts.push((i + 1) as u32);
+                line_starts.push(SourceByteOffset::new((i + 1) as u32));
             }
         }
-        LineIndex { line_starts, source_len: source.len() as u32 }
+        LineIndex { line_starts, source_len: SourceByteOffset::new(source.len() as u32) }
     }
 
-    pub fn line_col(&self, byte_offset: u32) -> (usize, usize) {
-        let offset = byte_offset.min(self.source_len);
+    pub fn line_col(&self, byte_offset: SourceByteOffset) -> (usize, usize) {
+        let offset = if byte_offset > self.source_len { self.source_len } else { byte_offset };
 
         let line_idx = match self.line_starts.binary_search(&offset) {
             Ok(idx) => idx,
@@ -78,8 +78,8 @@ impl LineIndex {
         if line == 0 || line > self.line_starts.len() {
             return "";
         }
-        let start = self.line_starts[line - 1] as usize;
-        let end = self.line_starts.get(line).map(|&e| e as usize).unwrap_or(source.len());
+        let start = self.line_starts[line - 1].get() as usize;
+        let end = self.line_starts.get(line).map(|e| e.get() as usize).unwrap_or(source.len());
 
         source[start..end].trim_end_matches('\n').trim_end_matches('\r')
     }
@@ -114,8 +114,8 @@ fn format_lexer_error(
     source: &str,
     line_index: &LineIndex,
 ) -> String {
-    let (line, col_start) = line_index.line_col(span.start.get());
-    let (_, col_end) = line_index.line_col(span.end.get());
+    let (line, col_start) = line_index.line_col(span.start);
+    let (_, col_end) = line_index.line_col(span.end);
     let line_text = line_index.line_text(source, line);
     let snippet = &source[span.usize_range()];
 
@@ -144,8 +144,8 @@ fn format_unexpected_token(
     source: &str,
     line_index: &LineIndex,
 ) -> String {
-    let (line, col_start) = line_index.line_col(span.start.get());
-    let (_, col_end) = line_index.line_col(span.end.get());
+    let (line, col_start) = line_index.line_col(span.start);
+    let (_, col_end) = line_index.line_col(span.end);
     let line_text = line_index.line_text(source, line);
 
     let expected_str = match expected.len() {
@@ -175,7 +175,7 @@ fn format_missing_token(
     source: &str,
     line_index: &LineIndex,
 ) -> String {
-    let (line, col) = line_index.line_col(at_span.start.get());
+    let (line, col) = line_index.line_col(at_span.start);
     let line_text = line_index.line_text(source, line);
 
     format!(
@@ -196,9 +196,9 @@ fn format_unclosed_delimiter(
     source: &str,
     line_index: &LineIndex,
 ) -> String {
-    let (open_line, open_col) = line_index.line_col(open_span.start.get());
-    let (_, open_col_end) = line_index.line_col(open_span.end.get());
-    let (found_line, found_col) = line_index.line_col(found_span.start.get());
+    let (open_line, open_col) = line_index.line_col(open_span.start);
+    let (_, open_col_end) = line_index.line_col(open_span.end);
+    let (found_line, found_col) = line_index.line_col(found_span.start);
     let open_line_text = line_index.line_text(source, open_line);
 
     let mut result = format!(

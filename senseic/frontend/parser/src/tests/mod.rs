@@ -1,7 +1,7 @@
 use crate::{
     cst::display::DisplayCST,
     error_report::{ErrorCollector, LineIndex, format_error},
-    lexer::Lexer,
+    lexer::Lexed,
     parser::parse,
 };
 
@@ -29,10 +29,10 @@ fn dedent_preserve_indent(s: &str) -> String {
 
 pub fn assert_parser_errors(source: &str, expected_errors: &[&str]) {
     let source = dedent(source);
-    let lexer = Lexer::new(&source);
+    let lexed = Lexed::lex(&source);
     let mut collector = ErrorCollector::default();
 
-    let _cst = parse(lexer, 64, &mut collector);
+    let _cst = parse(&lexed, &mut collector);
 
     let line_index = LineIndex::new(&source);
     let actual: Vec<String> =
@@ -46,10 +46,10 @@ pub fn assert_parser_errors(source: &str, expected_errors: &[&str]) {
 }
 
 pub fn assert_parses_to_cst_no_errors(source: &str, expected: &str) {
-    let lexer = Lexer::new(source);
+    let lexed = Lexed::lex(source);
     let mut collector = ErrorCollector::default();
 
-    let cst = parse(lexer, 64, &mut collector);
+    let cst = parse(&lexed, &mut collector);
 
     if !collector.errors.is_empty() {
         let line_index = LineIndex::new(source);
@@ -62,12 +62,12 @@ pub fn assert_parses_to_cst_no_errors(source: &str, expected: &str) {
         );
     }
 
-    let actual = format!("{}", DisplayCST::new(&cst, source));
+    let actual = format!("{}", DisplayCST::new(&cst, source, &lexed));
 
     pretty_assertions::assert_str_eq!(
         actual.trim(),
         expected.trim(),
         "Full tree:\n{}",
-        DisplayCST::new(&cst, source).show_node_index(true).show_token_spans(true)
+        DisplayCST::new(&cst, source, &lexed).show_node_index(true).show_token_spans(true)
     );
 }

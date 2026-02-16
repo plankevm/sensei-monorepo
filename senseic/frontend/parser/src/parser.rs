@@ -41,34 +41,26 @@ struct UnfinishedNode {
     last_child: Option<NodeIdx>,
 }
 
-// Ensure fields are private letting us more easily enforce the invariant that the iterator either
-// consumes fuel or advances.
 mod token_item_iter {
-    use crate::lexer::{Lexer, SourceSpan, Token};
+    use crate::lexer::{Lexed, SourceSpan, Token, TokenIdx};
+    use sensei_core::Idx;
 
-    pub(super) struct TokenItems<'src> {
-        lexer: Lexer<'src>,
-        peeked: Option<(Token, SourceSpan)>,
+    pub(super) struct TokenItems<'lexed> {
+        lexed: &'lexed Lexed,
+        current: TokenIdx,
         fuel: u32,
     }
 
-    impl<'src> TokenItems<'src> {
+    impl<'lexed> TokenItems<'lexed> {
         const DEFAULT_FUEL: u32 = 1024;
 
-        pub(crate) fn new(lexer: Lexer<'src>) -> Self {
-            TokenItems { lexer, peeked: None, fuel: Self::DEFAULT_FUEL }
-        }
-
-        fn next_fuel_unchanged(&mut self) -> (Token, SourceSpan) {
-            self.peeked.take().unwrap_or_else(|| {
-                let (tok, span) = self.lexer.next_with_eof();
-                (tok, span)
-            })
+        pub(crate) fn new(lexed: &'lexed Lexed) -> Self {
+            TokenItems { lexed, current: TokenIdx::ZERO, fuel: Self::DEFAULT_FUEL }
         }
 
         #[allow(unused)]
-        pub(super) fn lexer(&self) -> &Lexer<'src> {
-            &self.lexer
+        pub(super) fn lexed(&self) -> &'lexed Lexed {
+            self.lexed
         }
 
         #[allow(unused)]
@@ -79,29 +71,31 @@ mod token_item_iter {
         pub(super) fn peek(&mut self) -> (Token, SourceSpan) {
             self.fuel =
                 self.fuel.checked_sub(1).expect("out of fuel: likely caused by infinite loop");
-            let next = self.next_fuel_unchanged();
-            self.peeked = Some(next);
-            next
+            self.lexed.get(self.current)
         }
 
         pub(super) fn next(&mut self) -> (Token, SourceSpan) {
             self.fuel = Self::DEFAULT_FUEL;
-            self.peeked.take().unwrap_or_else(|| self.next_fuel_unchanged())
+            let result = self.lexed.get(self.current);
+            self.current += 1;
+            result
         }
     }
 }
 
-struct Parser<'d, 'src, D: DiagnosticsContext> {
+struct Parser<'lexed, 'd, D: DiagnosticsContext> {
     nodes: IndexVec<cst::NodeIdx, cst::Node>,
     expected: Vec<Token>,
-    tokens: TokenItems<'src>,
+    tokens: TokenItems<'lexed>,
     diagnostics: &'d mut D,
     current_token_idx: TokenIdx,
     last_src_span: SourceSpan,
     last_unexpected: Option<TokenIdx>,
 }
 
-impl<'d, 'src, D> Parser<'d, 'src, D>
+const LEN_TO_NODE_CAPACITY: usize = 4;
+
+impl<'lexed, 'd, D> Parser<'lexed, 'd, D>
 where
     D: DiagnosticsContext,
 {
@@ -110,10 +104,10 @@ where
     const FN_CALL_PRIORITY: OpPriority = OpPriority(21);
     const STRUCT_LITERAL_PRIORITY: OpPriority = OpPriority(21);
 
-    fn new(lexer: Lexer<'src>, estimated_node_count: usize, diagnostics: &'d mut D) -> Self {
+    fn new(lexed: &'lexed Lexed, diagnostics: &'d mut D) -> Self {
         Parser {
-            tokens: TokenItems::new(lexer),
-            nodes: IndexVec::with_capacity(estimated_node_count),
+            tokens: TokenItems::new(lexed),
+            nodes: IndexVec::with_capacity(lexed.len().get() as usize / LEN_TO_NODE_CAPACITY),
             expected: Vec::with_capacity(8),
             diagnostics,
             current_token_idx: TokenIdx::ZERO,
@@ -806,12 +800,8 @@ where
     }
 }
 
-pub fn parse<'src, D: DiagnosticsContext>(
-    lexer: Lexer<'src>,
-    estimated_node_count: usize,
-    diagnostics: &mut D,
-) -> ConcreteSyntaxTree {
-    let mut parser = Parser::new(lexer, estimated_node_count, diagnostics);
+pub fn parse<D: DiagnosticsContext>(lexed: &Lexed, diagnostics: &mut D) -> ConcreteSyntaxTree {
+    let mut parser = Parser::new(lexed, diagnostics);
 
     let file = parser.parse_file();
     assert_eq!(file, ConcreteSyntaxTree::FILE_IDX);
