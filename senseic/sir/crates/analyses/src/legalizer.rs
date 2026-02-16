@@ -268,34 +268,34 @@ impl<'a> Legalizer<'a> {
         }
 
         #[derive(PartialEq, Clone, Copy)]
-        enum Color {
-            White,
-            Gray,
-            Black,
+        enum VisitState {
+            Unvisited,
+            InProgress,
+            Done,
         }
 
         fn detect_cycle(
             fn_id: FunctionId,
             callees: &IndexVec<FunctionId, Vec<FunctionId>>,
-            color: &mut IndexVec<FunctionId, Color>,
+            state: &mut IndexVec<FunctionId, VisitState>,
         ) -> Result<(), LegalizerError> {
-            color[fn_id] = Color::Gray;
+            state[fn_id] = VisitState::InProgress;
             for &callee in &callees[fn_id] {
-                if color[callee] == Color::Gray {
+                if state[callee] == VisitState::InProgress {
                     return Err(LegalizerError::RecursiveCall(fn_id, callee));
                 }
-                if color[callee] == Color::White {
-                    detect_cycle(callee, callees, color)?;
+                if state[callee] == VisitState::Unvisited {
+                    detect_cycle(callee, callees, state)?;
                 }
             }
-            color[fn_id] = Color::Black;
+            state[fn_id] = VisitState::Done;
             Ok(())
         }
 
-        let mut color = index_vec![Color::White; self.program.functions.len()];
+        let mut visit_state = index_vec![VisitState::Unvisited; self.program.functions.len()];
         for fn_id in self.program.functions.iter_idx() {
-            if color[fn_id] == Color::White {
-                detect_cycle(fn_id, &callees, &mut color)?;
+            if visit_state[fn_id] == VisitState::Unvisited {
+                detect_cycle(fn_id, &callees, &mut visit_state)?;
             }
         }
         Ok(())
