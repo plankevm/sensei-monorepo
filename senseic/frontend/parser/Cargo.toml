@@ -7,7 +7,7 @@ license.workspace = true
 [dependencies]
 sensei-core.workspace = true
 
-bumpalo = {workspace = true, features = ["allocator-api2", "collections"]}
+# bumpalo = {workspace = true, features = ["allocator-api2", "collections"]}
 allocator-api2.workspace = true
 hashbrown.workspace = true
 tree-sitter = "0.25"

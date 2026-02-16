@@ -12,14 +12,14 @@ pub struct DisplayCST<'src, 'ast> {
     line_index: LineIndex,
     token_source_offsets: IndexVec<TokenIdx, SourceByteOffset>,
     source: &'src str,
-    cst: &'ast ConcreteSyntaxTree<'ast>,
+    cst: &'ast ConcreteSyntaxTree,
     show_line: bool,
     show_node_index: bool,
     show_token_spans: bool,
 }
 
 impl<'src, 'ast> DisplayCST<'src, 'ast> {
-    pub fn new(cst: &'ast ConcreteSyntaxTree<'ast>, source: &'src str) -> Self {
+    pub fn new(cst: &'ast ConcreteSyntaxTree, source: &'src str) -> Self {
         DisplayCST {
             line_index: LineIndex::new(source),
             token_source_offsets: Lexer::new(source).map(|(_, span)| span.start).collect(), /* TODO: Lex once and accumulate */

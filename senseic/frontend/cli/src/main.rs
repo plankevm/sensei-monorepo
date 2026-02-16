@@ -1,4 +1,3 @@
-use bumpalo::Bump;
 use sensei_parser::{
     cst::display::DisplayCST,
     error_report::{ErrorCollector, LineIndex, format_error},
@@ -20,11 +19,10 @@ fn main() {
     }
 
     let source = std::fs::read_to_string(&file_path).expect("Failed to read file");
-    let arena = Bump::with_capacity(8000);
 
     let lexer = Lexer::new(&source);
     let mut collector = ErrorCollector::default();
-    let cst = parse(&arena, lexer, 64, &mut collector);
+    let cst = parse(lexer, 64, &mut collector);
 
     let display = DisplayCST::new(&cst, &source).show_line(show_lines);
     println!("{}", display);

@@ -1,5 +1,4 @@
 use crate::{const_print::const_assert_eq, lexer::TokenIdx};
-use bumpalo::Bump;
 use sensei_core::{Idx, IndexVec, Span, newtype_index};
 
 pub mod display;
@@ -130,11 +129,11 @@ impl NodeKind {
 }
 
 #[derive(Debug, Clone)]
-pub struct ConcreteSyntaxTree<'ast> {
-    pub nodes: IndexVec<NodeIdx, Node, &'ast Bump>,
+pub struct ConcreteSyntaxTree {
+    pub nodes: IndexVec<NodeIdx, Node>,
 }
 
-impl<'ast> ConcreteSyntaxTree<'ast> {
+impl ConcreteSyntaxTree {
     pub const FILE_IDX: NodeIdx = NodeIdx::ZERO;
 
     pub fn iter_children(&self, node: NodeIdx) -> impl Iterator<Item = NodeIdx> {

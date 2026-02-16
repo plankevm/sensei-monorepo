@@ -4,7 +4,6 @@ use crate::{
     lexer::Lexer,
     parser::parse,
 };
-use bumpalo::Bump;
 
 // mod resiliency;
 mod errorless;
@@ -30,11 +29,10 @@ fn dedent_preserve_indent(s: &str) -> String {
 
 pub fn assert_parser_errors(source: &str, expected_errors: &[&str]) {
     let source = dedent(source);
-    let arena = Bump::new();
     let lexer = Lexer::new(&source);
     let mut collector = ErrorCollector::default();
 
-    let _cst = parse(&arena, lexer, 64, &mut collector);
+    let _cst = parse(lexer, 64, &mut collector);
 
     let line_index = LineIndex::new(&source);
     let actual: Vec<String> =
@@ -48,11 +46,10 @@ pub fn assert_parser_errors(source: &str, expected_errors: &[&str]) {
 }
 
 pub fn assert_parses_to_cst_no_errors(source: &str, expected: &str) {
-    let arena = Bump::new();
     let lexer = Lexer::new(source);
     let mut collector = ErrorCollector::default();
 
-    let cst = parse(&arena, lexer, 64, &mut collector);
+    let cst = parse(lexer, 64, &mut collector);
 
     if !collector.errors.is_empty() {
         let line_index = LineIndex::new(source);

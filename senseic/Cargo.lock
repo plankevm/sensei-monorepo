@@ -1635,6 +1635,7 @@ name = "sensei-hir"
 version = "0.1.0"
 dependencies = [
  "allocator-api2",
+ "alloy-primitives",
  "hashbrown 0.16.0",
  "inturn",
  "sensei-core",
@@ -1646,7 +1647,6 @@ name = "sensei-parser"
 version = "0.1.0"
 dependencies = [
  "allocator-api2",
- "bumpalo",
  "hashbrown 0.16.0",
  "inturn",
  "logos",

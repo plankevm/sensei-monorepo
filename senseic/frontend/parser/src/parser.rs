@@ -5,7 +5,6 @@ use crate::{
     parser::token_item_iter::TokenItems,
 };
 use allocator_api2::vec::Vec;
-use bumpalo::Bump;
 use sensei_core::{Idx, IndexVec, Span, span::IncIterable};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -92,9 +91,9 @@ mod token_item_iter {
     }
 }
 
-struct Parser<'ast, 'd, 'src, D: DiagnosticsContext> {
-    nodes: IndexVec<cst::NodeIdx, cst::Node, &'ast Bump>,
-    expected: Vec<Token, &'ast Bump>,
+struct Parser<'d, 'src, D: DiagnosticsContext> {
+    nodes: IndexVec<cst::NodeIdx, cst::Node>,
+    expected: Vec<Token>,
     tokens: TokenItems<'src>,
     diagnostics: &'d mut D,
     current_token_idx: TokenIdx,
@@ -102,7 +101,7 @@ struct Parser<'ast, 'd, 'src, D: DiagnosticsContext> {
     last_unexpected: Option<TokenIdx>,
 }
 
-impl<'ast, 'd, 'src, D> Parser<'ast, 'd, 'src, D>
+impl<'d, 'src, D> Parser<'d, 'src, D>
 where
     D: DiagnosticsContext,
 {
@@ -111,16 +110,11 @@ where
     const FN_CALL_PRIORITY: OpPriority = OpPriority(21);
     const STRUCT_LITERAL_PRIORITY: OpPriority = OpPriority(21);
 
-    fn new(
-        arena: &'ast Bump,
-        lexer: Lexer<'src>,
-        estimated_node_count: usize,
-        diagnostics: &'d mut D,
-    ) -> Self {
+    fn new(lexer: Lexer<'src>, estimated_node_count: usize, diagnostics: &'d mut D) -> Self {
         Parser {
             tokens: TokenItems::new(lexer),
-            nodes: IndexVec::with_capacity_in(estimated_node_count, arena),
-            expected: Vec::with_capacity_in(8, arena),
+            nodes: IndexVec::with_capacity(estimated_node_count),
+            expected: Vec::with_capacity(8),
             diagnostics,
             current_token_idx: TokenIdx::ZERO,
             last_src_span: Span::new(SourceByteOffset::ZERO, SourceByteOffset::ZERO),
@@ -812,13 +806,12 @@ where
     }
 }
 
-pub fn parse<'ast, 'src, D: DiagnosticsContext>(
-    arena: &'ast Bump,
+pub fn parse<'src, D: DiagnosticsContext>(
     lexer: Lexer<'src>,
     estimated_node_count: usize,
     diagnostics: &mut D,
-) -> ConcreteSyntaxTree<'ast> {
-    let mut parser = Parser::new(arena, lexer, estimated_node_count, diagnostics);
+) -> ConcreteSyntaxTree {
+    let mut parser = Parser::new(lexer, estimated_node_count, diagnostics);
 
     let file = parser.parse_file();
     assert_eq!(file, ConcreteSyntaxTree::FILE_IDX);
