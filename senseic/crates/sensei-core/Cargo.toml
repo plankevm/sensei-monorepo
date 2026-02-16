@@ -5,8 +5,8 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
-inturn.workspace = true
 allocator-api2.workspace = true
 bumpalo.workspace = true
+hashbrown.workspace = true
 
 

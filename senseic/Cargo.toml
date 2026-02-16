@@ -28,7 +28,6 @@ bumpalo = { version = "3.19.0", features = ["allocator-api2", "collections"] }
 allocator-api2 = "0.2"
 hashbrown = { version = "0.16.0", features = ["allocator-api2"] }
 smallvec = "1.15.1"
-inturn = "0.1.2"
 alloy-primitives = "1.1.2"
 thiserror = "2.0.17"
 logos = "0.16.0"

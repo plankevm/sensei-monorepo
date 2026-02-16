@@ -20,6 +20,7 @@ pub trait Idx:
     + Add<u32, Output = Self>
     + AddAssign<u32>
     + Sub<Self, Output = u32>
+    + Sub<u32, Output = Self>
     + TryFrom<usize>
     + Debug
 {

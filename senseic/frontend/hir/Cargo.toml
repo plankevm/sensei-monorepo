@@ -7,6 +7,5 @@ license.workspace = true
 [dependencies]
 sensei-core.workspace = true
 sensei-parser.workspace = true
-inturn.workspace = true
 hashbrown.workspace = true
 allocator-api2.workspace = true

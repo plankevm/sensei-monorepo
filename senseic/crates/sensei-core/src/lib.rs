@@ -2,6 +2,7 @@ pub mod bigint;
 pub mod dense_index_set;
 pub mod index;
 pub mod index_vec;
+pub mod intern;
 pub mod must_use;
 pub mod span;
 
