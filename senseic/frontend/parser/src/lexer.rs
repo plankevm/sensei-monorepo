@@ -81,6 +81,8 @@ pub enum Token {
     LeftSquare,
     #[token("]")]
     RightSquare,
+    #[token("::")]
+    DoubleColon,
 
     // Operators
     #[token("=")]
@@ -181,6 +183,10 @@ pub enum Token {
     And,
     #[token("or")]
     Or,
+    #[token("import")]
+    Import,
+    #[token("as")]
+    As,
 
     #[regex("[a-zA-Z_][a-zA-Z0-9_]*")]
     Identifier,
@@ -283,6 +289,9 @@ impl Token {
             Token::False => "`false`",
             Token::And => "`and`",
             Token::Or => "`or`",
+            Token::Import => "`import`",
+            Token::As => "`as`",
+            Token::DoubleColon => "`::`",
             Token::Identifier => "identifier",
             Token::DecimalLiteral => "decimal literal",
             Token::HexLiteral => "hex literal",
@@ -334,17 +343,24 @@ impl Lexed {
         Self { tokens, source_ends }
     }
 
-    pub fn get_span(&self, index: TokenIdx) -> Span<SourceByteOffset> {
-        let start = if index == TokenIdx::ZERO {
-            SourceByteOffset::ZERO
-        } else {
-            self.source_ends[index - 1]
-        };
+    fn token_src_start(&self, token: TokenIdx) -> SourceByteOffset {
+        if token == TokenIdx::ZERO { SourceByteOffset::ZERO } else { self.source_ends[token - 1] }
+    }
+
+    pub fn tokens_to_src(&self, tokens: Span<TokenIdx>) -> Span<SourceByteOffset> {
+        let start = self.token_src_start(tokens.start);
+        // Span is exclusive so we want the end token's start.
+        let end = self.token_src_start(tokens.end);
+        Span::new(start, end)
+    }
+
+    pub fn token_to_src(&self, index: TokenIdx) -> Span<SourceByteOffset> {
+        let start = self.token_src_start(index);
         Span::new(start, self.source_ends[index])
     }
 
     pub fn get(&self, index: TokenIdx) -> (Token, Span<SourceByteOffset>) {
-        (self.tokens[index], self.get_span(index))
+        (self.tokens[index], self.token_to_src(index))
     }
 
     pub fn len(&self) -> TokenIdx {

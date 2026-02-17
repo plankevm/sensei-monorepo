@@ -7,7 +7,7 @@ newtype_index! {
     pub struct NodeIdx;
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct Node {
     pub kind: NodeKind,
     pub tokens: Span<TokenIdx>,
@@ -64,6 +64,8 @@ pub enum NodeKind {
 
     // Declarations
     ConstDecl { typed: bool },
+    ImportDecl { glob: bool },
+    ImportAsDecl,
     InitBlock,
     RunBlock,
 
@@ -102,6 +104,7 @@ pub enum NodeKind {
 
     // Misc
     StatementsList,
+    ImportPath,
     FieldDef,
     FieldAssign,
 
@@ -133,8 +136,51 @@ pub struct ConcreteSyntaxTree {
     pub nodes: IndexVec<NodeIdx, Node>,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct NodeView<'cst> {
+    cst: &'cst ConcreteSyntaxTree,
+    idx: NodeIdx,
+}
+
+impl<'cst> NodeView<'cst> {
+    pub fn new(cst: &'cst ConcreteSyntaxTree, idx: NodeIdx) -> Self {
+        assert!(idx < cst.nodes.len_idx(), "idx out of bounds");
+        Self { cst, idx }
+    }
+
+    fn node(self) -> &'cst Node {
+        // Safety: Constructor validates `idx`
+        unsafe { self.cst.nodes.get_unchecked(self.idx.idx()) }
+    }
+
+    pub fn kind(self) -> NodeKind {
+        self.node().kind
+    }
+
+    pub fn span(self) -> Span<TokenIdx> {
+        self.node().tokens
+    }
+
+    pub fn single_token(self) -> Option<TokenIdx> {
+        let span = self.span();
+        (span.end == span.start + 1).then_some(span.start)
+    }
+
+    pub fn idx(self) -> NodeIdx {
+        self.idx
+    }
+
+    pub fn children(self) -> impl Iterator<Item = NodeView<'cst>> {
+        self.cst.iter_children(self.idx).map(|idx| NodeView::new(self.cst, idx))
+    }
+}
+
 impl ConcreteSyntaxTree {
     pub const FILE_IDX: NodeIdx = NodeIdx::ZERO;
+
+    pub fn file_view(&self) -> NodeView<'_> {
+        NodeView::new(self, Self::FILE_IDX)
+    }
 
     pub fn iter_children(&self, node: NodeIdx) -> impl Iterator<Item = NodeIdx> {
         let mut next_child = self.nodes[node].first_child;

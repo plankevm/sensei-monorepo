@@ -764,8 +764,10 @@ where
             self.parse_block(start, NodeKind::InitBlock)
         } else if self.eat(Token::Run) {
             self.parse_block(start, NodeKind::RunBlock)
-        } else if self.check(Token::Const) {
-            self.parse_const_decl()
+        } else if self.eat(Token::Const) {
+            self.parse_const_decl(start)
+        } else if self.eat(Token::Import) {
+            self.parse_import_decl(start)
         } else {
             self.emit_unexpected();
             self.advance();
@@ -773,10 +775,40 @@ where
         }
     }
 
-    fn parse_const_decl(&mut self) -> NodeIdx {
-        let start = self.current_token_idx;
-        assert!(self.expect(Token::Const));
+    fn parse_import_decl(&mut self, start: TokenIdx) -> NodeIdx {
+        let mut import_path = self.alloc_node_from(start, NodeKind::ImportDecl { glob: false });
+        let path_start = self.expect_ident();
+        self.push_child(&mut import_path, path_start);
 
+        while self.eat(Token::DoubleColon) {
+            if self.eat(Token::Star) {
+                self.update_kind(import_path, NodeKind::ImportDecl { glob: true });
+                self.expect(Token::Semicolon);
+                return self.close_node(import_path);
+            }
+
+            let ident = self.expect_ident();
+            self.push_child(&mut import_path, ident);
+        }
+
+        if self.eat(Token::Semicolon) {
+            return self.close_node(import_path);
+        }
+
+        self.update_kind(import_path, NodeKind::ImportPath);
+        let import_path = self.close_node(import_path);
+        let mut import = self.alloc_node_from(start, NodeKind::ImportAsDecl);
+        self.push_child(&mut import, import_path);
+
+        self.expect(Token::As);
+        let as_name = self.expect_ident();
+        self.push_child(&mut import, as_name);
+        self.expect(Token::Semicolon);
+
+        self.close_node(import)
+    }
+
+    fn parse_const_decl(&mut self, start: TokenIdx) -> NodeIdx {
         let mut r#const = self.alloc_node_from(start, NodeKind::ConstDecl { typed: false });
         let name = self.expect_ident();
         self.push_child(&mut r#const, name);

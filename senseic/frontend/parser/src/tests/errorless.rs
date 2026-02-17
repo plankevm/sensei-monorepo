@@ -2177,3 +2177,212 @@ fn test_empty_block_expr() {
         "#,
     );
 }
+
+// =============================================================================
+// Import Statements
+// =============================================================================
+
+#[test]
+fn test_import_single_segment() {
+    assert_parses_to_cst_no_errors_dedented(
+        "import foo;",
+        r#"
+        File
+            ImportDecl { glob: false }
+                "import"
+                " "
+                Identifier
+                    "foo"
+                ";"
+        "#,
+    );
+}
+
+#[test]
+fn test_import_two_segments() {
+    assert_parses_to_cst_no_errors_dedented(
+        "import foo::bar;",
+        r#"
+        File
+            ImportDecl { glob: false }
+                "import"
+                " "
+                Identifier
+                    "foo"
+                "::"
+                Identifier
+                    "bar"
+                ";"
+        "#,
+    );
+}
+
+#[test]
+fn test_import_three_segments() {
+    assert_parses_to_cst_no_errors_dedented(
+        "import foo::bar::baz;",
+        r#"
+        File
+            ImportDecl { glob: false }
+                "import"
+                " "
+                Identifier
+                    "foo"
+                "::"
+                Identifier
+                    "bar"
+                "::"
+                Identifier
+                    "baz"
+                ";"
+        "#,
+    );
+}
+
+#[test]
+fn test_import_glob_single_segment() {
+    assert_parses_to_cst_no_errors_dedented(
+        "import foo::*;",
+        r#"
+        File
+            ImportDecl { glob: true }
+                "import"
+                " "
+                Identifier
+                    "foo"
+                "::"
+                "*"
+                ";"
+        "#,
+    );
+}
+
+#[test]
+fn test_import_glob_multi_segment() {
+    assert_parses_to_cst_no_errors_dedented(
+        "import foo::bar::*;",
+        r#"
+        File
+            ImportDecl { glob: true }
+                "import"
+                " "
+                Identifier
+                    "foo"
+                "::"
+                Identifier
+                    "bar"
+                "::"
+                "*"
+                ";"
+        "#,
+    );
+}
+
+#[test]
+fn test_import_as_single_segment() {
+    assert_parses_to_cst_no_errors_dedented(
+        "import foo as bar;",
+        r#"
+        File
+            ImportAsDecl
+                ImportPath
+                    "import"
+                    " "
+                    Identifier
+                        "foo"
+                    " "
+                "as"
+                " "
+                Identifier
+                    "bar"
+                ";"
+        "#,
+    );
+}
+
+#[test]
+fn test_import_as_multi_segment() {
+    assert_parses_to_cst_no_errors_dedented(
+        "import foo::bar::baz as qux;",
+        r#"
+        File
+            ImportAsDecl
+                ImportPath
+                    "import"
+                    " "
+                    Identifier
+                        "foo"
+                    "::"
+                    Identifier
+                        "bar"
+                    "::"
+                    Identifier
+                        "baz"
+                    " "
+                "as"
+                " "
+                Identifier
+                    "qux"
+                ";"
+        "#,
+    );
+}
+
+#[test]
+fn test_import_multiple_declarations() {
+    assert_parses_to_cst_no_errors_dedented(
+        "
+        import std;
+        import std::io;
+        import std::io::*;
+        import std::io as io_lib;
+        ",
+        r#"
+        File
+            ImportDecl { glob: false }
+                "import"
+                " "
+                Identifier
+                    "std"
+                ";"
+            "\n"
+            ImportDecl { glob: false }
+                "import"
+                " "
+                Identifier
+                    "std"
+                "::"
+                Identifier
+                    "io"
+                ";"
+            "\n"
+            ImportDecl { glob: true }
+                "import"
+                " "
+                Identifier
+                    "std"
+                "::"
+                Identifier
+                    "io"
+                "::"
+                "*"
+                ";"
+            "\n"
+            ImportAsDecl
+                ImportPath
+                    "import"
+                    " "
+                    Identifier
+                        "std"
+                    "::"
+                    Identifier
+                        "io"
+                    " "
+                "as"
+                " "
+                Identifier
+                    "io_lib"
+                ";"
+        "#,
+    );
+}
