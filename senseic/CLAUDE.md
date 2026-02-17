@@ -50,3 +50,9 @@ Only add comments for non-obvious *why* decisions.
 - Always use the most precise type possible, favor the new typed indices,
     IndexVec and RelSlice type variants instead of the general purpose u32/usize,
     Vec & [T] alternatives.
+
+### O(1) Allocation Principle
+
+Where heap allocations cannot be avoided you MUST ENSURE that the algorithms or
+functions you write at a high-level only make a constant number of allocations
+relative to the input size.
