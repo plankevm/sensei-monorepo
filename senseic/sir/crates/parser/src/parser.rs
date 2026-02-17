@@ -157,7 +157,10 @@ fn parser<'arena, 'src: 'arena>(
 
     let dec_literal_as_u256 = select! { Token::DecLiteral => () }.map_with(|_, e| {
         let s: &str = &source[e.span()];
-        s.parse::<U256>()
+        match s.strip_prefix('-') {
+            Some(abs_s) => abs_s.parse::<U256>().map(|v| U256::ZERO.wrapping_sub(v)),
+            None => s.parse::<U256>(),
+        }
     });
 
     let hex_as_u256 = select! { Token::HexLiteral => () }.map_with(|_, e| {
@@ -392,5 +395,25 @@ mod tests {
 
         assert_eq!(ast.functions.len(), 1);
         assert_eq!(ast.data_segments.len(), 0);
+    }
+
+    #[test]
+    fn test_negative_literal_twos_complement() {
+        let arena = Bump::with_capacity(4000);
+        let source = format!(
+            r#"
+            fn main:
+                entry {{
+                    x = large_const -{}
+                    stop
+                }}
+            "#,
+            U256::MAX
+        );
+        let ast = parse(&source, &arena).unwrap();
+
+        let stmt = &ast.functions[0].basic_blocks[0].stmts[0];
+        let ParamExpr::Num(n) = &stmt.params[0] else { panic!("expected Num") };
+        assert_eq!(n.inner, U256::from(1));
     }
 }
