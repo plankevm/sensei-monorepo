@@ -5,12 +5,12 @@ use std::cmp::{Ordering, PartialOrd};
 
 pub fn run(program: &mut EthIRProgram) {
     let mut sccp = SCCPAnalysis::new(program);
-    sccp.analysis();
-    sccp.apply();
+    sccp.analysis(program);
+    sccp.apply(program);
+    sccp.reset(program);
 }
 
-pub struct SCCPAnalysis<'a> {
-    program: &'a mut EthIRProgram,
+pub struct SCCPAnalysis {
     lattice: IndexVec<LocalId, LatticeValue>,
     pub reachable: DenseIndexSet<BasicBlockId>,
     cfg_worklist: Vec<BasicBlockId>,
@@ -18,44 +18,54 @@ pub struct SCCPAnalysis<'a> {
     predecessors: IndexVec<BasicBlockId, Vec<BasicBlockId>>,
 }
 
-impl<'a> SCCPAnalysis<'a> {
-    pub fn new(program: &'a mut EthIRProgram) -> Self {
-        let predecessors = compute_predecessors(program);
-        let mut reachable = DenseIndexSet::with_capacity_in_bits(program.basic_blocks.len());
-        let mut cfg_worklist = Vec::new();
+impl SCCPAnalysis {
+    pub fn new(program: &EthIRProgram) -> Self {
         let num_values = program.next_free_local_id.idx();
-        let mut lattice = index_vec![LatticeValue::Unknown; num_values];
+        let mut sccp = Self {
+            lattice: index_vec![LatticeValue::Unknown; num_values],
+            reachable: DenseIndexSet::with_capacity_in_bits(program.basic_blocks.len()),
+            cfg_worklist: Vec::new(),
+            values_worklist: Vec::new(),
+            predecessors: compute_predecessors(program),
+        };
+        sccp.init_state(program);
+        sccp
+    }
+
+    pub fn reset(&mut self, program: &EthIRProgram) {
+        self.lattice.clear();
+        self.lattice.resize(program.next_free_local_id.idx(), LatticeValue::Unknown);
+        self.reachable.clear();
+        self.cfg_worklist.clear();
+        self.values_worklist.clear();
+        self.predecessors = compute_predecessors(program);
+        self.init_state(program);
+    }
+
+    fn init_state(&mut self, program: &EthIRProgram) {
         for func in program.functions.iter() {
             let entry = func.entry();
-            reachable.add(entry);
-            cfg_worklist.push(entry);
+            self.reachable.add(entry);
+            self.cfg_worklist.push(entry);
             let entry_bb = &program.basic_blocks[entry];
             for &input in &program.locals[entry_bb.inputs] {
-                lattice[input] = LatticeValue::Overdefined;
+                self.lattice[input] = LatticeValue::Overdefined;
             }
         }
-        Self {
-            program,
-            lattice,
-            reachable,
-            cfg_worklist,
-            values_worklist: Vec::new(),
-            predecessors,
-        }
     }
 
-    pub fn analysis(&mut self) {
-        let uses = compute_def_use(self.program);
+    pub fn analysis(&mut self, program: &EthIRProgram) {
+        let uses = compute_def_use(program);
         while let Some(bb_id) = self.cfg_worklist.pop() {
-            self.process_block(bb_id, &uses);
+            self.process_block(program, bb_id, &uses);
         }
     }
 
-    pub fn apply(&mut self) {
-        for bb_id in self.program.basic_blocks.iter_idx() {
+    pub fn apply(&self, program: &mut EthIRProgram) {
+        for bb_id in program.basic_blocks.iter_idx() {
             if self.reachable.contains(bb_id) {
-                self.rewrite_constants(bb_id);
-                self.simplify_control(bb_id);
+                self.rewrite_constants(program, bb_id);
+                self.simplify_control(program, bb_id);
             }
         }
     }
@@ -65,11 +75,11 @@ impl<'a> SCCPAnalysis<'a> {
         &self.lattice
     }
 
-    fn rewrite_constants(&mut self, bb_id: BasicBlockId) {
-        let ops = self.program.basic_blocks[bb_id].operations;
+    fn rewrite_constants(&self, program: &mut EthIRProgram, bb_id: BasicBlockId) {
+        let ops = program.basic_blocks[bb_id].operations;
         for op_idx in ops.iter() {
-            let op = &self.program.operations[op_idx];
-            let mut outs = op.outputs(self.program).iter();
+            let op = &program.operations[op_idx];
+            let mut outs = op.outputs(program).iter();
             let out = outs.next().copied();
             debug_assert!(
                 outs.next().is_none(),
@@ -83,44 +93,44 @@ impl<'a> SCCPAnalysis<'a> {
                 Ok(value) => Operation::SetSmallConst(SetSmallConstData { sets: out, value }),
                 Err(_) => continue,
             };
-            self.program.operations[op_idx] = new_op;
+            program.operations[op_idx] = new_op;
         }
     }
 
-    fn simplify_control(&mut self, bb_id: BasicBlockId) {
-        match &self.program.basic_blocks[bb_id].control {
+    fn simplify_control(&self, program: &mut EthIRProgram, bb_id: BasicBlockId) {
+        match &program.basic_blocks[bb_id].control {
             Control::Branches(branch) => {
                 if let Some(cv) = self.const_u256(branch.condition) {
                     let target =
                         if cv.is_zero() { branch.zero_target } else { branch.non_zero_target };
-                    self.program.basic_blocks[bb_id].control = Control::ContinuesTo(target);
+                    program.basic_blocks[bb_id].control = Control::ContinuesTo(target);
                 }
             }
             Control::Switch(switch) => {
                 if let Some(val) = self.const_u256(switch.condition) {
-                    let target = self.program.cases[switch.cases]
-                        .iter(self.program)
+                    let target = program.cases[switch.cases]
+                        .iter(program)
                         .find(|(case_val, _)| val == *case_val)
                         .map(|(_, t)| t)
                         .or(switch.fallback)
                         .expect("illegal behavior detected");
 
-                    self.program.basic_blocks[bb_id].control = Control::ContinuesTo(target);
+                    program.basic_blocks[bb_id].control = Control::ContinuesTo(target);
                 }
             }
             _ => {}
         }
     }
 
-    fn process_inputs(&mut self, bb_id: BasicBlockId) {
-        let bb = &self.program.basic_blocks[bb_id];
+    fn process_inputs(&mut self, program: &EthIRProgram, bb_id: BasicBlockId) {
+        let bb = &program.basic_blocks[bb_id];
         for pred_id in &self.predecessors[bb_id] {
             if !self.reachable.contains(*pred_id) {
                 continue;
             }
-            let pred_bb = &self.program.basic_blocks[*pred_id];
+            let pred_bb = &program.basic_blocks[*pred_id];
             for (&pred_output, &input_local) in
-                self.program.locals[pred_bb.outputs].iter().zip(&self.program.locals[bb.inputs])
+                program.locals[pred_bb.outputs].iter().zip(&program.locals[bb.inputs])
             {
                 let pred_value = self.lattice[pred_output];
                 if self.lattice[input_local].meet(pred_value) {
@@ -130,10 +140,10 @@ impl<'a> SCCPAnalysis<'a> {
         }
     }
 
-    fn process_operations(&mut self, bb_id: BasicBlockId) {
-        let bb = &self.program.basic_blocks[bb_id];
-        for op in &self.program.operations[bb.operations] {
-            if let Some((local, value)) = constant(op, &self.program.large_consts) {
+    fn process_operations(&mut self, program: &EthIRProgram, bb_id: BasicBlockId) {
+        let bb = &program.basic_blocks[bb_id];
+        for op in &program.operations[bb.operations] {
+            if let Some((local, value)) = constant(op, &program.large_consts) {
                 // Will always be constant here, but detects whether it changed.
                 if self.lattice[local].meet(value) {
                     self.values_worklist.push(local);
@@ -141,7 +151,7 @@ impl<'a> SCCPAnalysis<'a> {
                 continue;
             }
 
-            if let Some((out, value)) = self.evaluate(op) {
+            if let Some((out, value)) = self.evaluate(program, op) {
                 if self.lattice[out].meet(LatticeValue::Const(value)) {
                     self.values_worklist.push(out);
                 }
@@ -150,7 +160,7 @@ impl<'a> SCCPAnalysis<'a> {
 
             // Any operation that isn't const or evaluates to a constant is overdefined (aka
             // bottom).
-            for &out in op.outputs(self.program) {
+            for &out in op.outputs(program) {
                 if self.lattice[out].meet(LatticeValue::Overdefined) {
                     self.values_worklist.push(out);
                 }
@@ -158,24 +168,21 @@ impl<'a> SCCPAnalysis<'a> {
         }
     }
 
-    fn process_control(&mut self, bb_id: BasicBlockId) {
-        for succ in self.program.basic_blocks[bb_id].control.iter_outgoing(self.program) {
-            if self.is_edge_reachable(bb_id, succ) {
-                Self::mark_reachable(
-                    self.program,
-                    &mut self.reachable,
-                    &mut self.cfg_worklist,
-                    &mut self.lattice,
-                    &mut self.values_worklist,
-                    bb_id,
-                    succ,
-                );
+    fn process_control(&mut self, program: &EthIRProgram, bb_id: BasicBlockId) {
+        for succ in program.basic_blocks[bb_id].control.iter_outgoing(program) {
+            if self.is_edge_reachable(program, bb_id, succ) {
+                self.mark_reachable(program, bb_id, succ);
             }
         }
     }
 
-    fn is_edge_reachable(&self, from: BasicBlockId, to: BasicBlockId) -> bool {
-        let control = &self.program.basic_blocks[from].control;
+    fn is_edge_reachable(
+        &self,
+        program: &EthIRProgram,
+        from: BasicBlockId,
+        to: BasicBlockId,
+    ) -> bool {
+        let control = &program.basic_blocks[from].control;
         match control {
             Control::ContinuesTo(target) => *target == to,
             Control::Branches(branch) => {
@@ -210,8 +217,8 @@ impl<'a> SCCPAnalysis<'a> {
                 match self.const_u256(switch.condition) {
                     Some(val) => {
                         // TODO: Better error
-                        let target = self.program.cases[cases_ids]
-                            .iter(self.program)
+                        let target = program.cases[cases_ids]
+                            .iter(program)
                             .find(|(case_val, _)| val == *case_val)
                             .map(|(_, target)| target)
                             .or(switch.fallback)
@@ -226,26 +233,32 @@ impl<'a> SCCPAnalysis<'a> {
         }
     }
 
-    fn process_values(&mut self, uses: &DefUse) {
+    fn process_values(&mut self, program: &EthIRProgram, uses: &DefUse) {
         while let Some(value) = self.values_worklist.pop() {
             for use_loc in &uses[value] {
                 if !self.reachable.contains(use_loc.block_id) {
                     continue;
                 }
-                self.process_use(use_loc.block_id, use_loc.kind, value);
+                self.process_use(program, use_loc.block_id, use_loc.kind, value);
             }
         }
     }
 
-    fn process_use(&mut self, block_id: BasicBlockId, kind: UseKind, value: LocalId) {
+    fn process_use(
+        &mut self,
+        program: &EthIRProgram,
+        block_id: BasicBlockId,
+        kind: UseKind,
+        value: LocalId,
+    ) {
         match kind {
             UseKind::Operation(op_id) => {
-                let outputs = self.program.operations[op_id].outputs(self.program);
+                let outputs = program.operations[op_id].outputs(program);
                 if outputs.iter().all(|o| matches!(self.lattice[*o], LatticeValue::Overdefined)) {
                     return;
                 }
 
-                if let Some((out, value)) = self.evaluate(&self.program.operations[op_id]) {
+                if let Some((out, value)) = self.evaluate(program, &program.operations[op_id]) {
                     if self.lattice[out].meet(LatticeValue::Const(value)) {
                         self.values_worklist.push(out);
                     }
@@ -258,76 +271,53 @@ impl<'a> SCCPAnalysis<'a> {
                 }
             }
             UseKind::Control => {
-                self.process_control(block_id);
+                self.process_control(program, block_id);
             }
             UseKind::BlockOutput => {
-                let idx = self.program.locals[self.program.basic_blocks[block_id].outputs]
+                let idx = program.locals[program.basic_blocks[block_id].outputs]
                     .iter()
                     .position(|&o| o == value)
                     .expect("value should be in outputs");
-                for succ in self.program.basic_blocks[block_id].control.iter_outgoing(self.program)
-                {
-                    if !self.is_edge_reachable(block_id, succ) {
+                for succ in program.basic_blocks[block_id].control.iter_outgoing(program) {
+                    if !self.is_edge_reachable(program, block_id, succ) {
                         continue;
                     }
-                    Self::flow_single_output_to(
-                        self.program,
-                        &mut self.lattice,
-                        &mut self.values_worklist,
-                        block_id,
-                        succ,
-                        idx,
-                    );
+                    self.flow_single_output_to(program, block_id, succ, idx);
                 }
             }
         }
     }
 
-    fn process_block(&mut self, bb_id: BasicBlockId, uses: &DefUse) {
-        self.process_inputs(bb_id);
-        self.process_operations(bb_id);
-        self.process_control(bb_id);
-        self.process_values(uses);
+    fn process_block(&mut self, program: &EthIRProgram, bb_id: BasicBlockId, uses: &DefUse) {
+        self.process_inputs(program, bb_id);
+        self.process_operations(program, bb_id);
+        self.process_control(program, bb_id);
+        self.process_values(program, uses);
     }
 
-    fn mark_reachable(
-        program: &EthIRProgram,
-        reachable: &mut DenseIndexSet<BasicBlockId>,
-        cfg_worklist: &mut Vec<BasicBlockId>,
-        lattice: &mut IndexVec<LocalId, LatticeValue>,
-        values_worklist: &mut Vec<LocalId>,
-        from: BasicBlockId,
-        to: BasicBlockId,
-    ) {
-        if !reachable.contains(to) {
-            reachable.add(to);
-            cfg_worklist.push(to);
-            Self::flow_outputs_to(program, lattice, values_worklist, from, to);
+    fn mark_reachable(&mut self, program: &EthIRProgram, from: BasicBlockId, to: BasicBlockId) {
+        if !self.reachable.contains(to) {
+            self.reachable.add(to);
+            self.cfg_worklist.push(to);
+            self.flow_outputs_to(program, from, to);
         }
     }
 
-    fn flow_outputs_to(
-        program: &EthIRProgram,
-        lattice: &mut IndexVec<LocalId, LatticeValue>,
-        values_worklist: &mut Vec<LocalId>,
-        from: BasicBlockId,
-        to: BasicBlockId,
-    ) {
+    fn flow_outputs_to(&mut self, program: &EthIRProgram, from: BasicBlockId, to: BasicBlockId) {
         let from_outputs = program.basic_blocks[from].outputs;
         let to_inputs = program.basic_blocks[to].inputs;
         for (&output, &input) in program.locals[from_outputs].iter().zip(&program.locals[to_inputs])
         {
-            let value = lattice[output];
-            if lattice[input].meet(value) {
-                values_worklist.push(input);
+            let value = self.lattice[output];
+            if self.lattice[input].meet(value) {
+                self.values_worklist.push(input);
             }
         }
     }
 
     fn flow_single_output_to(
+        &mut self,
         program: &EthIRProgram,
-        lattice: &mut IndexVec<LocalId, LatticeValue>,
-        values_worklist: &mut Vec<LocalId>,
         from: BasicBlockId,
         to: BasicBlockId,
         idx: usize,
@@ -338,14 +328,14 @@ impl<'a> SCCPAnalysis<'a> {
         let output = program.locals[from_outputs][idx];
         let input = program.locals[to_inputs][idx];
 
-        let value = lattice[output];
-        if lattice[input].meet(value) {
-            values_worklist.push(input);
+        let value = self.lattice[output];
+        if self.lattice[input].meet(value) {
+            self.values_worklist.push(input);
         }
     }
 
     // TODO: (worth?) A minor optimization is to skip the evaluation if output is Overdefined
-    fn evaluate(&self, op: &Operation) -> Option<(LocalId, U256)> {
+    fn evaluate(&self, program: &EthIRProgram, op: &Operation) -> Option<(LocalId, U256)> {
         match op {
             Operation::Add(InlineOperands { ins: [a, b], outs: [out] }) => {
                 self.eval_binary(a, b, out, U256::wrapping_add)
@@ -379,9 +369,9 @@ impl<'a> SCCPAnalysis<'a> {
                 })
             }
             Operation::AddMod(AllocatedIns { ins_start, outs: [out] }) => {
-                let a = self.program.locals[*ins_start];
-                let b = self.program.locals[*ins_start + 1];
-                let n = self.program.locals[*ins_start + 2];
+                let a = program.locals[*ins_start];
+                let b = program.locals[*ins_start + 1];
+                let n = program.locals[*ins_start + 2];
 
                 self.const_u256(a).and_then(|va| self.const_u256(b).map(|vb| (va, vb))).and_then(
                     |(va, vb)| {
@@ -398,9 +388,9 @@ impl<'a> SCCPAnalysis<'a> {
                 )
             }
             Operation::MulMod(AllocatedIns { ins_start, outs: [out] }) => {
-                let a = self.program.locals[*ins_start];
-                let b = self.program.locals[*ins_start + 1];
-                let n = self.program.locals[*ins_start + 2];
+                let a = program.locals[*ins_start];
+                let b = program.locals[*ins_start + 1];
+                let n = program.locals[*ins_start + 2];
 
                 let va = self.const_u256(a)?;
                 let vb = self.const_u256(b)?;
@@ -608,10 +598,10 @@ mod tests {
 
     fn run_const_prop(source: &str) -> (String, IndexVec<LocalId, LatticeValue>) {
         let mut ir = parse_or_panic(source, EmitConfig::init_only());
-        let mut sccp = SCCPAnalysis::new(&mut ir);
-        sccp.analysis();
+        let mut sccp = SCCPAnalysis::new(&ir);
+        sccp.analysis(&ir);
         let lattice = sccp.get_lattice().clone();
-        sccp.apply();
+        sccp.apply(&mut ir);
         (sir_data::display_program(&ir), lattice)
     }
 
@@ -1266,9 +1256,9 @@ Basic Blocks:
                 if_false { stop }                   // @2
         "#;
 
-        let mut ir = parse_or_panic(input, EmitConfig::init_only());
-        let mut sccp = SCCPAnalysis::new(&mut ir);
-        sccp.analysis();
+        let ir = parse_or_panic(input, EmitConfig::init_only());
+        let mut sccp = SCCPAnalysis::new(&ir);
+        sccp.analysis(&ir);
 
         assert!(sccp.reachable.contains(BasicBlockId::new(1)));
         assert!(!sccp.reachable.contains(BasicBlockId::new(2)));
@@ -1303,9 +1293,9 @@ Basic Blocks:
                 }
         "#;
 
-        let mut ir = parse_or_panic(input, EmitConfig::init_only());
-        let mut sccp = SCCPAnalysis::new(&mut ir);
-        sccp.analysis();
+        let ir = parse_or_panic(input, EmitConfig::init_only());
+        let mut sccp = SCCPAnalysis::new(&ir);
+        sccp.analysis(&ir);
         let lattice = sccp.get_lattice();
 
         assert_eq!(lattice[LocalId::new(5)], LatticeValue::EvmConst(EvmConstKind::Address));
@@ -1376,15 +1366,15 @@ Basic Blocks:
     }
         "#;
 
-        let mut ir = parse_or_panic(input, EmitConfig::init_only());
+        let ir = parse_or_panic(input, EmitConfig::init_only());
         assert_trim_strings_eq_with_diff(
             &sir_data::display_program(&ir),
             expected_ir,
             "overdefined input makes both branch targets reachable",
         );
 
-        let mut sccp = SCCPAnalysis::new(&mut ir);
-        sccp.analysis();
+        let mut sccp = SCCPAnalysis::new(&ir);
+        sccp.analysis(&ir);
 
         assert!(
             sccp.reachable.contains(BasicBlockId::new(5)),
@@ -1456,15 +1446,15 @@ Basic Blocks:
     }
         "#;
 
-        let mut ir = parse_or_panic(input, EmitConfig::init_only());
+        let ir = parse_or_panic(input, EmitConfig::init_only());
         assert_trim_strings_eq_with_diff(
             &sir_data::display_program(&ir),
             expected_ir,
             "block output use propagates overdefined to successor",
         );
 
-        let mut sccp = SCCPAnalysis::new(&mut ir);
-        sccp.analysis();
+        let mut sccp = SCCPAnalysis::new(&ir);
+        sccp.analysis(&ir);
         let lattice = sccp.get_lattice();
 
         assert_eq!(
@@ -1477,5 +1467,45 @@ Basic Blocks:
             LatticeValue::Overdefined,
             "final_val ($4) should be overdefined"
         );
+    }
+
+    #[test]
+    fn test_reset_clears_state_and_reinitializes() {
+        let large_ir = parse_or_panic(
+            r#"
+            fn init:
+                entry {
+                    a = const 10
+                    b = const 20
+                    c = add a b
+                    stop
+                }
+            "#,
+            EmitConfig::init_only(),
+        );
+
+        let small_ir = parse_or_panic(
+            r#"
+            fn init:
+                entry {
+                    x = const 5
+                    stop
+                }
+            "#,
+            EmitConfig::init_only(),
+        );
+
+        let mut sccp = SCCPAnalysis::new(&large_ir);
+        sccp.analysis(&large_ir);
+        assert_eq!(sccp.get_lattice()[LocalId::new(0)], LatticeValue::Const(U256::from(10)));
+        assert_eq!(sccp.get_lattice()[LocalId::new(1)], LatticeValue::Const(U256::from(20)));
+        assert_eq!(sccp.get_lattice()[LocalId::new(2)], LatticeValue::Const(U256::from(30)));
+
+        sccp.reset(&small_ir);
+        sccp.analysis(&small_ir);
+        let lattice = sccp.get_lattice();
+
+        assert_eq!(lattice.len(), 1);
+        assert_eq!(lattice[LocalId::new(0)], LatticeValue::Const(U256::from(5)));
     }
 }
