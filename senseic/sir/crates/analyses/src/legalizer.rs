@@ -3,7 +3,7 @@ use sir_data::{
     IndexVec, LargeConstId, LocalId, LocalIdx, Operation, OperationIdx, StaticAllocId, index_vec,
 };
 
-use crate::compute_dominators;
+use crate::{UseKind, compute_dominators};
 
 /// Identifies which IR construct a tracked span belongs to, used in span overlap diagnostics.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -23,25 +23,6 @@ impl std::fmt::Display for SpanSource {
             SpanSource::Operations(bb) => write!(f, "@{bb} operations"),
             SpanSource::OpInputs(bb, op) => write!(f, "@{bb} operation {op} inputs"),
             SpanSource::OpOutputs(bb, op) => write!(f, "@{bb} operation {op} outputs"),
-        }
-    }
-}
-
-// TODO: this enum is defined in def_use.rs as part of PR#22. it should (probably) only exist in one
-// place
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum UseKind {
-    Operation(OperationIdx),
-    Control,
-    BlockOutput,
-}
-
-impl std::fmt::Display for UseKind {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            UseKind::Operation(op) => write!(f, "operation {op}"),
-            UseKind::Control => write!(f, "control"),
-            UseKind::BlockOutput => write!(f, "block output"),
         }
     }
 }

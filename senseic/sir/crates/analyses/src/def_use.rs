@@ -8,11 +8,21 @@ pub struct UseLocation {
     pub kind: UseKind,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UseKind {
     Operation(OperationIdx),
     Control,
     BlockOutput,
+}
+
+impl std::fmt::Display for UseKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            UseKind::Operation(op) => write!(f, "operation {op}"),
+            UseKind::Control => write!(f, "control"),
+            UseKind::BlockOutput => write!(f, "block output"),
+        }
+    }
 }
 
 pub type DefUse = IndexVec<LocalId, Vec<UseLocation>>;
