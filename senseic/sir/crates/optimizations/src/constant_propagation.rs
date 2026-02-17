@@ -77,7 +77,7 @@ impl<'a> SCCPAnalysis<'a> {
             );
 
             let Some(out) = out else { continue };
-            let &LatticeValue::Const(cv) = &self.lattice[out] else { continue };
+            let LatticeValue::Const(cv) = self.lattice[out] else { continue };
             // Heuristic: Only inline constants that fit in 4 bytes or less.
             let new_op = match u32::try_from(cv) {
                 Ok(value) => Operation::SetSmallConst(SetSmallConstData { sets: out, value }),
@@ -159,16 +159,34 @@ impl<'a> SCCPAnalysis<'a> {
     }
 
     fn process_control(&mut self, bb_id: BasicBlockId) {
-        let control = &self.program.basic_blocks[bb_id].control;
+        for succ in self.program.basic_blocks[bb_id].control.iter_outgoing(self.program) {
+            if self.is_edge_reachable(bb_id, succ) {
+                Self::mark_reachable(
+                    self.program,
+                    &mut self.reachable,
+                    &mut self.cfg_worklist,
+                    &mut self.lattice,
+                    &mut self.values_worklist,
+                    bb_id,
+                    succ,
+                );
+            }
+        }
+    }
+
+    fn is_edge_reachable(&self, from: BasicBlockId, to: BasicBlockId) -> bool {
+        let control = &self.program.basic_blocks[from].control;
         match control {
-            Control::ContinuesTo(target) => self.mark_reachable(bb_id, *target),
+            Control::ContinuesTo(target) => *target == to,
             Control::Branches(branch) => {
-                let (zero, non_zero, cond) =
-                    (branch.zero_target, branch.non_zero_target, branch.condition);
-                match &self.lattice[cond] {
+                let (zero, non_zero) = (branch.zero_target, branch.non_zero_target);
+                match self.lattice[branch.condition] {
                     LatticeValue::Const(cv) => {
-                        let target = if cv.is_zero() { zero } else { non_zero };
-                        self.mark_reachable(bb_id, target);
+                        if cv.is_zero() {
+                            to == zero
+                        } else {
+                            to == non_zero
+                        }
                     }
                     // Some more constants may be guaranteed non-zero (e.g. number,
                     // runtime_start_offset), not including conservatively.
@@ -179,13 +197,10 @@ impl<'a> SCCPAnalysis<'a> {
                         | EvmConstKind::Timestamp
                         | EvmConstKind::GasLimit
                         | EvmConstKind::ChainId,
-                    ) => {
-                        self.mark_reachable(bb_id, non_zero);
-                    }
+                    ) => to == non_zero,
                     either => {
-                        debug_assert!(*either != LatticeValue::Unknown);
-                        self.mark_reachable(bb_id, zero);
-                        self.mark_reachable(bb_id, non_zero);
+                        debug_assert!(either != LatticeValue::Unknown);
+                        to == zero || to == non_zero
                     }
                 }
             }
@@ -202,23 +217,12 @@ impl<'a> SCCPAnalysis<'a> {
                             .or(switch.fallback)
                             .expect("illegal behavior detected");
 
-                        self.mark_reachable(bb_id, target);
+                        to == target
                     }
-                    None => {
-                        if let Some(fb) = switch.fallback {
-                            self.mark_reachable(bb_id, fb);
-                        }
-                        let cases = self.program.cases[cases_ids];
-                        for i in 0..cases.cases_count {
-                            self.mark_reachable(
-                                bb_id,
-                                self.program.cases_bb_ids[cases.targets_start_id + i],
-                            );
-                        }
-                    }
+                    None => true,
                 }
             }
-            Control::LastOpTerminates | Control::InternalReturn => {}
+            Control::LastOpTerminates | Control::InternalReturn => false,
         }
     }
 
@@ -263,6 +267,9 @@ impl<'a> SCCPAnalysis<'a> {
                     .expect("value should be in outputs");
                 for succ in self.program.basic_blocks[block_id].control.iter_outgoing(self.program)
                 {
+                    if !self.is_edge_reachable(block_id, succ) {
+                        continue;
+                    }
                     Self::flow_single_output_to(
                         self.program,
                         &mut self.lattice,
@@ -283,12 +290,20 @@ impl<'a> SCCPAnalysis<'a> {
         self.process_values(uses);
     }
 
-    fn mark_reachable(&mut self, from: BasicBlockId, to: BasicBlockId) {
-        if !self.reachable.contains(to) {
-            self.reachable.add(to);
-            self.cfg_worklist.push(to);
+    fn mark_reachable(
+        program: &EthIRProgram,
+        reachable: &mut DenseIndexSet<BasicBlockId>,
+        cfg_worklist: &mut Vec<BasicBlockId>,
+        lattice: &mut IndexVec<LocalId, LatticeValue>,
+        values_worklist: &mut Vec<LocalId>,
+        from: BasicBlockId,
+        to: BasicBlockId,
+    ) {
+        if !reachable.contains(to) {
+            reachable.add(to);
+            cfg_worklist.push(to);
+            Self::flow_outputs_to(program, lattice, values_worklist, from, to);
         }
-        Self::flow_outputs_to(self.program, &mut self.lattice, &mut self.values_worklist, from, to);
     }
 
     fn flow_outputs_to(
@@ -481,8 +496,8 @@ impl<'a> SCCPAnalysis<'a> {
     }
 
     fn const_u256(&self, local: LocalId) -> Option<U256> {
-        match &self.lattice[local] {
-            &LatticeValue::Const(cv) => Some(cv),
+        match self.lattice[local] {
+            LatticeValue::Const(cv) => Some(cv),
             _ => None,
         }
     }
