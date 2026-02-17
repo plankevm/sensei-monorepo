@@ -62,7 +62,7 @@ pub enum Token {
 
     #[regex("-?[0-9]+")]
     DecLiteral,
-    #[regex("0x[0-9a-fA-F]+")]
+    #[regex("-?0x[0-9a-fA-F]+")]
     HexLiteral,
 
     Error,

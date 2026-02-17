@@ -158,15 +158,16 @@ fn parser<'arena, 'src: 'arena>(
     let dec_literal_as_u256 = select! { Token::DecLiteral => () }.map_with(|_, e| {
         let s: &str = &source[e.span()];
         match s.strip_prefix('-') {
-            Some(abs_s) => abs_s.parse::<U256>().map(|v| U256::ZERO.wrapping_sub(v)),
+            Some(abs_str) => abs_str.parse::<U256>().map(|v| U256::ZERO.wrapping_sub(v)),
             None => s.parse::<U256>(),
         }
     });
 
     let hex_as_u256 = select! { Token::HexLiteral => () }.map_with(|_, e| {
         let s: &str = &source[e.span()];
+        let (neg, s) = s.strip_prefix('-').map_or((false, s), |rest| (true, rest));
         let hex_str = s.strip_prefix("0x").unwrap_or(s);
-        U256::from_str_radix(hex_str, 16)
+        U256::from_str_radix(hex_str, 16).map(|v| if neg { U256::ZERO.wrapping_sub(v) } else { v })
     });
 
     let u256_value = dec_literal_as_u256.or(hex_as_u256).try_map_with(|v, e| {
@@ -398,22 +399,42 @@ mod tests {
     }
 
     #[test]
-    fn test_negative_literal_twos_complement() {
+    fn test_negative_hex_literal() {
         let arena = Bump::with_capacity(4000);
-        let source = format!(
+        let ast = parse(
             r#"
             fn main:
-                entry {{
-                    x = large_const -{}
+                entry {
+                    x = large_const -0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
                     stop
-                }}
+                }
             "#,
-            U256::MAX
-        );
-        let ast = parse(&source, &arena).unwrap();
+            &arena,
+        )
+        .unwrap();
 
         let stmt = &ast.functions[0].basic_blocks[0].stmts[0];
         let ParamExpr::Num(n) = &stmt.params[0] else { panic!("expected Num") };
         assert_eq!(n.inner, U256::from(1));
+    }
+
+    #[test]
+    fn test_negative_decimal_literal() {
+        let arena = Bump::with_capacity(4000);
+        let ast = parse(
+            r#"
+            fn main:
+                entry {
+                    x = large_const -3
+                    stop
+                }
+            "#,
+            &arena,
+        )
+        .unwrap();
+
+        let stmt = &ast.functions[0].basic_blocks[0].stmts[0];
+        let ParamExpr::Num(n) = &stmt.params[0] else { panic!("expected Num") };
+        assert_eq!(n.inner, U256::ZERO.wrapping_sub(U256::from(3)));
     }
 }
