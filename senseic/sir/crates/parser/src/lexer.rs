@@ -57,7 +57,7 @@ pub enum Token {
     Identifier,
     #[regex("@[a-zA-Z_][a-zA-Z0-9_]*")]
     Label,
-    #[regex("\\.[a-zA-Z_][a-zA-Z0-9_]*")]
+    #[regex(r"\.[a-zA-Z_][a-zA-Z0-9_]*")]
     DataRef,
 
     #[regex("[0-9]+")]
