@@ -1,9 +1,28 @@
-use sir_data::{BasicBlockId, EthIRProgram, Idx, IndexVec, LocalId, OperationIdx, index_vec};
+use sir_data::{
+    BasicBlockId, Control, EthIRProgram, Idx, IndexVec, LocalId, OperationIdx, index_vec,
+};
 
 #[derive(Clone)]
 pub struct UseLocation {
     pub block_id: BasicBlockId,
-    pub op_id: OperationIdx,
+    pub kind: UseKind,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UseKind {
+    Operation(OperationIdx),
+    Control,
+    BlockOutput,
+}
+
+impl std::fmt::Display for UseKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            UseKind::Operation(op) => write!(f, "operation {op}"),
+            UseKind::Control => write!(f, "control"),
+            UseKind::BlockOutput => write!(f, "block output"),
+        }
+    }
 }
 
 pub type DefUse = IndexVec<LocalId, Vec<UseLocation>>;
@@ -13,11 +32,27 @@ pub fn compute_def_use(program: &EthIRProgram) -> DefUse {
     let mut uses: DefUse = index_vec![Vec::new(); num_locals];
 
     for (bb_id, bb) in program.basic_blocks.enumerate_idx() {
-        for (op_id, op) in program.operations[bb.operations].iter().enumerate() {
-            let global_index = OperationIdx::new(bb.operations.start.get() + op_id as u32);
+        for op_idx in bb.operations.iter() {
+            let op = &program.operations[op_idx];
             for &input in op.inputs(program) {
-                uses[input].push(UseLocation { block_id: bb_id, op_id: global_index });
+                uses[input].push(UseLocation { block_id: bb_id, kind: UseKind::Operation(op_idx) });
             }
+        }
+
+        match &bb.control {
+            Control::Branches(branch) => {
+                uses[branch.condition]
+                    .push(UseLocation { block_id: bb_id, kind: UseKind::Control });
+            }
+            Control::Switch(switch) => {
+                uses[switch.condition]
+                    .push(UseLocation { block_id: bb_id, kind: UseKind::Control });
+            }
+            _ => {}
+        }
+
+        for &local in &program.locals[bb.outputs] {
+            uses[local].push(UseLocation { block_id: bb_id, kind: UseKind::BlockOutput });
         }
     }
     uses
