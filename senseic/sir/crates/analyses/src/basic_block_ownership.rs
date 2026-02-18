@@ -9,8 +9,8 @@ impl BasicBlockOwnershipAndReachability {
     pub fn analyze(program: &EthIRProgram) -> Self {
         let mut ownership = index_vec![None; program.basic_blocks.len()];
 
-        for (func_id, func) in program.functions.enumerate_idx() {
-            Self::mark_reachable_blocks(&mut ownership, program, func.entry(), func_id);
+        for func in program.functions_iter() {
+            Self::mark_reachable_blocks(&mut ownership, program, func.entry_id(), func.id);
         }
 
         Self { ownership }
@@ -27,9 +27,8 @@ impl BasicBlockOwnershipAndReachability {
         }
 
         ownership[current] = Some(owner);
-        let bb = &program.basic_blocks[current];
 
-        for successor in bb.control.iter_outgoing(program) {
+        for successor in program.block(current).successors() {
             Self::mark_reachable_blocks(ownership, program, successor, owner);
         }
     }

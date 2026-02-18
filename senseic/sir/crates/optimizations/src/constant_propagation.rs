@@ -43,12 +43,11 @@ impl SCCPAnalysis {
     }
 
     fn init_state(&mut self, program: &EthIRProgram) {
-        for func in program.functions.iter() {
-            let entry = func.entry();
-            self.reachable.add(entry);
-            self.cfg_worklist.push(entry);
-            let entry_bb = &program.basic_blocks[entry];
-            for &input in &program.locals[entry_bb.inputs] {
+        for func in program.functions_iter() {
+            let entry_id = func.entry_id();
+            self.reachable.add(entry_id);
+            self.cfg_worklist.push(entry_id);
+            for &input in func.entry().inputs() {
                 self.lattice[input] = LatticeValue::Overdefined;
             }
         }
@@ -113,7 +112,7 @@ impl SCCPAnalysis {
                         .find(|(case_val, _)| val == *case_val)
                         .map(|(_, t)| t)
                         .or(switch.fallback)
-                        .expect("illegal behavior detected");
+                        .expect("switch has no matching case and no fallback");
 
                     program.basic_blocks[bb_id].control = Control::ContinuesTo(target);
                 }
@@ -123,9 +122,9 @@ impl SCCPAnalysis {
     }
 
     fn process_operations(&mut self, program: &EthIRProgram, bb_id: BasicBlockId) {
-        let bb = &program.basic_blocks[bb_id];
-        for op in &program.operations[bb.operations] {
-            if let Some((local, value)) = constant(op, &program.large_consts) {
+        for op in program.block(bb_id).operations() {
+            let inner = op.get();
+            if let Some((local, value)) = constant(inner, &program.large_consts) {
                 // Will always be constant here, but detects whether it changed.
                 if self.lattice[local].meet(value) {
                     self.values_worklist.push(local);
@@ -133,7 +132,7 @@ impl SCCPAnalysis {
                 continue;
             }
 
-            if let Some((out, value)) = self.evaluate(program, op) {
+            if let Some((out, value)) = self.evaluate(program, inner) {
                 if self.lattice[out].meet(LatticeValue::Const(value)) {
                     self.values_worklist.push(out);
                 }
@@ -142,7 +141,7 @@ impl SCCPAnalysis {
 
             // Any operation that isn't const or evaluates to a constant is overdefined (aka
             // bottom).
-            for &out in op.outputs(program) {
+            for &out in op.outputs() {
                 if self.lattice[out].meet(LatticeValue::Overdefined) {
                     self.values_worklist.push(out);
                 }
@@ -151,7 +150,7 @@ impl SCCPAnalysis {
     }
 
     fn process_control(&mut self, program: &EthIRProgram, bb_id: BasicBlockId) {
-        for succ in program.basic_blocks[bb_id].control.iter_outgoing(program) {
+        for succ in program.block(bb_id).successors() {
             if self.is_edge_reachable(program, bb_id, succ) {
                 self.mark_reachable(program, bb_id, succ);
             }
@@ -164,17 +163,15 @@ impl SCCPAnalysis {
         from: BasicBlockId,
         to: BasicBlockId,
     ) -> bool {
-        let control = &program.basic_blocks[from].control;
-        match control {
-            Control::ContinuesTo(target) => *target == to,
-            Control::Branches(branch) => {
-                let (zero, non_zero) = (branch.zero_target, branch.non_zero_target);
-                match self.lattice[branch.condition] {
+        match program.block(from).control() {
+            ControlView::ContinuesTo(target) => target == to,
+            ControlView::Branches { condition, zero_target, non_zero_target } => {
+                match self.lattice[condition] {
                     LatticeValue::Const(cv) => {
                         if cv.is_zero() {
-                            to == zero
+                            to == zero_target
                         } else {
-                            to == non_zero
+                            to == non_zero_target
                         }
                     }
                     // Some more constants may be guaranteed non-zero (e.g. number,
@@ -186,32 +183,27 @@ impl SCCPAnalysis {
                         | EvmConstKind::Timestamp
                         | EvmConstKind::GasLimit
                         | EvmConstKind::ChainId,
-                    ) => to == non_zero,
+                    ) => to == non_zero_target,
                     either => {
                         debug_assert!(either != LatticeValue::Unknown);
-                        to == zero || to == non_zero
+                        to == zero_target || to == non_zero_target
                     }
                 }
             }
-            Control::Switch(switch) => {
-                let cases_ids = switch.cases;
+            ControlView::Switch(switch) => match self.const_u256(switch.condition()) {
+                Some(val) => {
+                    let target = switch
+                        .cases()
+                        .find(|(case_val, _)| val == *case_val)
+                        .map(|(_, target)| target)
+                        .or(switch.fallback())
+                        .expect("switch has no matching case and no fallback");
 
-                match self.const_u256(switch.condition) {
-                    Some(val) => {
-                        // TODO: Better error
-                        let target = program.cases[cases_ids]
-                            .iter(program)
-                            .find(|(case_val, _)| val == *case_val)
-                            .map(|(_, target)| target)
-                            .or(switch.fallback)
-                            .expect("illegal behavior detected");
-
-                        to == target
-                    }
-                    None => true,
+                    to == target
                 }
-            }
-            Control::LastOpTerminates | Control::InternalReturn => false,
+                None => true,
+            },
+            ControlView::LastOpTerminates | ControlView::InternalReturn => false,
         }
     }
 
@@ -256,11 +248,13 @@ impl SCCPAnalysis {
                 self.process_control(program, block_id);
             }
             UseKind::BlockOutput => {
-                let idx = program.locals[program.basic_blocks[block_id].outputs]
+                let block = program.block(block_id);
+                let idx = block
+                    .outputs()
                     .iter()
                     .position(|&o| o == value)
                     .expect("value should be in outputs");
-                for succ in program.basic_blocks[block_id].control.iter_outgoing(program) {
+                for succ in block.successors() {
                     if !self.is_edge_reachable(program, block_id, succ) {
                         continue;
                     }
@@ -285,10 +279,9 @@ impl SCCPAnalysis {
     }
 
     fn flow_outputs_to(&mut self, program: &EthIRProgram, from: BasicBlockId, to: BasicBlockId) {
-        let from_outputs = program.basic_blocks[from].outputs;
-        let to_inputs = program.basic_blocks[to].inputs;
-        for (&output, &input) in program.locals[from_outputs].iter().zip(&program.locals[to_inputs])
-        {
+        let from_outputs = program.block(from).outputs();
+        let to_inputs = program.block(to).inputs();
+        for (&output, &input) in from_outputs.iter().zip(to_inputs) {
             let value = self.lattice[output];
             if self.lattice[input].meet(value) {
                 self.values_worklist.push(input);
@@ -303,11 +296,8 @@ impl SCCPAnalysis {
         to: BasicBlockId,
         idx: usize,
     ) {
-        let from_outputs = program.basic_blocks[from].outputs;
-        let to_inputs = program.basic_blocks[to].inputs;
-
-        let output = program.locals[from_outputs][idx];
-        let input = program.locals[to_inputs][idx];
+        let output = program.block(from).outputs()[idx];
+        let input = program.block(to).inputs()[idx];
 
         let value = self.lattice[output];
         if self.lattice[input].meet(value) {
