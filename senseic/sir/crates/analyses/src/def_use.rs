@@ -41,8 +41,7 @@ pub fn compute_def_use(program: &EthIRProgram) -> DefUse {
 
         match block.control() {
             ControlView::Branches { condition, .. } => {
-                uses[condition]
-                    .push(UseLocation { block_id: block.id(), kind: UseKind::Control });
+                uses[condition].push(UseLocation { block_id: block.id(), kind: UseKind::Control });
             }
             ControlView::Switch(switch) => {
                 uses[switch.condition()]

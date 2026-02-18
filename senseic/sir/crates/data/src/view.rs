@@ -2,6 +2,7 @@ use crate::{
     BasicBlockId, CasesIter, Control, EthIRProgram, FunctionId, LocalId, Operation, OperationIdx,
     OutgoingConnectionsIter,
 };
+use std::fmt;
 
 #[derive(Clone, Copy)]
 pub struct BlockView<'ir> {
@@ -36,6 +37,45 @@ impl<'ir> BlockView<'ir> {
     }
 }
 
+impl fmt::Display for BlockView<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "    @{}", self.id)?;
+
+        let inputs = self.inputs();
+        if !inputs.is_empty() {
+            for local in inputs {
+                write!(f, " ${local}")?;
+            }
+        }
+
+        let outputs = self.outputs();
+        if !outputs.is_empty() {
+            write!(f, " ->")?;
+            for local in outputs {
+                write!(f, " ${local}")?;
+            }
+        }
+
+        writeln!(f, " {{")?;
+
+        for op_view in self.operations() {
+            write!(f, "        ")?;
+            op_view.op().op_fmt(f, self.ir)?;
+            writeln!(f)?;
+        }
+
+        match self.control() {
+            ControlView::LastOpTerminates => {}
+            control => {
+                write!(f, "        {control}")?;
+                writeln!(f)?;
+            }
+        }
+
+        writeln!(f, "    }}")
+    }
+}
+
 #[derive(Clone, Copy)]
 pub struct OperationView<'ir> {
     id: OperationIdx,
@@ -66,6 +106,30 @@ pub enum ControlView<'ir> {
     ContinuesTo(BasicBlockId),
     Branches { condition: LocalId, non_zero_target: BasicBlockId, zero_target: BasicBlockId },
     Switch(SwitchView<'ir>),
+}
+
+impl fmt::Display for ControlView<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::LastOpTerminates => Ok(()),
+            Self::InternalReturn => write!(f, "iret"),
+            Self::ContinuesTo(bb) => write!(f, "=> @{bb}"),
+            Self::Branches { condition, non_zero_target, zero_target } => {
+                write!(f, "=> ${condition} ? @{non_zero_target} : @{zero_target}",)
+            }
+            Self::Switch(switch) => {
+                writeln!(f, "switch ${} {{", switch.condition())?;
+                for (value, target) in switch.cases() {
+                    writeln!(f, "            {value:x} => @{target},")?;
+                }
+                if let Some(fallback) = switch.fallback() {
+                    writeln!(f, "            else => @{}\n        }}", fallback.id())
+                } else {
+                    writeln!(f, "        }}")
+                }
+            }
+        }
+    }
 }
 
 impl<'ir> ControlView<'ir> {

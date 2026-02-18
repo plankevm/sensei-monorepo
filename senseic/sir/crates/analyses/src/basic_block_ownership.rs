@@ -59,13 +59,11 @@ impl BasicBlockOwnershipAndReachability {
         use std::fmt::Write;
         let mut output = String::new();
 
-        for (func_id, _func) in program.functions.enumerate_idx() {
-            writeln!(&mut output, "fn @{}:", func_id).unwrap();
+        for func in program.functions_iter() {
+            writeln!(&mut output, "fn @{}:", func.id()).unwrap();
 
-            for bb_id in self.blocks_owned_by(func_id) {
-                let bb = &program.basic_blocks[bb_id];
-                bb.fmt_display(&mut output, bb_id, program).unwrap();
-                writeln!(&mut output).unwrap();
+            for bb_id in self.blocks_owned_by(func.id()) {
+                writeln!(&mut output, "{}", program.block(bb_id)).unwrap();
             }
         }
 
@@ -73,9 +71,7 @@ impl BasicBlockOwnershipAndReachability {
         if unreachable.peek().is_some() {
             writeln!(&mut output, "// Unreachable basic blocks").unwrap();
             for bb_id in unreachable {
-                let bb = &program.basic_blocks[bb_id];
-                bb.fmt_display(&mut output, bb_id, program).unwrap();
-                writeln!(&mut output).unwrap();
+                writeln!(&mut output, "{}", program.block(bb_id)).unwrap();
             }
         }
 

@@ -292,7 +292,7 @@ impl<'d, 't, 'ir> OpVisitor<'d, ()> for OpcodeTranslator<'t, 'ir> {
         self.translator.emit_code_offset_push(return_mark);
         self.translator.asm.push_minimal_u32(return_store_loc);
         self.translator.asm.push_op_byte(op::MSTORE);
-        let func_entry_bb = self.translator.ir.functions[data.function].entry();
+        let func_entry_bb = self.translator.ir.function(data.function).entry().id();
         let func_entry_bb_mark = self.translator.get_bb_mark(func_entry_bb);
         self.translator.emit_code_offset_push(func_entry_bb_mark);
         self.translator.asm.push_op_byte(op::JUMP);
