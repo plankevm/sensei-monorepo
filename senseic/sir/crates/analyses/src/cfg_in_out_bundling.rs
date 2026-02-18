@@ -18,11 +18,11 @@ impl ControlFlowGraphInOutBundling {
         let mut in_group = index_vec![None; ir.basic_blocks.len()];
         let mut next_group_id = InOutGroupId::ZERO;
 
-        for (bb_id, bb) in ir.basic_blocks.enumerate_idx() {
-            let existing_group_id = bb.control.iter_outgoing(ir).find_map(|to| in_group[to]);
+        for block in ir.blocks() {
+            let existing_group_id = block.successors().find_map(|to| in_group[to]);
             let group_id = existing_group_id.unwrap_or_else(|| next_group_id.get_and_inc());
-            out_group[bb_id] = Some(group_id);
-            for to in bb.control.iter_outgoing(ir) {
+            out_group[block.id()] = Some(group_id);
+            for to in block.successors() {
                 in_group[to] = Some(group_id);
             }
         }

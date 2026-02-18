@@ -6,8 +6,8 @@ use crate::compute_predecessors;
 pub fn compute_dominators(program: &EthIRProgram) -> IndexVec<BasicBlockId, Option<BasicBlockId>> {
     let mut dominators = index_vec![None; program.basic_blocks.len()];
 
-    for func in program.functions.iter() {
-        compute_function_dominators(program, func.entry(), &mut dominators);
+    for func in program.functions_iter() {
+        compute_function_dominators(program, func.entry().id(), &mut dominators);
     }
 
     dominators
@@ -83,7 +83,7 @@ fn dfs_postorder(
         return;
     }
     visited.add(bb);
-    for succ in program.basic_blocks[bb].control.iter_outgoing(program) {
+    for succ in program.block(bb).successors() {
         dfs_postorder(program, succ, visited, postorder);
     }
     postorder.push(bb);

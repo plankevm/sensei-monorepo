@@ -10,7 +10,7 @@ macro_rules! define_operations {
     (
         $($name:ident($data:ty) $mnemonic:literal),+ $(,)?
     ) => {
-        #[derive(Debug, Clone)]
+        #[derive(Debug, Clone, Copy)]
         #[repr(u8)]
         pub enum Operation {
             $($name($data),)+
