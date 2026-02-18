@@ -1,8 +1,9 @@
 pub mod builder;
 pub mod index;
 pub mod operation;
+pub mod view;
 
-pub use crate::{index::*, operation::Operation};
+pub use crate::{index::*, operation::Operation, view::*};
 use alloy_primitives::U256;
 use std::fmt;
 
