@@ -43,6 +43,12 @@ pub trait Idx:
     fn idx(self) -> usize {
         self.get() as usize
     }
+
+    fn checked_add(self, b: u32) -> Option<Self> {
+        let a = self.to_raw().get();
+        // Safety: Successful `checked_add` guarantees `c >= a` and `a > 0` therefore `c > 0`.
+        a.checked_add(b).map(|c| Self::from_raw(unsafe { NonZero::new_unchecked(c) }))
+    }
 }
 
 #[macro_export]
@@ -52,15 +58,13 @@ macro_rules! newtype_index {
         $(#[$attr])*
         #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
         #[repr(transparent)]
-        #[allow(dead_code)]
         $vis struct $name(::core::num::NonZero<u32>);
 
-        #[allow(dead_code)]
         impl $name {
             /// Maximum value as usize for bounds checking.
-            pub const MAX_USIZE: usize = u32::MAX as usize - 1;
+            $vis const MAX_USIZE: usize = u32::MAX as usize - 1;
 
-            pub const fn new(x: u32) -> Self {
+            $vis const fn new(x: u32) -> Self {
                 use ::core::num::NonZero;
                 match NonZero::new(x.wrapping_add(1)) {
                     Some(nz) => Self(nz),
@@ -68,7 +72,16 @@ macro_rules! newtype_index {
                 }
             }
 
-            pub const fn const_get(self) -> u32 {
+            #[allow(dead_code)]
+            $vis const fn try_new(x: u32) -> Option<Self> {
+                match ::core::num::NonZero::new(x.wrapping_add(1)) {
+                    Some(nz) => Some(Self(nz)),
+                    None => None
+                }
+            }
+
+            #[allow(dead_code)]
+            $vis const fn const_get(self) -> u32 {
                 // Safety: `NonZero<u32>` guarantees `.get()` yields a value that's at least 1.
                 unsafe { self.0.get().unchecked_sub(1) }
             }
@@ -176,7 +189,101 @@ impl<I: Idx> IncIterable for I {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
     newtype_index! {
         pub struct TestIdx;
+    }
+
+    #[test]
+    fn test_idx_basic_operations() {
+        let idx = TestIdx::new(0);
+        assert_eq!(idx.get(), 0);
+        assert_eq!(idx.idx(), 0);
+
+        let idx = TestIdx::new(42);
+        assert_eq!(idx.get(), 42);
+        assert_eq!(idx.idx(), 42);
+    }
+
+    #[test]
+    fn test_idx_arithmetic() {
+        let a = TestIdx::new(10);
+        let b = TestIdx::new(3);
+
+        assert_eq!((a - b), 7);
+        assert_eq!((a + 5).get(), 15);
+        assert_eq!((a - 2).get(), 8);
+
+        let mut c = TestIdx::new(5);
+        c += 3;
+        assert_eq!(c.get(), 8);
+    }
+
+    #[test]
+    fn test_idx_ordering() {
+        let a = TestIdx::new(5);
+        let b = TestIdx::new(10);
+        let c = TestIdx::new(5);
+
+        assert!(a < b);
+        assert!(b > a);
+        assert_eq!(a, c);
+    }
+
+    #[test]
+    fn test_idx_try_from_usize() {
+        let idx: Result<TestIdx, _> = TestIdx::try_from(100usize);
+        assert!(idx.is_ok());
+        assert_eq!(idx.unwrap().get(), 100);
+
+        let too_large: Result<TestIdx, _> = TestIdx::try_from(usize::MAX);
+        assert!(too_large.is_err());
+    }
+
+    #[test]
+    fn test_idx_try_new() {
+        assert!(TestIdx::try_new(0).is_some());
+        assert!(TestIdx::try_new(1000).is_some());
+        assert!(TestIdx::try_new(u32::MAX - 1).is_some());
+        assert!(TestIdx::try_new(u32::MAX).is_none());
+    }
+
+    #[test]
+    fn test_idx_constants() {
+        assert_eq!(TestIdx::ZERO.get(), 0);
+        assert_eq!(TestIdx::MAX.get(), u32::MAX - 1);
+        assert_eq!(TestIdx::max_value().get(), u32::MAX - 1);
+    }
+
+    #[test]
+    fn test_idx_from_raw() {
+        let raw = NonZero::new(5).unwrap();
+        let idx = TestIdx::from_raw(raw);
+        assert_eq!(idx.to_raw(), raw);
+        assert_eq!(idx.get(), 4);
+    }
+
+    #[test]
+    fn test_idx_default() {
+        let idx = TestIdx::default();
+        assert_eq!(idx, TestIdx::ZERO);
+        assert_eq!(idx.get(), 0);
+    }
+
+    #[test]
+    fn test_idx_debug_display() {
+        let idx = TestIdx::new(42);
+        assert_eq!(format!("{:?}", idx), "TestIdx(42)");
+        assert_eq!(format!("{}", idx), "42");
+    }
+
+    #[test]
+    fn test_idx_inc_iterable() {
+        let mut idx = TestIdx::new(5);
+        assert_eq!(idx.get_and_inc().get(), 5);
+        assert_eq!(idx.const_get(), 6);
+        assert_eq!(idx.get_and_inc().get(), 6);
+        assert_eq!(idx.const_get(), 7);
     }
 }
