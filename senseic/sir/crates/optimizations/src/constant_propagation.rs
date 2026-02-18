@@ -122,24 +122,6 @@ impl SCCPAnalysis {
         }
     }
 
-    fn process_inputs(&mut self, program: &EthIRProgram, bb_id: BasicBlockId) {
-        let bb = &program.basic_blocks[bb_id];
-        for pred_id in &self.predecessors[bb_id] {
-            if !self.reachable.contains(*pred_id) {
-                continue;
-            }
-            let pred_bb = &program.basic_blocks[*pred_id];
-            for (&pred_output, &input_local) in
-                program.locals[pred_bb.outputs].iter().zip(&program.locals[bb.inputs])
-            {
-                let pred_value = self.lattice[pred_output];
-                if self.lattice[input_local].meet(pred_value) {
-                    self.values_worklist.push(input_local);
-                }
-            }
-        }
-    }
-
     fn process_operations(&mut self, program: &EthIRProgram, bb_id: BasicBlockId) {
         let bb = &program.basic_blocks[bb_id];
         for op in &program.operations[bb.operations] {
@@ -289,7 +271,6 @@ impl SCCPAnalysis {
     }
 
     fn process_block(&mut self, program: &EthIRProgram, bb_id: BasicBlockId, uses: &DefUse) {
-        self.process_inputs(program, bb_id);
         self.process_operations(program, bb_id);
         self.process_control(program, bb_id);
         self.process_values(program, uses);
