@@ -1,0 +1,27 @@
+name: Test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    name: Tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: senseic
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: foundry-rs/foundry-toolchain@v1
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: senseic -> target
+      - run: cargo test --workspace
+      - run: forge test --ffi
+        working-directory: senseic/sir/sir-solidity-diff-tests
