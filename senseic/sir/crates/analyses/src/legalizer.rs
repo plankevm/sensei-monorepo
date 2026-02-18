@@ -549,7 +549,18 @@ mod tests {
             SetSmallConstData, StaticAllocData,
         },
     };
-    use sir_parser::{EmitConfig, parse_or_panic};
+    use sir_parser::EmitConfig;
+
+    fn parse_without_legalize<'a>(source: &str, config: EmitConfig<'a>) -> EthIRProgram {
+        use bumpalo::Bump;
+        let arena = Bump::with_capacity(8_192);
+        let ast = sir_parser::parse(source, &arena).unwrap_or_else(|err| {
+            panic!("{:?}", err[0]);
+        });
+        sir_parser::emit_ir(&arena, &ast, config).unwrap_or_else(|err| {
+            panic!("{}", err.reason);
+        })
+    }
 
     // Note: WrongOutputCount cannot be triggered via the builder because the builder
     // catches conflicting function outputs (ConflictingFunctionOutputs error).
@@ -557,7 +568,7 @@ mod tests {
 
     #[test]
     fn test_valid_ir_passes() {
-        let program = parse_or_panic(
+        let program = parse_without_legalize(
             r#"
             fn init:
                 entry {
@@ -575,7 +586,7 @@ mod tests {
 
     #[test]
     fn test_valid_ir_with_branches() {
-        let program = parse_or_panic(
+        let program = parse_without_legalize(
             r#"
             fn init:
                 entry {
@@ -598,7 +609,7 @@ mod tests {
 
     #[test]
     fn test_valid_ir_with_internal_call() {
-        let program = parse_or_panic(
+        let program = parse_without_legalize(
             r#"
             fn init:
                 entry {
@@ -619,7 +630,7 @@ mod tests {
 
     #[test]
     fn test_valid_ir_with_block_io() {
-        let program = parse_or_panic(
+        let program = parse_without_legalize(
             r#"
             fn init:
                 entry -> a b c {
@@ -641,7 +652,7 @@ mod tests {
 
     #[test]
     fn test_rejects_missing_terminator() {
-        let program = parse_or_panic(
+        let program = parse_without_legalize(
             r#"
             fn init:
                 entry {
@@ -658,7 +669,7 @@ mod tests {
 
     #[test]
     fn test_rejects_incompatible_edge() {
-        let program = parse_or_panic(
+        let program = parse_without_legalize(
             r#"
             fn init:
                 entry -> x {
@@ -682,7 +693,7 @@ mod tests {
 
     #[test]
     fn test_valid_loop() {
-        let program = parse_or_panic(
+        let program = parse_without_legalize(
             r#"
             fn init:
                 entry {
@@ -704,7 +715,7 @@ mod tests {
 
     #[test]
     fn test_valid_diamond() {
-        let program = parse_or_panic(
+        let program = parse_without_legalize(
             r#"
             fn init:
                 entry {
@@ -734,7 +745,7 @@ mod tests {
 
     #[test]
     fn test_valid_local_from_dominator_ancestor() {
-        let program = parse_or_panic(
+        let program = parse_without_legalize(
             r#"
             fn init:
                 entry {
@@ -759,7 +770,7 @@ mod tests {
 
     #[test]
     fn test_rejects_local_not_in_scope_control() {
-        let program = parse_or_panic(
+        let program = parse_without_legalize(
             r#"
             fn init:
                 entry {
@@ -877,7 +888,7 @@ mod tests {
 
     #[test]
     fn test_rejects_wrong_call_input_count() {
-        let mut program = parse_or_panic(
+        let mut program = parse_without_legalize(
             r#"
             fn init:
                 entry {
@@ -992,7 +1003,7 @@ mod tests {
 
     #[test]
     fn test_rejects_local_not_in_scope_operation() {
-        let program = parse_or_panic(
+        let program = parse_without_legalize(
             r#"
             fn init:
                 entry {
@@ -1029,7 +1040,7 @@ mod tests {
 
     #[test]
     fn test_rejects_local_not_in_scope_block_output() {
-        let program = parse_or_panic(
+        let program = parse_without_legalize(
             r#"
             fn init:
                 entry {

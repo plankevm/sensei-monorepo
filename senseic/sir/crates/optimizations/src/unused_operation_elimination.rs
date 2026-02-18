@@ -72,7 +72,8 @@ mod tests {
                     a = const 10
                     => @merge
                 }
-                right {
+                right -> b {
+                    dead = const 99
                     b = const 20
                     => @merge
                 }
@@ -96,12 +97,13 @@ Basic Blocks:
         => @3
     }
 
-    @2 {
+    @2 -> $3 {
         noop
+        $3 = const 0x14
         => @3
     }
 
-    @3 $3 {
+    @3 $4 {
         stop
     }
         "#;

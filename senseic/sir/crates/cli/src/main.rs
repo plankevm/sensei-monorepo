@@ -72,7 +72,6 @@ fn main() {
 
     // Parse IR to EthIRProgram
     let mut program = parse_or_panic(&source, config);
-    sir_analyses::legalize(&program).unwrap_or_else(|e| panic!("{e}"));
 
     if cli.copy_propagation {
         Optimization::CopyPropagation.apply(&mut program);

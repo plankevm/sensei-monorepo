@@ -13,4 +13,3 @@ sir-parser.workspace = true
 sir-debug-backend.workspace = true
 sir-optimizations.workspace = true
 clap.workspace = true
-sir-analyses.workspace = true
