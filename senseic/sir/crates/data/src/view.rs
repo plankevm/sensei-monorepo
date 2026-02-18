@@ -220,4 +220,8 @@ impl EthIRProgram {
     pub fn functions_iter(&self) -> impl Iterator<Item = FunctionView<'_>> {
         self.functions.iter_idx().map(move |id| FunctionView { id, ir: self })
     }
+
+    pub fn operations(&self) -> impl Iterator<Item = OperationView<'_>> {
+        self.operations.iter_idx().map(move |id| OperationView { id, ir: self })
+    }
 }
