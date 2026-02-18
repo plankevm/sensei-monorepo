@@ -59,9 +59,7 @@ impl fmt::Display for BlockView<'_> {
         writeln!(f, " {{")?;
 
         for op_view in self.operations() {
-            write!(f, "        ")?;
-            op_view.op().op_fmt(f, self.ir)?;
-            writeln!(f)?;
+            writeln!(f, "        {op_view}")?;
         }
 
         match self.control() {
@@ -100,6 +98,13 @@ impl<'ir> OperationView<'ir> {
     }
 }
 
+impl fmt::Display for OperationView<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.ir.operations[self.id].op_fmt(f, self.ir)
+    }
+}
+
+#[derive(Clone, Copy)]
 pub enum ControlView<'ir> {
     LastOpTerminates,
     InternalReturn,
@@ -123,7 +128,7 @@ impl fmt::Display for ControlView<'_> {
                     writeln!(f, "            {value:x} => @{target},")?;
                 }
                 if let Some(fallback) = switch.fallback() {
-                    writeln!(f, "            else => @{}\n        }}", fallback.id())
+                    writeln!(f, "            else => @{fallback}\n        }}")
                 } else {
                     writeln!(f, "        }}")
                 }
@@ -153,6 +158,7 @@ impl<'ir> ControlView<'ir> {
     }
 }
 
+#[derive(Clone, Copy)]
 pub struct SwitchView<'ir> {
     condition: LocalId,
     fallback: Option<BasicBlockId>,
@@ -165,8 +171,8 @@ impl<'ir> SwitchView<'ir> {
         self.condition
     }
 
-    pub fn fallback(&self) -> Option<BlockView<'ir>> {
-        self.fallback.map(|id| BlockView { id, ir: self.ir })
+    pub fn fallback(&self) -> Option<BasicBlockId> {
+        self.fallback
     }
 
     pub fn cases(&self) -> CasesIter<'ir> {

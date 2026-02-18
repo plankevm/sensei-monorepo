@@ -186,7 +186,7 @@ impl<'ir> Translator<'ir> {
                     }
 
                     if let Some(fallback) = switch.fallback() {
-                        self.emit_code_offset_push(self.get_bb_mark(fallback.id()));
+                        self.emit_code_offset_push(self.get_bb_mark(fallback));
                         self.asm.push_op_byte(op::JUMP);
                     } else {
                         self.emit_undefined_behavior_error();

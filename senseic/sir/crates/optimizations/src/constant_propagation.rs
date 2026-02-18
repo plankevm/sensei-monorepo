@@ -195,7 +195,7 @@ impl SCCPAnalysis {
                     .cases()
                     .find(|(case_val, _)| val == *case_val)
                     .map(|(_, target)| target)
-                    .or(switch.fallback().map(|b| b.id()))
+                    .or(switch.fallback())
                     .expect("illegal behavior: switch has no matching case and no fallback");
                 to == target
             }),
