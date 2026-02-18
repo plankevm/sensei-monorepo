@@ -10,7 +10,7 @@ impl BasicBlockOwnershipAndReachability {
         let mut ownership = index_vec![None; program.basic_blocks.len()];
 
         for func in program.functions_iter() {
-            Self::mark_reachable_blocks(&mut ownership, program, func.entry_id(), func.id);
+            Self::mark_reachable_blocks(&mut ownership, program, func.entry().id(), func.id());
         }
 
         Self { ownership }

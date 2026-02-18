@@ -5,11 +5,15 @@ use crate::{
 
 #[derive(Clone, Copy)]
 pub struct BlockView<'ir> {
-    pub id: BasicBlockId,
+    id: BasicBlockId,
     ir: &'ir EthIRProgram,
 }
 
 impl<'ir> BlockView<'ir> {
+    pub fn id(&self) -> BasicBlockId {
+        self.id
+    }
+
     pub fn inputs(&self) -> &'ir [LocalId] {
         &self.ir.locals[self.ir.basic_blocks[self.id].inputs]
     }
@@ -34,21 +38,25 @@ impl<'ir> BlockView<'ir> {
 
 #[derive(Clone, Copy)]
 pub struct OperationView<'ir> {
-    pub id: OperationIdx,
+    id: OperationIdx,
     ir: &'ir EthIRProgram,
 }
 
 impl<'ir> OperationView<'ir> {
+    pub fn id(&self) -> OperationIdx {
+        self.id
+    }
+
     pub fn inputs(&self) -> &'ir [LocalId] {
-        self.get().inputs(self.ir)
+        self.ir.operations[self.id].inputs(self.ir)
     }
 
     pub fn outputs(&self) -> &'ir [LocalId] {
-        self.get().outputs(self.ir)
+        self.ir.operations[self.id].outputs(self.ir)
     }
 
-    pub fn get(&self) -> &'ir Operation {
-        &self.ir.operations[self.id]
+    pub fn op(&self) -> Operation {
+        self.ir.operations[self.id]
     }
 }
 
@@ -93,8 +101,8 @@ impl<'ir> SwitchView<'ir> {
         self.condition
     }
 
-    pub fn fallback(&self) -> Option<BasicBlockId> {
-        self.fallback
+    pub fn fallback(&self) -> Option<BlockView<'ir>> {
+        self.fallback.map(|id| BlockView { id, ir: self.ir })
     }
 
     pub fn cases(&self) -> CasesIter<'ir> {
@@ -104,17 +112,17 @@ impl<'ir> SwitchView<'ir> {
 
 #[derive(Clone, Copy)]
 pub struct FunctionView<'ir> {
-    pub id: FunctionId,
+    id: FunctionId,
     ir: &'ir EthIRProgram,
 }
 
 impl<'ir> FunctionView<'ir> {
-    pub fn entry_id(&self) -> BasicBlockId {
-        self.ir.functions[self.id].entry()
+    pub fn id(&self) -> FunctionId {
+        self.id
     }
 
     pub fn entry(&self) -> BlockView<'ir> {
-        BlockView { id: self.entry_id(), ir: self.ir }
+        BlockView { id: self.ir.functions[self.id].entry(), ir: self.ir }
     }
 
     pub fn num_inputs(&self) -> u32 {

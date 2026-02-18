@@ -35,24 +35,24 @@ pub fn compute_def_use(program: &EthIRProgram) -> DefUse {
         for op in block.operations() {
             for &input in op.inputs() {
                 uses[input]
-                    .push(UseLocation { block_id: block.id, kind: UseKind::Operation(op.id) });
+                    .push(UseLocation { block_id: block.id(), kind: UseKind::Operation(op.id()) });
             }
         }
 
         match block.control() {
             ControlView::Branches { condition, .. } => {
                 uses[condition]
-                    .push(UseLocation { block_id: block.id, kind: UseKind::Control });
+                    .push(UseLocation { block_id: block.id(), kind: UseKind::Control });
             }
             ControlView::Switch(switch) => {
                 uses[switch.condition()]
-                    .push(UseLocation { block_id: block.id, kind: UseKind::Control });
+                    .push(UseLocation { block_id: block.id(), kind: UseKind::Control });
             }
             _ => {}
         }
 
         for &local in block.outputs() {
-            uses[local].push(UseLocation { block_id: block.id, kind: UseKind::BlockOutput });
+            uses[local].push(UseLocation { block_id: block.id(), kind: UseKind::BlockOutput });
         }
     }
     uses

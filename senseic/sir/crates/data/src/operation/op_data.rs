@@ -236,7 +236,7 @@ pub enum OpExtraData {
     Empty,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct InlineOperands<const INS: usize, const OUTS: usize> {
     pub ins: [LocalId; INS],
     pub outs: [LocalId; OUTS],
@@ -262,7 +262,7 @@ impl Default for InlineOperands<0, 0> {
 }
 
 /// Operation data where inputs are allocated in the IR but outputs are stored inline.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct AllocatedIns<const INS: usize, const OUTS: usize> {
     pub ins_start: LocalIdx,
     pub outs: [LocalId; OUTS],
@@ -286,7 +286,7 @@ impl<const INS: usize, const OUTS: usize> AllocatedIns<INS, OUTS> {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct StaticAllocData {
     pub size: u32,
     pub ptr_out: LocalId,
@@ -390,7 +390,7 @@ impl IRMemoryIOByteSize {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct MemoryLoadData {
     pub out: LocalId,
     pub ptr: LocalId,
@@ -410,7 +410,7 @@ impl MemoryLoadData {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct MemoryStoreData {
     pub ins: [LocalId; 2],
     pub size: IRMemoryIOByteSize,
@@ -437,7 +437,7 @@ impl MemoryStoreData {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct SetSmallConstData {
     pub sets: LocalId,
     pub value: u32,
@@ -456,7 +456,7 @@ impl SetSmallConstData {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct SetLargeConstData {
     pub sets: LocalId,
     pub value: LargeConstId,
@@ -475,7 +475,7 @@ impl SetLargeConstData {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct SetDataOffsetData {
     pub sets: LocalId,
     pub segment_id: DataId,
@@ -497,7 +497,7 @@ impl SetDataOffsetData {
 /// Expects args and outputs to be stored contiguously in the IR arena:
 /// - Arguments: `ins_start..outs_start`
 /// - Outputs: `outs_start..outs_start + functions[function].outputs`
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct InternalCallData {
     pub function: FunctionId,
     pub ins_start: LocalIdx,

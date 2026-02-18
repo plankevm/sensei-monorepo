@@ -44,7 +44,7 @@ impl SCCPAnalysis {
 
     fn init_state(&mut self, program: &EthIRProgram) {
         for func in program.functions_iter() {
-            let entry_id = func.entry_id();
+            let entry_id = func.entry().id();
             self.reachable.add(entry_id);
             self.cfg_worklist.push(entry_id);
             for &input in func.entry().inputs() {
@@ -112,7 +112,7 @@ impl SCCPAnalysis {
                         .find(|(case_val, _)| val == *case_val)
                         .map(|(_, t)| t)
                         .or(switch.fallback)
-                        .expect("switch has no matching case and no fallback");
+                        .expect("illegal behavior: switch has no matching case and no fallback");
 
                     program.basic_blocks[bb_id].control = Control::ContinuesTo(target);
                 }
@@ -122,9 +122,9 @@ impl SCCPAnalysis {
     }
 
     fn process_operations(&mut self, program: &EthIRProgram, bb_id: BasicBlockId) {
-        for op in program.block(bb_id).operations() {
-            let inner = op.get();
-            if let Some((local, value)) = constant(inner, &program.large_consts) {
+        for op_view in program.block(bb_id).operations() {
+            let op = op_view.op();
+            if let Some((local, value)) = constant(&op, &program.large_consts) {
                 // Will always be constant here, but detects whether it changed.
                 if self.lattice[local].meet(value) {
                     self.values_worklist.push(local);
@@ -132,7 +132,7 @@ impl SCCPAnalysis {
                 continue;
             }
 
-            if let Some((out, value)) = self.evaluate(program, inner) {
+            if let Some((out, value)) = self.evaluate(program, &op) {
                 if self.lattice[out].meet(LatticeValue::Const(value)) {
                     self.values_worklist.push(out);
                 }
@@ -141,7 +141,7 @@ impl SCCPAnalysis {
 
             // Any operation that isn't const or evaluates to a constant is overdefined (aka
             // bottom).
-            for &out in op.outputs() {
+            for &out in op_view.outputs() {
                 if self.lattice[out].meet(LatticeValue::Overdefined) {
                     self.values_worklist.push(out);
                 }
@@ -190,19 +190,15 @@ impl SCCPAnalysis {
                     }
                 }
             }
-            ControlView::Switch(switch) => match self.const_u256(switch.condition()) {
-                Some(val) => {
-                    let target = switch
-                        .cases()
-                        .find(|(case_val, _)| val == *case_val)
-                        .map(|(_, target)| target)
-                        .or(switch.fallback())
-                        .expect("switch has no matching case and no fallback");
-
-                    to == target
-                }
-                None => true,
-            },
+            ControlView::Switch(switch) => self.const_u256(switch.condition()).is_none_or(|val| {
+                let target = switch
+                    .cases()
+                    .find(|(case_val, _)| val == *case_val)
+                    .map(|(_, target)| target)
+                    .or(switch.fallback().map(|b| b.id()))
+                    .expect("illegal behavior: switch has no matching case and no fallback");
+                to == target
+            }),
             ControlView::LastOpTerminates | ControlView::InternalReturn => false,
         }
     }

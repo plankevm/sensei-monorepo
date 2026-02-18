@@ -7,7 +7,7 @@ pub fn compute_dominators(program: &EthIRProgram) -> IndexVec<BasicBlockId, Opti
     let mut dominators = index_vec![None; program.basic_blocks.len()];
 
     for func in program.functions_iter() {
-        compute_function_dominators(program, func.entry_id(), &mut dominators);
+        compute_function_dominators(program, func.entry().id(), &mut dominators);
     }
 
     dominators

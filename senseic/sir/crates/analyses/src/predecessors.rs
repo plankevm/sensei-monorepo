@@ -5,7 +5,7 @@ pub fn compute_predecessors(program: &EthIRProgram) -> IndexVec<BasicBlockId, Ve
 
     for block in program.blocks() {
         for successor in block.successors() {
-            predecessors[successor].push(block.id);
+            predecessors[successor].push(block.id());
         }
     }
 

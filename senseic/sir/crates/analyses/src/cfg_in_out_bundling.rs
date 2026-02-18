@@ -21,7 +21,7 @@ impl ControlFlowGraphInOutBundling {
         for block in ir.blocks() {
             let existing_group_id = block.successors().find_map(|to| in_group[to]);
             let group_id = existing_group_id.unwrap_or_else(|| next_group_id.get_and_inc());
-            out_group[block.id] = Some(group_id);
+            out_group[block.id()] = Some(group_id);
             for to in block.successors() {
                 in_group[to] = Some(group_id);
             }
