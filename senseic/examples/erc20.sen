@@ -24,14 +24,15 @@ const abi_calldata_size = fn (comptime T: type) u256 {
     if (T == u256) {
         return 32;
     }
-    if (!meta_is_struct(T)) {
-        revert(malloc(0), 0);
+
+    if !meta_is_struct(T) {
+        compile_error();
     }
 
     let mut i = 0;
     let mut total_size = 0;
 
-    while (i < meta_field_count(T)) {
+    while i < meta_field_count(T) {
         total_size = total_size + abi_calldata_size(meta_get_field_type(T, i));
         i = i + 1;
     }
@@ -39,19 +40,20 @@ const abi_calldata_size = fn (comptime T: type) u256 {
     total_size
 };
 
+
 const abi_decode_calldata = fn (offset: u256, comptime T: type) T {
-    if (T == u256) {
+    if T == u256 {
         return calldataload(offset);
     }
-    if (!meta_is_struct(T)) {
-        revert(malloc(0), 0);
+    if !meta_is_struct(T) {
+        compile_error();
     }
 
     let mut offset = offset;
     let mut decoded = meta_default(T);
     let mut i = 0;
 
-    inline while (i < meta_field_count(T)) {
+    inline while i < meta_field_count(T) {
         let FT = meta_get_field_type(T, i);
         decoded = meta_set_field(T, i)(decoded, abi_decode_calldata(offset, FT));
         offset = offset + abi_calldata_size(FT);
