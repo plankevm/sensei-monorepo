@@ -211,11 +211,6 @@ impl<'cst> NodeView<'cst> {
         self.node().tokens
     }
 
-    pub fn single_token(self) -> Option<TokenIdx> {
-        let span = self.span();
-        (span.end == span.start + 1).then_some(span.start)
-    }
-
     pub fn idx(self) -> NodeIdx {
         self.idx
     }
@@ -225,7 +220,11 @@ impl<'cst> NodeView<'cst> {
     }
 
     pub fn child(self, i: u32) -> Option<NodeView<'cst>> {
-        self.children().skip(i as usize).next()
+        self.children().nth(i as usize)
+    }
+
+    pub fn ident(self) -> Option<StrId> {
+        self.kind().as_ident()
     }
 }
 
