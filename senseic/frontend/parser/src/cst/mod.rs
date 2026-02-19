@@ -1,4 +1,4 @@
-use crate::{const_print::const_assert_eq, lexer::TokenIdx};
+use crate::{StrId, const_print::const_assert_eq, lexer::TokenIdx};
 use sensei_core::{Idx, IndexVec, Span, newtype_index};
 
 pub mod display;
@@ -15,7 +15,7 @@ pub struct Node {
     pub first_child: Option<NodeIdx>,
 }
 
-const _ASSERT_NODE_SIZE: () = const_assert_eq(std::mem::size_of::<Node>(), 20);
+const _ASSERT_NODE_SIZE: () = const_assert_eq(std::mem::size_of::<Node>(), 24);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BinaryOp {
@@ -58,7 +58,7 @@ pub enum UnaryOp {
     Tilde,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub enum NodeKind {
     File,
 
@@ -94,7 +94,7 @@ pub enum NodeKind {
 
     // Atoms
     LiteralExpr,
-    Identifier,
+    Identifier { ident: StrId },
 
     // Function Definition
     FnDef,
@@ -112,6 +112,49 @@ pub enum NodeKind {
     Error,
 }
 
+impl std::fmt::Debug for NodeKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::File => write!(f, "File"),
+            Self::ConstDecl { typed } => f.debug_struct("ConstDecl").field("typed", typed).finish(),
+            Self::ImportDecl { glob } => f.debug_struct("ImportDecl").field("glob", glob).finish(),
+            Self::ImportAsDecl => write!(f, "ImportAsDecl"),
+            Self::InitBlock => write!(f, "InitBlock"),
+            Self::RunBlock => write!(f, "RunBlock"),
+            Self::ComptimeBlock => write!(f, "ComptimeBlock"),
+            Self::Block => write!(f, "Block"),
+            Self::LetStmt { mutable, typed } => {
+                f.debug_struct("LetStmt").field("mutable", mutable).field("typed", typed).finish()
+            }
+            Self::ReturnStmt => write!(f, "ReturnStmt"),
+            Self::AssignStmt => write!(f, "AssignStmt"),
+            Self::WhileStmt => write!(f, "WhileStmt"),
+            Self::InlineWhileStmt => write!(f, "InlineWhileStmt"),
+            Self::BinaryExpr(op) => write!(f, "BinaryExpr({op:?})"),
+            Self::UnaryExpr(op) => write!(f, "UnaryExpr({op:?})"),
+            Self::ParenExpr => write!(f, "ParenExpr"),
+            Self::CallExpr => write!(f, "CallExpr"),
+            Self::MemberExpr => write!(f, "MemberExpr"),
+            Self::StructDef => write!(f, "StructDef"),
+            Self::StructLit => write!(f, "StructLit"),
+            Self::If => write!(f, "If"),
+            Self::ElseIfBranchList => write!(f, "ElseIfBranchList"),
+            Self::ElseIfBranch => write!(f, "ElseIfBranch"),
+            Self::LiteralExpr => write!(f, "LiteralExpr"),
+            Self::Identifier { .. } => write!(f, "Identifier"),
+            Self::FnDef => write!(f, "FnDef"),
+            Self::ParamList => write!(f, "ParamList"),
+            Self::Parameter => write!(f, "Parameter"),
+            Self::ComptimeParameter => write!(f, "ComptimeParameter"),
+            Self::StatementsList => write!(f, "StatementsList"),
+            Self::ImportPath => write!(f, "ImportPath"),
+            Self::FieldDef => write!(f, "FieldDef"),
+            Self::FieldAssign => write!(f, "FieldAssign"),
+            Self::Error => write!(f, "Error"),
+        }
+    }
+}
+
 impl NodeKind {
     pub fn expr_requires_semi_as_stmt(&self) -> Option<bool> {
         match self {
@@ -125,7 +168,14 @@ impl NodeKind {
             | Self::StructDef
             | Self::StructLit
             | Self::LiteralExpr
-            | Self::Identifier => Some(true),
+            | Self::Identifier { .. } => Some(true),
+            _ => None,
+        }
+    }
+
+    pub fn as_ident(&self) -> Option<StrId> {
+        match self {
+            Self::Identifier { ident } => Some(*ident),
             _ => None,
         }
     }
@@ -172,6 +222,10 @@ impl<'cst> NodeView<'cst> {
 
     pub fn children(self) -> impl Iterator<Item = NodeView<'cst>> {
         self.cst.iter_children(self.idx).map(|idx| NodeView::new(self.cst, idx))
+    }
+
+    pub fn child(self, i: u32) -> Option<NodeView<'cst>> {
+        self.children().skip(i as usize).next()
     }
 }
 

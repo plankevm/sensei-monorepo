@@ -10,7 +10,7 @@ use crate::cst::ConcreteSyntaxTree;
 #[derive(Debug)]
 pub struct DisplayCST<'src, 'lexed, 'ast> {
     line_index: LineIndex,
-    lexed: &'lexed Lexed,
+    lexed: &'lexed Lexed<'src>,
     source: &'src str,
     cst: &'ast ConcreteSyntaxTree,
     show_line: bool,
@@ -19,7 +19,11 @@ pub struct DisplayCST<'src, 'lexed, 'ast> {
 }
 
 impl<'src, 'lexed, 'ast> DisplayCST<'src, 'lexed, 'ast> {
-    pub fn new(cst: &'ast ConcreteSyntaxTree, source: &'src str, lexed: &'lexed Lexed) -> Self {
+    pub fn new(
+        cst: &'ast ConcreteSyntaxTree,
+        source: &'src str,
+        lexed: &'lexed Lexed<'src>,
+    ) -> Self {
         DisplayCST {
             line_index: LineIndex::new(source),
             lexed,
@@ -47,20 +51,12 @@ impl<'src, 'lexed, 'ast> DisplayCST<'src, 'lexed, 'ast> {
     }
 
     fn token_src_span(&self, token: TokenIdx) -> SourceSpan {
-        self.lexed.get_span(token)
+        self.lexed.token_src_span(token)
     }
 
     fn token_src(&self, token: TokenIdx) -> &'src str {
         &self.source[self.token_src_span(token).usize_range()]
     }
-
-    #[allow(dead_code)]
-    fn token_span_to_src(&self, tokens: Span<TokenIdx>) -> SourceSpan {
-        let start = self.lexed.get_span(tokens.start).start;
-        let end = self.lexed.get_span(tokens.end).end;
-        Span::new(start, end)
-    }
-
     fn write_indent(f: &mut std::fmt::Formatter<'_>, level: u32) -> std::fmt::Result {
         for _ in 0..level {
             write!(f, "    ")?

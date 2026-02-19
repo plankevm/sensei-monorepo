@@ -4,6 +4,7 @@ use crate::{
     lexer::Lexed,
     parser::parse,
 };
+use sensei_core::intern::StringInterner;
 
 // mod resiliency;
 mod errorless;
@@ -31,8 +32,9 @@ pub fn assert_parser_errors(source: &str, expected_errors: &[&str]) {
     let source = dedent(source);
     let lexed = Lexed::lex(&source);
     let mut collector = ErrorCollector::default();
+    let mut interner = StringInterner::default();
 
-    let _cst = parse(&lexed, &mut collector);
+    let _cst = parse(&lexed, &mut interner, &mut collector);
 
     let line_index = LineIndex::new(&source);
     let actual: Vec<String> =
@@ -48,8 +50,9 @@ pub fn assert_parser_errors(source: &str, expected_errors: &[&str]) {
 pub fn assert_parses_to_cst_no_errors(source: &str, expected: &str) {
     let lexed = Lexed::lex(source);
     let mut collector = ErrorCollector::default();
+    let mut interner = StringInterner::default();
 
-    let cst = parse(&lexed, &mut collector);
+    let cst = parse(&lexed, &mut interner, &mut collector);
 
     if !collector.errors.is_empty() {
         let line_index = LineIndex::new(source);

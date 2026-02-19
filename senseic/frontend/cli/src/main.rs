@@ -1,4 +1,5 @@
 use sensei_parser::{
+    StringInterner,
     cst::display::DisplayCST,
     error_report::{ErrorCollector, LineIndex, format_error},
     lexer::Lexed,
@@ -22,7 +23,8 @@ fn main() {
 
     let lexed = Lexed::lex(&source);
     let mut collector = ErrorCollector::default();
-    let cst = parse(&lexed, &mut collector);
+    let mut interner = StringInterner::default();
+    let cst = parse(&lexed, &mut interner, &mut collector);
 
     let display = DisplayCST::new(&cst, &source, &lexed).show_line(show_lines);
     println!("{}", display);

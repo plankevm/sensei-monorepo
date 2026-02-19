@@ -315,15 +315,16 @@ newtype_index! {
 pub type SourceSpan = Span<SourceByteOffset>;
 
 #[derive(Debug, Clone)]
-pub struct Lexed {
+pub struct Lexed<'src> {
+    source: &'src str,
     tokens: IndexVec<TokenIdx, Token>,
     source_ends: IndexVec<TokenIdx, SourceByteOffset>,
 }
 
 const LEN_TO_TOKEN_CAPACITY: usize = 4;
 
-impl Lexed {
-    pub fn lex(source: &str) -> Self {
+impl<'src> Lexed<'src> {
+    pub fn lex(source: &'src str) -> Self {
         let mut tokens = IndexVec::with_capacity(source.len().div_ceil(LEN_TO_TOKEN_CAPACITY));
         let mut source_ends = IndexVec::with_capacity(source.len().div_ceil(LEN_TO_TOKEN_CAPACITY));
         let mut last_end = SourceByteOffset::ZERO;
@@ -340,27 +341,39 @@ impl Lexed {
             }
         }
 
-        Self { tokens, source_ends }
+        Self { source, tokens, source_ends }
     }
 
     fn token_src_start(&self, token: TokenIdx) -> SourceByteOffset {
         if token == TokenIdx::ZERO { SourceByteOffset::ZERO } else { self.source_ends[token - 1] }
     }
 
-    pub fn tokens_to_src(&self, tokens: Span<TokenIdx>) -> Span<SourceByteOffset> {
+    pub fn source(&self) -> &str {
+        self.source
+    }
+
+    pub fn token_src(&self, token: TokenIdx) -> &str {
+        &self.source[self.token_src_span(token).usize_range()]
+    }
+
+    pub fn tokens_src(&self, tokens: Span<TokenIdx>) -> &str {
+        &self.source[self.tokens_src_span(tokens).usize_range()]
+    }
+
+    pub fn tokens_src_span(&self, tokens: Span<TokenIdx>) -> Span<SourceByteOffset> {
         let start = self.token_src_start(tokens.start);
         // Span is exclusive so we want the end token's start.
         let end = self.token_src_start(tokens.end);
         Span::new(start, end)
     }
 
-    pub fn token_to_src(&self, index: TokenIdx) -> Span<SourceByteOffset> {
+    pub fn token_src_span(&self, index: TokenIdx) -> Span<SourceByteOffset> {
         let start = self.token_src_start(index);
         Span::new(start, self.source_ends[index])
     }
 
     pub fn get(&self, index: TokenIdx) -> (Token, Span<SourceByteOffset>) {
-        (self.tokens[index], self.token_to_src(index))
+        (self.tokens[index], self.token_src_span(index))
     }
 
     pub fn len(&self) -> TokenIdx {
