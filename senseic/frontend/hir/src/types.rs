@@ -1,23 +1,26 @@
 use crate::values::ValueIdx;
 use hashbrown::{DefaultHashBuilder, HashTable, hash_table::Entry};
-use sensei_core::{Idx, IndexVec, newtype_index};
+use sensei_core::{Idx, IndexVec, list_of_lists::ListOfLists, newtype_index};
 use sensei_parser::cst;
 use std::{hash::BuildHasher, num::NonZero};
 
 newtype_index! {
     pub struct TypeId;
     struct StructIdx;
-    struct FieldTypeIdx;
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct StructTypeInfo<Fields> {
+pub struct StructExtraInfo {
     pub source: cst::NodeIdx,
     pub type_index: ValueIdx,
-    pub fields: Fields,
 }
 
-pub type StructInfo<'fields> = StructTypeInfo<&'fields [TypeId]>;
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct StructInfo<'fields> {
+    pub source: cst::NodeIdx,
+    pub type_index: ValueIdx,
+    pub fields: &'fields [TypeId],
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Type<'fields> {
@@ -39,8 +42,8 @@ pub struct TypeInterner {
 
 #[derive(Debug)]
 struct StructStorage {
-    field_types: IndexVec<FieldTypeIdx, TypeId>,
-    index_to_struct: IndexVec<StructIdx, StructTypeInfo<FieldTypeIdx>>,
+    struct_fields: ListOfLists<StructIdx, TypeId>,
+    index_to_struct: IndexVec<StructIdx, StructExtraInfo>,
     hasher: DefaultHashBuilder,
 }
 
@@ -55,7 +58,7 @@ impl TypeId {
     const LAST_FIXED_ID: TypeId = Self::FUNCTION;
     const STRUCT_IDS_OFFSET: u32 = Self::LAST_FIXED_ID.const_get() + 1;
 
-    fn get_primitive_id(ty: Type<'_>) -> Result<TypeId, StructTypeInfo<&[TypeId]>> {
+    fn get_primitive_id(ty: Type<'_>) -> Result<TypeId, StructInfo<'_>> {
         match ty {
             Type::Void => Ok(Self::VOID),
             Type::Int => Ok(Self::INT),
@@ -95,26 +98,26 @@ impl From<StructIdx> for TypeId {
 
 impl Default for TypeInterner {
     fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl TypeInterner {
+    pub fn new() -> Self {
         Self {
             storage: StructStorage {
-                field_types: Default::default(),
+                struct_fields: Default::default(),
                 index_to_struct: Default::default(),
                 hasher: Default::default(),
             },
             info_to_struct: Default::default(),
         }
     }
-}
-
-impl TypeInterner {
-    pub fn new() -> Self {
-        Default::default()
-    }
 
     pub fn with_capacity(structs: usize, fields: usize) -> Self {
         Self {
             storage: StructStorage {
-                field_types: IndexVec::with_capacity(fields),
+                struct_fields: ListOfLists::with_capacities(structs, fields),
                 index_to_struct: IndexVec::with_capacity(structs),
                 hasher: Default::default(),
             },
@@ -129,22 +132,18 @@ impl TypeInterner {
         };
         let entry = self.info_to_struct.entry(
             self.storage.hash_struct_info(r#struct),
-            |&idx| {
-                let other = self.storage.get_info(idx);
-                r#struct == other
-            },
+            |&idx| self.storage.get_info(idx) == r#struct,
             |&idx| self.storage.hash_struct_id(idx),
         );
         match entry {
             Entry::Occupied(occupied) => (*occupied.get()).into(),
             Entry::Vacant(vacant) => {
-                let fields_start = self.storage.field_types.len_idx();
-                self.storage.field_types.extend_from_slice(r#struct.fields);
-                let new_struct_idx = self.storage.index_to_struct.push(StructTypeInfo {
+                let field_struct_idx = self.storage.struct_fields.push_copy_slice(r#struct.fields);
+                let new_struct_idx = self.storage.index_to_struct.push(StructExtraInfo {
                     source: r#struct.source,
                     type_index: r#struct.type_index,
-                    fields: fields_start,
                 });
+                debug_assert_eq!(new_struct_idx, field_struct_idx);
                 vacant.insert(new_struct_idx);
                 new_struct_idx.into()
             }
@@ -157,10 +156,10 @@ impl TypeInterner {
             Err(struct_idx) => struct_idx,
         };
         let stored = &self.storage.index_to_struct[struct_idx];
-        Type::Struct(StructTypeInfo {
+        Type::Struct(StructInfo {
             source: stored.source,
             type_index: stored.type_index,
-            fields: self.storage.get_fields(struct_idx),
+            fields: &self.storage.struct_fields[struct_idx],
         })
     }
 }
@@ -169,15 +168,8 @@ impl StructStorage {
     fn get_info(&self, idx: StructIdx) -> StructInfo<'_> {
         let source = self.index_to_struct[idx].source;
         let type_index = self.index_to_struct[idx].type_index;
-        let fields = self.get_fields(idx);
-        StructTypeInfo { source, type_index, fields }
-    }
-
-    fn get_fields(&self, idx: StructIdx) -> &[TypeId] {
-        let start = self.index_to_struct[idx].fields;
-        let end =
-            self.index_to_struct.get(idx + 1).map_or(self.field_types.len_idx(), |s| s.fields);
-        &self.field_types[start..end]
+        let fields = &self.struct_fields[idx];
+        StructInfo { source, type_index, fields }
     }
 
     fn hash_struct_id(&self, idx: StructIdx) -> u64 {

@@ -1154,6 +1154,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "plank-diagnostics"
+version = "0.1.0"
+
+[[package]]
 name = "ppv-lite86"
 version = "0.2.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1555,6 +1559,7 @@ dependencies = [
  "allocator-api2",
  "alloy-primitives",
  "hashbrown 0.16.0",
+ "plank-diagnostics",
  "sensei-core",
  "sensei-parser",
 ]
