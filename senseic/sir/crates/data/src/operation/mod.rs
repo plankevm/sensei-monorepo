@@ -220,6 +220,108 @@ define_operations! {
     RuntimeLength(InlineOperands<0, 1>) "runtime_length",
 }
 
+impl OperationKind {
+    pub fn is_removable_when_unused(&self) -> bool {
+        match self {
+            OperationKind::Add
+            | OperationKind::Mul
+            | OperationKind::Sub
+            | OperationKind::Div
+            | OperationKind::SDiv
+            | OperationKind::Mod
+            | OperationKind::SMod
+            | OperationKind::AddMod
+            | OperationKind::MulMod
+            | OperationKind::Exp
+            | OperationKind::SignExtend
+            | OperationKind::Lt
+            | OperationKind::Gt
+            | OperationKind::SLt
+            | OperationKind::SGt
+            | OperationKind::Eq
+            | OperationKind::IsZero
+            | OperationKind::And
+            | OperationKind::Or
+            | OperationKind::Xor
+            | OperationKind::Not
+            | OperationKind::Byte
+            | OperationKind::Shl
+            | OperationKind::Shr
+            | OperationKind::Sar
+            | OperationKind::Keccak256
+            | OperationKind::Address
+            | OperationKind::Balance
+            | OperationKind::Origin
+            | OperationKind::Caller
+            | OperationKind::CallValue
+            | OperationKind::CallDataLoad
+            | OperationKind::CallDataSize
+            | OperationKind::CodeSize
+            | OperationKind::GasPrice
+            | OperationKind::ExtCodeSize
+            | OperationKind::ReturnDataSize
+            | OperationKind::ExtCodeHash
+            | OperationKind::BlockHash
+            | OperationKind::Coinbase
+            | OperationKind::Timestamp
+            | OperationKind::Number
+            | OperationKind::Difficulty
+            | OperationKind::GasLimit
+            | OperationKind::ChainId
+            | OperationKind::SelfBalance
+            | OperationKind::BaseFee
+            | OperationKind::BlobHash
+            | OperationKind::BlobBaseFee
+            | OperationKind::SLoad
+            | OperationKind::TLoad
+            | OperationKind::DynamicAllocZeroed
+            | OperationKind::DynamicAllocAnyBytes
+            | OperationKind::AcquireFreePointer
+            | OperationKind::StaticAllocZeroed
+            | OperationKind::StaticAllocAnyBytes
+            | OperationKind::MemoryLoad
+            | OperationKind::SetCopy
+            | OperationKind::SetSmallConst
+            | OperationKind::SetLargeConst
+            | OperationKind::SetDataOffset
+            | OperationKind::Noop
+            | OperationKind::RuntimeStartOffset
+            | OperationKind::InitEndOffset
+            | OperationKind::RuntimeLength => true,
+
+            OperationKind::SStore
+            | OperationKind::TStore
+            | OperationKind::Log0
+            | OperationKind::Log1
+            | OperationKind::Log2
+            | OperationKind::Log3
+            | OperationKind::Log4
+            | OperationKind::Call
+            | OperationKind::CallCode
+            | OperationKind::DelegateCall
+            | OperationKind::StaticCall
+            | OperationKind::Create
+            | OperationKind::Create2
+            | OperationKind::Return
+            | OperationKind::Stop
+            | OperationKind::Revert
+            | OperationKind::Invalid
+            | OperationKind::SelfDestruct
+            | OperationKind::MemoryCopy
+            | OperationKind::MemoryStore
+            | OperationKind::CallDataCopy
+            | OperationKind::CodeCopy
+            | OperationKind::ExtCodeCopy
+            | OperationKind::ReturnDataCopy
+            | OperationKind::InternalCall => false,
+
+            // TODO: gas introspection semantic equivalence depends on high-level gas invocations
+            // lining up with bytecode gas invocations
+            OperationKind::Gas => false,
+        }
+    }
+}
+
 use op_data::{AllocatedSpansGetter, InputsGetter, OutputsGetter};
 
 impl Operation {

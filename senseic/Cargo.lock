@@ -1750,6 +1750,7 @@ name = "sir-analyses"
 version = "0.1.0"
 dependencies = [
  "alloy-primitives",
+ "bumpalo",
  "sensei-core",
  "sir-data",
  "sir-parser",
@@ -1771,7 +1772,6 @@ name = "sir-cli"
 version = "0.1.0"
 dependencies = [
  "clap",
- "sir-analyses",
  "sir-debug-backend",
  "sir-optimizations",
  "sir-parser",
@@ -1818,6 +1818,7 @@ dependencies = [
  "bumpalo",
  "chumsky",
  "logos",
+ "sir-analyses",
  "sir-data",
  "sir-test-utils",
  "smallvec",

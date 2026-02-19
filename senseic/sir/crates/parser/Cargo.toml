@@ -9,6 +9,7 @@ logos.workspace = true
 chumsky.workspace = true
 thiserror.workspace = true
 sir-data.workspace = true
+sir-analyses.workspace = true
 bumpalo.workspace = true
 alloy-primitives.workspace = true
 smallvec.workspace = true

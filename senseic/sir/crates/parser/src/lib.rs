@@ -47,13 +47,16 @@ pub fn parse_or_panic<'a>(source: &str, config: EmitConfig<'a>) -> EthIRProgram 
         panic!("{}\n{:?}", out, err);
     });
 
-    emit::emit_ir(&arena, &ast, config).unwrap_or_else(|err| {
+    let program = emit::emit_ir(&arena, &ast, config).unwrap_or_else(|err| {
         let mut out = BString::with_capacity_in(400, &arena);
         for span in err.spans.iter() {
             highlight_span(&mut out, source, span.clone(), 0);
         }
         panic!("{}{}", out, err.reason);
-    })
+    });
+
+    sir_analyses::legalize(&program).unwrap_or_else(|e| panic!("{e}"));
+    program
 }
 
 #[cfg(test)]
@@ -494,15 +497,15 @@ Basic Blocks:
                     stop
                 }
             fn main:
-                entry selector -> branch_value_out {
-                    branch_value_out = copy selector
+                entry selector -> selector {
                     => @branch
                 }
-                branch branch_flag_in {
-                    => branch_flag_in ? @switch_block : @zero_case
+                branch flag {
+                    => flag ? @switch_block : @after_switch
                 }
-                switch_block branch_value_in {
-                    switch branch_value_in {
+                switch_block {
+                    value = calldatasize
+                    switch value {
                         0 => @zero_case
                         1 => @one_case
                         default => @after_switch
@@ -531,17 +534,17 @@ Basic Blocks:
         stop
     }
 
-    @1 $0 -> $1 {
-        $1 = copy $0
+    @1 $0 -> $0 {
         => @2
     }
 
-    @2 $2 {
-        => $2 ? @3 : @4
+    @2 $1 {
+        => $1 ? @3 : @6
     }
 
-    @3 $3 {
-        switch $3 {
+    @3 {
+        $2 = calldatasize
+        switch $2 {
             0 => @4,
             1 => @5,
             else => @6
@@ -550,12 +553,12 @@ Basic Blocks:
     }
 
     @4 {
-        $4 = const 0x0
+        $3 = const 0x0
         => @6
     }
 
     @5 {
-        $5 = const 0x1
+        $4 = const 0x1
         => @6
     }
 
