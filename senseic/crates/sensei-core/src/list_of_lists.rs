@@ -9,11 +9,18 @@ pub struct ListOfLists<I: Idx, T> {
     values: Vec<T>,
 }
 
-pub struct ListOfListsPusher<'l, I: Idx, T>(&'l mut ListOfLists<I, T>);
+pub struct ListOfListsPusher<'l, I: Idx, T> {
+    inner: &'l mut ListOfLists<I, T>,
+    start: u32,
+}
 
 impl<'l, I: Idx, T> ListOfListsPusher<'l, I, T> {
     pub fn push(&mut self, element: T) {
-        self.0.values.push(element);
+        self.inner.values.push(element);
+    }
+
+    pub fn current(&mut self) -> &mut [T] {
+        &mut self.inner.values[self.start as usize..]
     }
 }
 
@@ -40,28 +47,26 @@ impl<I: Idx, T> ListOfLists<I, T> {
         }
     }
 
-    pub fn push_with<F, R>(&mut self, f: F) -> (I, R)
+    pub fn push_with<F>(&mut self, f: F) -> I
     where
-        F: FnOnce(ListOfListsPusher<'_, I, T>) -> R,
+        F: FnOnce(ListOfListsPusher<'_, I, T>),
     {
         let start = u32::try_from(self.values.len()).unwrap();
-        let res = f(ListOfListsPusher(self));
+        f(ListOfListsPusher { inner: self, start });
         let idx = self.starts.push(start);
         u32::try_from(self.values.len()).expect("exceeding maximum of 2^32-1 values");
-        (idx, res)
+        idx
     }
 
     pub fn push_iter(&mut self, iter: impl Iterator<Item = T>) -> I {
-        let (idx, _) = self.push_with(|mut list| {
+        self.push_with(|mut list| {
             iter.for_each(|element| list.push(element));
-        });
-        idx
+        })
     }
 
     pub fn iter(&self) -> impl Iterator<Item = &[T]> {
         let starts = self.starts.as_rel_slice();
-        let ends =
-            starts.iter().skip(1).map(|&end| end as usize).chain([self.values.len()].into_iter());
+        let ends = starts.iter().skip(1).map(|&end| end as usize).chain([self.values.len()]);
         starts.iter().copied().zip(ends).map(|(start, end)| &self.values[start as usize..end])
     }
 
