@@ -1,7 +1,4 @@
-use bumpalo::Bump;
-
-#[derive(Debug)]
-pub struct FrozenBigUint<'a>(&'a mut [u32]);
+use crate::{Idx, list_of_lists::ListOfLists};
 
 const NIBBLE_BITS: usize = 4;
 const BITS_PER_LIMB: usize = u32::BITS as usize;
@@ -10,255 +7,214 @@ const NIBBLES_PER_LIMB: usize = const {
     BITS_PER_LIMB / NIBBLE_BITS
 };
 
-impl<'arena> FrozenBigUint<'arena> {
-    pub fn limbs_le(&self) -> &[u32] {
-        self.0
-    }
+fn strip_leading(s: &str) -> &[u8] {
+    let bytes = s.as_bytes();
+    let start = bytes.iter().position(|&c| c != b'0' && c != b'_').unwrap_or(bytes.len());
+    &bytes[start..]
+}
 
-    /// # Panics
-    /// Panics if `s` doesn't match \[0-9A-Fa-f_]+\
-    pub fn from_radix16_in(s: &str, arena: &'arena Bump) -> Self {
-        assert!(!s.is_empty());
-
-        let s = {
-            let s = s.as_bytes();
-            let start = s.iter().position(|c| !matches!(*c, b'0' | b'_')).unwrap_or(s.len());
-            &s[start..]
-        };
-        let digits = s.iter().filter(|c| **c != b'_').count();
-        let limbs = arena.alloc_slice_fill_copy(digits.div_ceil(NIBBLES_PER_LIMB), 0);
-
-        for (i, &c) in s.iter().filter(|c| **c != b'_').rev().enumerate() {
-            let limb_index = i / NIBBLES_PER_LIMB;
-            let nibble_shift = (i % NIBBLES_PER_LIMB) * NIBBLE_BITS;
+/// Parses and allocates a numerical string into `limb_storage`, returning the limb list's new
+/// index. May allocate an empty list if number is `0` or string is empty.
+///
+/// # Panics
+/// Panics if `s` doesn't match \[0-9A-Fa-f_]*\
+pub fn from_radix16_in<I: Idx>(s: &str, limb_storage: &mut ListOfLists<I, u32>) -> I {
+    limb_storage.push_with(|mut pusher| {
+        let mut i = 0usize;
+        let mut limb = 0 as u32;
+        for &c in strip_leading(s).iter().rev() {
+            let nibble_shift = i * NIBBLE_BITS;
             let nibble = match c {
                 b'0'..=b'9' => c - b'0',
                 b'a'..=b'f' => c - b'a' + 10,
                 b'A'..=b'F' => c - b'A' + 10,
-                _ => unreachable!("Invalid char byte {}", c),
+                b'_' => continue,
+                _ => panic!("Unexpected byte 0x{:02x}", c),
             } as u32;
-            limbs[limb_index] |= nibble << nibble_shift;
+            limb |= nibble << nibble_shift;
+            i = (i + 1) % NIBBLES_PER_LIMB;
+            if i == 0 {
+                pusher.push(limb);
+                limb = 0;
+            }
         }
 
-        Self(limbs)
-    }
+        if i > 0 && limb != 0 {
+            pusher.push(limb);
+        }
+    })
+}
 
-    /// # Panics
-    /// Panics if `s` doesn't match \[_01]+\
-    pub fn from_radix2_in(s: &str, arena: &'arena Bump) -> Self {
-        assert!(!s.is_empty());
-
-        let s = {
-            let s = s.as_bytes();
-            let start = s.iter().position(|c| !matches!(*c, b'0' | b'_')).unwrap_or(s.len());
-            &s[start..]
-        };
-        let digits = s.iter().filter(|c| **c != b'_').count();
-        let limbs = arena.alloc_slice_fill_copy(digits.div_ceil(u32::BITS as usize), 0);
-
-        for (i, &c) in s.iter().filter(|c| **c != b'_').rev().enumerate() {
-            let limb_index = i / BITS_PER_LIMB;
-            let shift = i % BITS_PER_LIMB;
+/// Parses and allocates a numerical string into `limb_storage`, returning the limb list's new
+/// index. May allocate an empty list if number is `0` or string is empty.
+///
+/// # Panics
+/// Panics if `s` doesn't match `\[_01]*\`
+pub fn from_radix2_in<I: Idx>(s: &str, limb_storage: &mut ListOfLists<I, u32>) -> I {
+    limb_storage.push_with(|mut pusher| {
+        let mut i = 0usize;
+        let mut limb = 0 as u32;
+        for &c in strip_leading(s).iter().rev() {
+            let bit_shift = i;
             let bit = match c {
                 b'0' => 0,
                 b'1' => 1,
-                _ => unreachable!("Invalid char byte {}", c),
+                b'_' => continue,
+                _ => panic!("Unexpected byte 0x{:02x}", c),
             } as u32;
-            limbs[limb_index] |= bit << shift;
+            limb |= bit << bit_shift;
+            i = (i + 1) % BITS_PER_LIMB;
+            if i == 0 {
+                pusher.push(limb);
+                limb = 0;
+            }
         }
 
-        Self(limbs)
-    }
+        if i > 0 && limb != 0 {
+            pusher.push(limb);
+        }
+    })
+}
 
-    const LOG10_BASE2_MUL_1000: usize = 3222;
+/// Parses and allocates a numerical string into `limb_storage`, returning the limb list's new
+/// index. May allocate an empty list if number is `0` or string is empty.
+///
+/// # Panics
+/// Panics if `s` doesn't match \[_0-9]*\
+pub fn from_radix10_in<I: Idx>(s: &str, limb_storage: &mut ListOfLists<I, u32>) -> I {
+    limb_storage.push_with(|mut pusher| {
+        let s = strip_leading(s);
 
-    /// # Panics
-    /// Panics if `s` doesn't match \[_0-9]+\
-    pub fn from_radix10_in(s: &str, arena: &'arena Bump) -> Self {
-        assert!(!s.is_empty());
-
-        let s = {
-            let s = s.as_bytes();
-            let start = s.iter().position(|c| !matches!(*c, b'0' | b'_')).unwrap_or(s.len());
-            &s[start..]
-        };
-        let limb_count = (s.len() * Self::LOG10_BASE2_MUL_1000).div_ceil(1000 * BITS_PER_LIMB);
-        let mut new = Self(arena.alloc_slice_fill_copy(limb_count, 0));
-
-        for &c in s.iter().filter(|c| **c != b'_') {
+        // Process from most to least significant.
+        for &c in s.iter() {
             let dig = match c {
                 b'0'..=b'9' => c - b'0',
+                b'_' => continue,
                 _ => unreachable!("invalid char byte {}", c),
             };
-            new.mul_add_assign_wrapping(10, dig as u32);
-        }
-
-        new
-    }
-
-    fn mul_add_assign_wrapping(&mut self, mul: u32, add: u32) {
-        let mul = mul as u64;
-        let mut carry = add;
-        for limb in self.0.iter_mut() {
-            let res = (*limb) as u64 * mul;
-            let (new_limb, carry_add) = (res as u32).overflowing_add(carry);
-            *limb = new_limb;
-            carry = ((res >> 32) as u32) + carry_add as u32;
-        }
-    }
-}
-
-impl<'a> std::fmt::LowerHex for FrozenBigUint<'a> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if self.0.iter().all(|limb| *limb == 0) {
-            write!(f, "0")?;
-        } else {
-            for (i, &limb) in self.0.iter().rev().skip_while(|limb| **limb == 0).enumerate() {
-                if i == 0 {
-                    write!(f, "{:x}", limb)?;
-                } else {
-                    write!(f, "{:0padding$x}", limb, padding = NIBBLES_PER_LIMB)?;
-                }
+            let carry = mul_add_over_limbs(pusher.current(), 10, dig as u32);
+            if carry > 0 {
+                pusher.push(carry);
             }
         }
-        Ok(())
-    }
+    })
 }
 
-impl<'a> std::fmt::UpperHex for FrozenBigUint<'a> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if self.0.iter().all(|limb| *limb == 0) {
-            write!(f, "0")?;
-        } else {
-            for (i, &limb) in self.0.iter().rev().skip_while(|limb| **limb == 0).enumerate() {
-                if i == 0 {
-                    write!(f, "{:X}", limb)?;
-                } else {
-                    write!(f, "{:0padding$X}", limb, padding = NIBBLES_PER_LIMB)?;
-                }
-            }
-        }
-        Ok(())
+fn mul_add_over_limbs(limbs: &mut [u32], mul: u32, add: u32) -> u32 {
+    let mul = mul as u64;
+    let mut carry = add;
+    for limb in limbs.iter_mut() {
+        let res = (*limb) as u64 * mul;
+        let (new_limb, carry_add): (u32, bool) = (res as u32).overflowing_add(carry);
+        *limb = new_limb;
+        carry = ((res >> 32) as u32) + carry_add as u32;
     }
-}
-
-impl<'a> std::fmt::Binary for FrozenBigUint<'a> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if self.0.iter().all(|limb| *limb == 0) {
-            write!(f, "0")?;
-        } else {
-            for (i, &limb) in self.0.iter().rev().skip_while(|limb| **limb == 0).enumerate() {
-                if i == 0 {
-                    write!(f, "{:b}", limb)?;
-                } else {
-                    write!(f, "{:0padding$b}", limb, padding = BITS_PER_LIMB)?;
-                }
-            }
-        }
-        Ok(())
-    }
+    carry
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bumpalo::Bump;
+    use crate::{list_of_lists::ListOfLists, newtype_index};
+
+    newtype_index! {
+        struct UintLimbsIdx;
+    }
+
+    fn fmt_limbs(limbs: &[u32]) -> String {
+        use std::fmt::Write;
+        let mut out_string = String::with_capacity(limbs.len() * NIBBLES_PER_LIMB);
+        for &limb in limbs.iter().rev() {
+            write!(&mut out_string, "{limb:08x}").unwrap();
+        }
+        out_string
+    }
 
     #[test]
     fn test_hex_roundtrip() {
-        let arena = Bump::with_capacity(256);
-
+        let mut storage: ListOfLists<UintLimbsIdx, u32> = ListOfLists::new();
+        let idx = from_radix16_in(
+            "4eeb8567ad496f244c24c274bb1c2f12e4b32f933bab58a456cb5a5864dc58d",
+            &mut storage,
+        );
         assert_eq!(
-            format!(
-                "{:x}",
-                FrozenBigUint::from_radix16_in(
-                    "4eeb8567ad496f244c24c274bb1c2f12e4b32f933bab58a456cb5a5864dc58d",
-                    &arena
-                )
-            ),
-            "4eeb8567ad496f244c24c274bb1c2f12e4b32f933bab58a456cb5a5864dc58d"
+            fmt_limbs(&storage[idx]),
+            "04eeb8567ad496f244c24c274bb1c2f12e4b32f933bab58a456cb5a5864dc58d"
         );
     }
 
     #[test]
     fn test_hex_roundtrip_underscore() {
-        let arena = Bump::with_capacity(256);
-
+        let mut storage: ListOfLists<UintLimbsIdx, u32> = ListOfLists::new();
+        let idx = from_radix16_in(
+            "4eeb8567ad_496f244c24c274bb1c2f12e4b32f9_33bab58a4_56cb5a5864dc58d",
+            &mut storage,
+        );
         assert_eq!(
-            format!(
-                "{:x}",
-                FrozenBigUint::from_radix16_in(
-                    "4eeb8567ad_496f244c24c274bb1c2f12e4b32f9_33bab58a4_56cb5a5864dc58d",
-                    &arena
-                )
-            ),
-            "4eeb8567ad496f244c24c274bb1c2f12e4b32f933bab58a456cb5a5864dc58d"
+            fmt_limbs(&storage[idx]),
+            "04eeb8567ad496f244c24c274bb1c2f12e4b32f933bab58a456cb5a5864dc58d"
         );
     }
 
     #[test]
-    fn test_decimal() {
-        let arena = Bump::with_capacity(256);
-        assert_eq!(
-            format!(
-                "{:x}",
-                FrozenBigUint::from_radix10_in(
-                    "1155113192353703119622322190288124313895465211404437846",
-                    &arena
-                )
-            ),
-            "c0f5884d2216eeaea6a190458b0051664ebc6d93f4956"
-        );
+    fn test_decimal_0() {
+        let mut storage: ListOfLists<UintLimbsIdx, u32> = ListOfLists::new();
+        let idx = from_radix10_in("0", &mut storage);
+        assert_eq!(fmt_limbs(&storage[idx]), "");
     }
 
     #[test]
-    fn test_decimal_underscore() {
-        let arena = Bump::with_capacity(256);
-        assert_eq!(
-            format!(
-                "{:x}",
-                FrozenBigUint::from_radix10_in(
-                    "_1155113_1923537031196___22322190_288124_313895465211404437846",
-                    &arena
-                )
-            ),
-            "c0f5884d2216eeaea6a190458b0051664ebc6d93f4956"
+    fn test_decimal_1() {
+        let mut storage: ListOfLists<UintLimbsIdx, u32> = ListOfLists::new();
+        let idx = from_radix10_in("1", &mut storage);
+        assert_eq!(fmt_limbs(&storage[idx]), "00000001");
+    }
+
+    #[test]
+    fn test_decimal_2pow32() {
+        let mut storage: ListOfLists<UintLimbsIdx, u32> = ListOfLists::new();
+        let idx = from_radix10_in("4294967296", &mut storage);
+        assert_eq!(fmt_limbs(&storage[idx]), "0000000100000000");
+    }
+
+    #[test]
+    fn test_decimal_big_simple() {
+        let mut storage: ListOfLists<UintLimbsIdx, u32> = ListOfLists::new();
+        let idx = from_radix10_in(
+            "1155113192353703119622322190288124313895465211404437846",
+            &mut storage,
         );
+        assert_eq!(fmt_limbs(&storage[idx]), "000c0f5884d2216eeaea6a190458b0051664ebc6d93f4956");
+    }
+
+    #[test]
+    fn test_decimal_big_underscore() {
+        let mut storage: ListOfLists<UintLimbsIdx, u32> = ListOfLists::new();
+        let idx = from_radix10_in(
+            "_1155113_1923537031196___22322190_288124_313895465211404437846",
+            &mut storage,
+        );
+        assert_eq!(fmt_limbs(&storage[idx]), "000c0f5884d2216eeaea6a190458b0051664ebc6d93f4956");
     }
 
     #[test]
     fn test_binary() {
-        let arena = Bump::with_capacity(256);
-        assert_eq!(
-            format!(
-                "{:x}",
-                FrozenBigUint::from_radix2_in("0010101000000001001111111110101110", &arena)
-            ),
-            "a804ffae"
-        );
+        let mut storage: ListOfLists<UintLimbsIdx, u32> = ListOfLists::new();
+        let idx = from_radix2_in("0010101000000001001111111110101110", &mut storage);
+        assert_eq!(fmt_limbs(&storage[idx]), "a804ffae");
     }
 
     #[test]
     fn test_binary_underscore() {
-        let arena = Bump::with_capacity(256);
-        assert_eq!(
-            format!(
-                "{:x}",
-                FrozenBigUint::from_radix2_in(
-                    "00101_0100000_0001001___1_1__111111010_1110",
-                    &arena
-                )
-            ),
-            "a804ffae"
-        );
+        let mut storage: ListOfLists<UintLimbsIdx, u32> = ListOfLists::new();
+        let idx = from_radix2_in("00101_0100000_0001001___1_1__111111010_1110", &mut storage);
+        assert_eq!(fmt_limbs(&storage[idx]), "a804ffae");
     }
 
     #[test]
     fn test_zero() {
-        let arena = Bump::with_capacity(256);
-        assert_eq!(
-            format!("{:x}", FrozenBigUint::from_radix2_in("000000000000000000000000", &arena)),
-            "0"
-        );
+        let mut storage: ListOfLists<UintLimbsIdx, u32> = ListOfLists::new();
+        let idx = from_radix2_in("000000000000000000000000", &mut storage);
+        assert_eq!(fmt_limbs(&storage[idx]), "");
     }
 }
