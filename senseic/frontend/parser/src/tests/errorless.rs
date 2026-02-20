@@ -25,7 +25,7 @@ fn test_literal_bool_true() {
                 " "
                 "="
                 " "
-                LiteralExpr
+                BoolLiteral(true)
                     "true"
                 ";"
         "#,
@@ -46,7 +46,7 @@ fn test_literal_bool_false() {
                 " "
                 "="
                 " "
-                LiteralExpr
+                BoolLiteral(false)
                     "false"
                 ";"
         "#,
@@ -67,7 +67,7 @@ fn test_literal_hex() {
                 " "
                 "="
                 " "
-                LiteralExpr
+                NumLiteral
                     "0xFF"
                 ";"
         "#,
@@ -88,7 +88,7 @@ fn test_literal_binary() {
                 " "
                 "="
                 " "
-                LiteralExpr
+                NumLiteral
                     "0b1010"
                 ";"
         "#,
@@ -109,7 +109,7 @@ fn test_literal_decimal() {
                 " "
                 "="
                 " "
-                LiteralExpr
+                NumLiteral
                     "3469"
                 ";"
         "#,
@@ -181,7 +181,7 @@ fn test_member_priority() {
                 "="
                 BinaryExpr(Star)
                     " "
-                    LiteralExpr
+                    NumLiteral
                         "3"
                     " "
                     "*"
@@ -246,7 +246,7 @@ fn test_paren_expr_simple() {
                 " "
                 ParenExpr
                     "("
-                    LiteralExpr
+                    NumLiteral
                         "42"
                     ")"
                 ";"
@@ -587,18 +587,18 @@ fn test_binary_precedence_mul_add() {
                 "="
                 BinaryExpr(Plus)
                     " "
-                    LiteralExpr
+                    NumLiteral
                         "1"
                     " "
                     "+"
                     BinaryExpr(Star)
                         " "
-                        LiteralExpr
+                        NumLiteral
                             "2"
                         " "
                         "*"
                         " "
-                        LiteralExpr
+                        NumLiteral
                             "3"
                 ";"
         "#,
@@ -1027,7 +1027,7 @@ fn test_fn_def_with_return_type() {
                         Identifier
                             "Wow"
                         "("
-                        LiteralExpr
+                        NumLiteral
                             "32"
                         ")"
                     " "
@@ -1317,7 +1317,7 @@ fn test_struct_def_two_fields() {
                         Identifier
                             "B"
                         "("
-                        LiteralExpr
+                        NumLiteral
                             "34"
                         ")"
                     " "
@@ -1439,7 +1439,7 @@ fn test_struct_lit_one_field() {
                             "x"
                         ":"
                         " "
-                        LiteralExpr
+                        NumLiteral
                             "1"
                         " "
                     "}"
@@ -1483,7 +1483,7 @@ fn test_struct_lit_in_parenthesized_if() {
                                         "b"
                                     ":"
                                     " "
-                                    LiteralExpr
+                                    BoolLiteral(false)
                                         "false"
                                     " "
                                 "}"
@@ -1536,7 +1536,7 @@ fn test_struct_lit_two_fields() {
                             "x"
                         ":"
                         " "
-                        LiteralExpr
+                        NumLiteral
                             "1"
                     ","
                     " "
@@ -1545,7 +1545,7 @@ fn test_struct_lit_two_fields() {
                             "y"
                         ":"
                         " "
-                        LiteralExpr
+                        NumLiteral
                             "2"
                         " "
                     "}"
@@ -1579,7 +1579,7 @@ fn test_struct_lit_trailing_comma() {
                             "x"
                         ":"
                         " "
-                        LiteralExpr
+                        NumLiteral
                             "1"
                     ","
                     " "
@@ -1605,7 +1605,7 @@ fn test_block_atom_expr_stmt() {
                 "{"
                 StatementsList
                     " "
-                    LiteralExpr
+                    NumLiteral
                         "34"
                     ";"
                     " "
@@ -1626,11 +1626,11 @@ fn test_block_end_expr() {
                 "{"
                 StatementsList
                     " "
-                    LiteralExpr
+                    NumLiteral
                         "34"
                     ";"
                     " "
-                    LiteralExpr
+                    NumLiteral
                         "35"
                     ";"
                     " "
@@ -1666,7 +1666,7 @@ fn test_let_basic() {
                         " "
                         "="
                         " "
-                        LiteralExpr
+                        NumLiteral
                             "1"
                         ";"
                     " "
@@ -1697,7 +1697,7 @@ fn test_let_with_mut() {
                         " "
                         "="
                         " "
-                        LiteralExpr
+                        NumLiteral
                             "1"
                         ";"
                     " "
@@ -1730,7 +1730,7 @@ fn test_let_with_type() {
                         " "
                         "="
                         " "
-                        LiteralExpr
+                        NumLiteral
                             "1"
                         ";"
                     " "
@@ -1765,7 +1765,7 @@ fn test_let_full() {
                         " "
                         "="
                         " "
-                        LiteralExpr
+                        NumLiteral
                             "1"
                         ";"
                     " "
@@ -1797,7 +1797,7 @@ fn test_return_stmt() {
                     ReturnStmt
                         "return"
                         " "
-                        LiteralExpr
+                        NumLiteral
                             "42"
                         ";"
                     "\n"
@@ -1824,7 +1824,7 @@ fn test_assign_stmt() {
                         " "
                         "="
                         " "
-                        LiteralExpr
+                        NumLiteral
                             "1"
                         ";"
                     " "
@@ -1859,7 +1859,7 @@ fn test_assign_stmt_member_expr() {
                         " "
                         "="
                         " "
-                        LiteralExpr
+                        NumLiteral
                             "34"
                         ";"
                     " "
@@ -2046,7 +2046,7 @@ fn test_if_stmt_if_elseif() {
                             " "
                             "if"
                             " "
-                            LiteralExpr
+                            NumLiteral
                                 "34"
                             " "
                             Block
@@ -2123,7 +2123,7 @@ fn test_untyped_const_decl() {
                 " "
                 "="
                 " "
-                LiteralExpr
+                NumLiteral
                     "42"
                 ";"
         "#,
@@ -2148,7 +2148,7 @@ fn test_typed_const_decl() {
                 " "
                 "="
                 " "
-                LiteralExpr
+                NumLiteral
                     "67"
                 ";"
         "#,

@@ -1,10 +1,11 @@
 use crate::{StrId, const_print::const_assert_eq, lexer::TokenIdx};
-use sensei_core::{Idx, IndexVec, Span, newtype_index};
+use sensei_core::{Idx, IndexVec, Span, list_of_lists::ListOfLists, newtype_index};
 
 pub mod display;
 
 newtype_index! {
     pub struct NodeIdx;
+    pub struct NumLitId;
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -93,7 +94,8 @@ pub enum NodeKind {
     ElseIfBranch,
 
     // Atoms
-    LiteralExpr,
+    BoolLiteral(bool),
+    NumLiteral { negative: bool, id: NumLitId },
     Identifier { ident: StrId },
 
     // Function Definition
@@ -140,7 +142,8 @@ impl std::fmt::Debug for NodeKind {
             Self::If => write!(f, "If"),
             Self::ElseIfBranchList => write!(f, "ElseIfBranchList"),
             Self::ElseIfBranch => write!(f, "ElseIfBranch"),
-            Self::LiteralExpr => write!(f, "LiteralExpr"),
+            Self::BoolLiteral(value) => write!(f, "BoolLiteral({value})"),
+            Self::NumLiteral { .. } => write!(f, "NumLiteral"),
             Self::Identifier { .. } => write!(f, "Identifier"),
             Self::FnDef => write!(f, "FnDef"),
             Self::ParamList => write!(f, "ParamList"),
@@ -167,7 +170,8 @@ impl NodeKind {
             | Self::FnDef
             | Self::StructDef
             | Self::StructLit
-            | Self::LiteralExpr
+            | Self::BoolLiteral(_)
+            | Self::NumLiteral { .. }
             | Self::Identifier { .. } => Some(true),
             _ => None,
         }
@@ -184,6 +188,7 @@ impl NodeKind {
 #[derive(Debug, Clone)]
 pub struct ConcreteSyntaxTree {
     pub nodes: IndexVec<NodeIdx, Node>,
+    pub num_lit_limbs: ListOfLists<NumLitId, u32>,
 }
 
 #[derive(Debug, Clone, Copy)]

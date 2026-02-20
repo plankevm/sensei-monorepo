@@ -1,6 +1,6 @@
 use crate::{
-    cst::{BinaryOp, NodeKind, NodeView, UnaryOp},
     StrId,
+    cst::{BinaryOp, NodeKind, NodeView, NumLitId, UnaryOp},
 };
 
 #[derive(Debug, Clone, Copy)]
@@ -15,7 +15,8 @@ pub enum Expr<'cst> {
     FnDef(FnDef<'cst>),
     Block(BlockExpr<'cst>),
     ComptimeBlock(BlockExpr<'cst>),
-    Literal(NodeView<'cst>),
+    BoolLiteral(bool),
+    NumLiteral { negative: bool, id: NumLitId },
     Ident(StrId),
 }
 
@@ -52,7 +53,8 @@ impl<'cst> Expr<'cst> {
                 NodeKind::FnDef => Expr::FnDef(FnDef { view }),
                 NodeKind::Block => Expr::Block(BlockExpr { view }),
                 NodeKind::ComptimeBlock => Expr::ComptimeBlock(BlockExpr { view }),
-                NodeKind::LiteralExpr => Expr::Literal(view),
+                NodeKind::BoolLiteral(value) => Expr::BoolLiteral(value),
+                NodeKind::NumLiteral { negative, id } => Expr::NumLiteral { negative, id },
                 NodeKind::Identifier { ident } => Expr::Ident(ident),
                 _ => return None,
             };

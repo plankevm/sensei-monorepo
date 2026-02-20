@@ -6,7 +6,9 @@ use crate::{
     parser::token_item_iter::TokenItems,
 };
 use allocator_api2::vec::Vec;
-use sensei_core::{Idx, IndexVec, Span, intern::StringInterner};
+use sensei_core::{
+    Idx, IndexVec, Span, bigint, intern::StringInterner, list_of_lists::ListOfLists,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 struct OpPriority(u8);
@@ -89,6 +91,7 @@ mod token_item_iter {
 
 struct Parser<'a, D: DiagnosticsContext> {
     nodes: IndexVec<cst::NodeIdx, cst::Node>,
+    num_lit_limbs: ListOfLists<NumLitId, u32>,
     expected: Vec<Token>,
     tokens: TokenItems<'a>,
     interner: &'a mut StringInterner<StrId>,
@@ -116,6 +119,7 @@ where
         Parser {
             tokens: TokenItems::new(lexed),
             nodes: IndexVec::with_capacity(lexed.len().get() as usize / LEN_TO_NODE_CAPACITY),
+            num_lit_limbs: ListOfLists::new(),
             expected: Vec::with_capacity(8),
             interner,
             diagnostics,
@@ -253,6 +257,32 @@ where
         self.close_node(node)
     }
 
+    fn try_parse_num_literal(&mut self) -> Option<NodeKind> {
+        type ParseFn = fn(&str, &mut ListOfLists<NumLitId, u32>) -> NumLitId;
+
+        let token_idx = self.tokens.current();
+        let (token, _) = self.tokens.peek();
+
+        let (prefix_len, parse_fn): (usize, ParseFn) = match token {
+            Token::DecimalLiteral => (0, bigint::from_radix10_in),
+            Token::HexLiteral => (2, bigint::from_radix16_in), // Skip "0x"
+            Token::BinLiteral => (2, bigint::from_radix2_in),  // Skip "0b"
+            _ => return None,
+        };
+
+        self.advance();
+
+        let src = self.tokens.lexed().token_src(token_idx);
+        let (negative, digits) = if let Some(rest) = src.strip_prefix('-') {
+            (true, &rest[prefix_len..])
+        } else {
+            (false, &src[prefix_len..])
+        };
+
+        let id = parse_fn(digits, &mut self.num_lit_limbs);
+        Some(NodeKind::NumLiteral { negative, id })
+    }
+
     // ======================== EXPRESSION PARSING (PRATT) ========================
 
     fn check_binary_op(&mut self) -> Option<(OpPriority, OpPriority, BinaryOp)> {
@@ -385,13 +415,15 @@ where
     fn try_parse_standalone_expr(&mut self) -> Option<NodeIdx> {
         let start = self.tokens.current();
 
-        if self.eat(Token::DecimalLiteral)
-            || self.eat(Token::BinLiteral)
-            || self.eat(Token::HexLiteral)
-            || self.eat(Token::True)
-            || self.eat(Token::False)
-        {
-            return Some(self.alloc_last_token_as_node(NodeKind::LiteralExpr));
+        if self.eat(Token::True) {
+            return Some(self.alloc_last_token_as_node(NodeKind::BoolLiteral(true)));
+        }
+        if self.eat(Token::False) {
+            return Some(self.alloc_last_token_as_node(NodeKind::BoolLiteral(false)));
+        }
+
+        if let Some(kind) = self.try_parse_num_literal() {
+            return Some(self.alloc_last_token_as_node(kind));
         }
 
         if let Some(identifier) = self.try_parse_ident() {
@@ -853,5 +885,5 @@ pub fn parse<D: DiagnosticsContext>(
 
     parser.assert_complete();
 
-    ConcreteSyntaxTree { nodes: parser.nodes }
+    ConcreteSyntaxTree { nodes: parser.nodes, num_lit_limbs: parser.num_lit_limbs }
 }
