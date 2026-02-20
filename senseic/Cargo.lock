@@ -1735,6 +1735,7 @@ name = "sir-optimizations"
 version = "0.1.0"
 dependencies = [
  "alloy-primitives",
+ "sensei-core",
  "sir-analyses",
  "sir-data",
  "sir-parser",

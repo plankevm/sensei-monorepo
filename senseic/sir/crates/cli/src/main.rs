@@ -38,6 +38,10 @@ struct Cli {
     /// Enable constant propagation optimization
     #[arg(long)]
     constant_propagation: bool,
+
+    /// Enable global pruning
+    #[arg(long)]
+    global_prune: bool,
 }
 
 fn read_input(input: Option<PathBuf>) -> String {
@@ -74,11 +78,15 @@ fn main() {
     let mut program = parse_or_panic(&source, config);
 
     if cli.copy_propagation {
-        Optimization::CopyPropagation.apply(&mut program);
+        Optimization::CopyPropagation.apply(&mut program, None);
     }
 
     if cli.constant_propagation {
-        Optimization::ConstantPropagation.apply(&mut program);
+        Optimization::ConstantPropagation.apply(&mut program, None);
+    }
+
+    if cli.global_prune {
+        Optimization::ConstantPropagation.apply(&mut program, None);
     }
 
     let mut bytecode = Vec::with_capacity(0x6000);
