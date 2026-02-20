@@ -37,4 +37,5 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: senseic -> target
+      - uses: extractions/setup-just@v3
       - run: just ci-clippy
