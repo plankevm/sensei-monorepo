@@ -60,9 +60,9 @@ pub enum Token {
     #[regex(r"\.[a-zA-Z_][a-zA-Z0-9_]*")]
     DataRef,
 
-    #[regex("[0-9]+")]
+    #[regex("-?[0-9]+")]
     DecLiteral,
-    #[regex("0x[0-9a-fA-F]+")]
+    #[regex("-?0x[0-9a-fA-F]+")]
     HexLiteral,
 
     Error,

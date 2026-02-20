@@ -1,5 +1,6 @@
 use crate::{EthIRProgram, builder::EthIRBuilder, index::*};
 use alloy_primitives::{U256, ruint::FromUintError};
+use sensei_core::span::Span;
 
 pub(crate) trait VoidOpData {
     fn get_visited<'d, O, V: OpVisitor<'d, O>>(&'d self, visitor: &mut V) -> O;
@@ -27,7 +28,7 @@ impl FromOpData for () {
             return Err(OpBuildError::UnexpectedExtraData { received: extra, expected: "Empty" });
         }
         check_ins_count(ins, 0)?;
-        check_ins_count(outs, 0)?;
+        check_outs_count(outs, 0)?;
 
         Ok(())
     }
@@ -165,6 +166,68 @@ impl<'a> OpVisitor<'a, &'a [LocalId]> for OutputsGetter<'a> {
     }
 }
 
+#[derive(Debug)]
+pub struct AllocatedSpans {
+    pub input: Option<Span<LocalIdx>>,
+    pub output: Option<Span<LocalIdx>>,
+}
+
+impl AllocatedSpans {
+    pub const NONE: Self = Self { input: None, output: None };
+}
+
+pub(crate) struct AllocatedSpansGetter<'a> {
+    pub(crate) ir: &'a EthIRProgram,
+}
+
+impl<'a> OpVisitor<'a, AllocatedSpans> for AllocatedSpansGetter<'a> {
+    fn visit_inline_operands<const INS: usize, const OUTS: usize>(
+        &mut self,
+        _data: &'a InlineOperands<INS, OUTS>,
+    ) -> AllocatedSpans {
+        AllocatedSpans::NONE
+    }
+
+    fn visit_allocated_ins<const INS: usize, const OUTS: usize>(
+        &mut self,
+        data: &'a AllocatedIns<INS, OUTS>,
+    ) -> AllocatedSpans {
+        AllocatedSpans {
+            input: Some(Span::new(data.ins_start, data.ins_start + INS as u32)),
+            output: None,
+        }
+    }
+
+    fn visit_static_alloc(&mut self, _data: &'a StaticAllocData) -> AllocatedSpans {
+        AllocatedSpans::NONE
+    }
+    fn visit_memory_load(&mut self, _data: &'a MemoryLoadData) -> AllocatedSpans {
+        AllocatedSpans::NONE
+    }
+    fn visit_memory_store(&mut self, _data: &'a MemoryStoreData) -> AllocatedSpans {
+        AllocatedSpans::NONE
+    }
+    fn visit_set_small_const(&mut self, _data: &'a SetSmallConstData) -> AllocatedSpans {
+        AllocatedSpans::NONE
+    }
+    fn visit_set_large_const(&mut self, _data: &'a SetLargeConstData) -> AllocatedSpans {
+        AllocatedSpans::NONE
+    }
+    fn visit_set_data_offset(&mut self, _data: &'a SetDataOffsetData) -> AllocatedSpans {
+        AllocatedSpans::NONE
+    }
+    fn visit_icall(&mut self, data: &'a InternalCallData) -> AllocatedSpans {
+        let fn_outputs = self.ir.functions[data.function].outputs;
+        AllocatedSpans {
+            input: Some(Span::new(data.ins_start, data.outs_start)),
+            output: Some(Span::new(data.outs_start, data.outs_start + fn_outputs)),
+        }
+    }
+    fn visit_void(&mut self) -> AllocatedSpans {
+        AllocatedSpans::NONE
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OpExtraData {
     DataId(DataId),
@@ -173,7 +236,7 @@ pub enum OpExtraData {
     Empty,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct InlineOperands<const INS: usize, const OUTS: usize> {
     pub ins: [LocalId; INS],
     pub outs: [LocalId; OUTS],
@@ -199,7 +262,7 @@ impl Default for InlineOperands<0, 0> {
 }
 
 /// Operation data where inputs are allocated in the IR but outputs are stored inline.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct AllocatedIns<const INS: usize, const OUTS: usize> {
     pub ins_start: LocalIdx,
     pub outs: [LocalId; OUTS],
@@ -223,7 +286,7 @@ impl<const INS: usize, const OUTS: usize> AllocatedIns<INS, OUTS> {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct StaticAllocData {
     pub size: u32,
     pub ptr_out: LocalId,
@@ -327,7 +390,7 @@ impl IRMemoryIOByteSize {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct MemoryLoadData {
     pub out: LocalId,
     pub ptr: LocalId,
@@ -347,7 +410,7 @@ impl MemoryLoadData {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct MemoryStoreData {
     pub ins: [LocalId; 2],
     pub size: IRMemoryIOByteSize,
@@ -374,7 +437,7 @@ impl MemoryStoreData {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct SetSmallConstData {
     pub sets: LocalId,
     pub value: u32,
@@ -393,7 +456,7 @@ impl SetSmallConstData {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct SetLargeConstData {
     pub sets: LocalId,
     pub value: LargeConstId,
@@ -412,7 +475,7 @@ impl SetLargeConstData {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct SetDataOffsetData {
     pub sets: LocalId,
     pub segment_id: DataId,
@@ -434,7 +497,7 @@ impl SetDataOffsetData {
 /// Expects args and outputs to be stored contiguously in the IR arena:
 /// - Arguments: `ins_start..outs_start`
 /// - Outputs: `outs_start..outs_start + functions[function].outputs`
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct InternalCallData {
     pub function: FunctionId,
     pub ins_start: LocalIdx,

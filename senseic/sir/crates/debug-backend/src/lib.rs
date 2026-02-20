@@ -1,6 +1,6 @@
 use sensei_core::{DenseIndexSet, Idx, IncIterable};
 use sir_assembler::{AsmReference, Assembler, MarkId, MarkReference, op};
-use sir_data::{BasicBlockId, Control, DataId, EthIRProgram, FunctionId, LocalId, Span};
+use sir_data::{BasicBlockId, ControlView, DataId, EthIRProgram, FunctionId, LocalId, Span};
 
 use crate::static_memory_layout::StaticMemoryLayout;
 
@@ -132,7 +132,7 @@ impl<'ir> Translator<'ir> {
     }
 
     fn translate_basic_blocks_from_entry_point(&mut self, entry_point: FunctionId) {
-        let entry_basic_block = self.ir.functions[entry_point].entry();
+        let entry_basic_block = self.ir.function(entry_point).entry().id();
         self.bbs_to_be_translated.push((entry_point, entry_basic_block));
 
         while let Some((func, bb_id)) = self.bbs_to_be_translated.pop() {
@@ -143,50 +143,40 @@ impl<'ir> Translator<'ir> {
             self.asm.push_mark(self.get_bb_mark(bb_id));
             self.asm.push_op_byte(op::JUMPDEST);
 
-            let basic_block = self.ir.basic_blocks[bb_id].clone();
-            self.memory_layout.emit_transfer_basic_block_outputs(
-                &mut self.asm,
-                &self.ir.locals[basic_block.inputs],
-            );
-            for op in &self.ir.operations[basic_block.operations] {
-                operations::translate_operation(self, op.clone());
+            let block = self.ir.block(bb_id);
+            self.memory_layout.emit_transfer_basic_block_outputs(&mut self.asm, block.inputs());
+            for op_view in block.operations() {
+                operations::translate_operation(self, op_view.op());
             }
-            self.memory_layout.emit_copy_for_basic_block_inputs(
-                &mut self.asm,
-                &self.ir.locals[basic_block.outputs],
-            );
+            self.memory_layout.emit_copy_for_basic_block_inputs(&mut self.asm, block.outputs());
 
-            self.bbs_to_be_translated
-                .extend(basic_block.control.iter_outgoing(self.ir).map(|bb| (func, bb)));
+            self.bbs_to_be_translated.extend(block.successors().map(|bb| (func, bb)));
 
-            match basic_block.control {
-                Control::LastOpTerminates => {}
-                Control::InternalReturn => {
+            match block.control() {
+                ControlView::LastOpTerminates => {}
+                ControlView::InternalReturn => {
                     let return_dest_loc = self.memory_layout.get_return_dest_store(func);
                     self.asm.push_minimal_u32(return_dest_loc);
                     self.asm.push_op_byte(op::MLOAD);
                     self.asm.push_op_byte(op::JUMP);
                 }
-                Control::ContinuesTo(to) => {
+                ControlView::ContinuesTo(to) => {
                     self.emit_code_offset_push(self.get_bb_mark(to));
                     self.asm.push_op_byte(op::JUMP);
                 }
-                Control::Branches(branch) => {
-                    self.emit_local_load(branch.condition);
-                    self.emit_code_offset_push(self.get_bb_mark(branch.non_zero_target));
+                ControlView::Branches { condition, non_zero_target, zero_target } => {
+                    self.emit_local_load(condition);
+                    self.emit_code_offset_push(self.get_bb_mark(non_zero_target));
                     self.asm.push_op_byte(op::JUMPI);
-                    self.emit_code_offset_push(self.get_bb_mark(branch.zero_target));
+                    self.emit_code_offset_push(self.get_bb_mark(zero_target));
                     self.asm.push_op_byte(op::JUMP);
                 }
-                Control::Switch(switch) => {
-                    self.emit_local_load(switch.condition);
+                ControlView::Switch(switch) => {
+                    self.emit_local_load(switch.condition());
                     self.asm.push_minimal_u32(self.memory_layout.switch_store);
                     self.asm.push_op_byte(op::MSTORE);
 
-                    let cases = &self.ir.cases[switch.cases];
-                    for (&value, &bb) in
-                        cases.get_values(self.ir).iter().zip(cases.get_bb_ids(self.ir))
-                    {
+                    for (value, bb) in switch.cases() {
                         self.asm.push_minimal_u32(self.memory_layout.switch_store);
                         self.asm.push_op_byte(op::MLOAD);
                         self.asm.push_minimal_u256(value);
@@ -195,7 +185,7 @@ impl<'ir> Translator<'ir> {
                         self.asm.push_op_byte(op::JUMPI);
                     }
 
-                    if let Some(fallback) = switch.fallback {
+                    if let Some(fallback) = switch.fallback() {
                         self.emit_code_offset_push(self.get_bb_mark(fallback));
                         self.asm.push_op_byte(op::JUMP);
                     } else {

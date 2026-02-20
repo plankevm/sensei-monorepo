@@ -48,6 +48,13 @@ impl<I: Idx> Span<I> {
     pub fn is_dummy(self) -> bool {
         self == Self::dummy()
     }
+
+    pub fn len(&self) -> u32 {
+        if self.is_dummy() {
+            return 0;
+        }
+        self.end - self.start
+    }
 }
 
 impl<T: IncIterable> Span<T> {

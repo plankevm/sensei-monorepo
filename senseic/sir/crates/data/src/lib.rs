@@ -1,8 +1,9 @@
 pub mod builder;
 pub mod index;
 pub mod operation;
+pub mod view;
 
-pub use crate::{index::*, operation::Operation};
+pub use crate::{index::*, operation::Operation, view::*};
 use alloy_primitives::U256;
 use sensei_core::list_of_lists::ListOfLists;
 use std::fmt;
@@ -39,13 +40,13 @@ pub fn display_program(ir: &EthIRProgram) -> String {
     }
 
     // Display functions
-    for (fn_id, func) in ir.functions.enumerate_idx() {
+    for func in ir.functions_iter() {
         writeln!(
             &mut output,
             "    fn @{} -> entry @{}  (outputs: {})",
-            fn_id,
-            func.entry(),
-            func.get_outputs()
+            func.id(),
+            func.entry().id(),
+            func.num_outputs()
         )
         .unwrap();
     }
@@ -57,10 +58,8 @@ pub fn display_program(ir: &EthIRProgram) -> String {
     writeln!(&mut output, "Basic Blocks:").unwrap();
 
     // Display all basic blocks
-    for (bb_id, bb) in ir.basic_blocks.enumerate_idx() {
-        use std::fmt::Write as _;
-        bb.fmt_display(&mut output, bb_id, ir).unwrap();
-        writeln!(&mut output).unwrap();
+    for block in ir.blocks() {
+        writeln!(&mut output, "{block}").unwrap();
     }
 
     // Display data segments
@@ -127,51 +126,6 @@ impl BasicBlock {
             Control::InternalReturn => Some(self.outputs.end - self.outputs.start),
             _ => None,
         }
-    }
-
-    pub fn fmt_display(
-        &self,
-        f: &mut impl fmt::Write,
-        bb_id: BasicBlockId,
-        ir: &EthIRProgram,
-    ) -> fmt::Result {
-        write!(f, "    @{bb_id}")?;
-
-        // Display inputs
-        if !self.inputs.is_empty() {
-            for local in &ir.locals[self.inputs] {
-                write!(f, " ${local}")?;
-            }
-        }
-
-        // Display outputs
-        if !self.outputs.is_empty() {
-            write!(f, " ->")?;
-            for local in &ir.locals[self.outputs] {
-                write!(f, " ${local}")?;
-            }
-        }
-
-        writeln!(f, " {{")?;
-
-        // Display operations
-        for op in &ir.operations[self.operations] {
-            write!(f, "        ")?;
-            op.op_fmt(f, ir)?;
-            writeln!(f)?;
-        }
-
-        // Display control flow
-        match &self.control {
-            Control::LastOpTerminates => {}
-            _ => {
-                write!(f, "        ")?;
-                self.control.fmt_display(f, ir)?;
-                writeln!(f)?;
-            }
-        }
-
-        writeln!(f, "    }}")
     }
 }
 
@@ -297,34 +251,6 @@ impl<'ir> Iterator for OutgoingConnectionsIter<'ir> {
         }
 
         self.extra_connection.take()
-    }
-}
-
-impl Control {
-    pub fn fmt_display(&self, f: &mut impl fmt::Write, ir: &EthIRProgram) -> fmt::Result {
-        use Control as C;
-        match self {
-            C::LastOpTerminates => Ok(()),
-            C::InternalReturn => write!(f, "iret"),
-            C::ContinuesTo(bb) => write!(f, "=> @{bb}"),
-            C::Branches(branch) => write!(
-                f,
-                "=> ${} ? @{} : @{}",
-                branch.condition, branch.non_zero_target, branch.zero_target
-            ),
-            C::Switch(switch) => {
-                writeln!(f, "switch ${} {{", switch.condition)?;
-                let cases = &ir.cases[switch.cases];
-                for (value, target) in cases.get_values(ir).iter().zip(cases.get_bb_ids(ir)) {
-                    writeln!(f, "            {:x} => @{},", value, target)?;
-                }
-                if let Some(fallback) = switch.fallback {
-                    writeln!(f, "            else => @{fallback}\n        }}")
-                } else {
-                    writeln!(f, "        }}")
-                }
-            }
-        }
     }
 }
 

@@ -358,7 +358,7 @@ Basic Blocks:
                     stop
                 }
             fn test:
-                entry b {
+                entry b -> a b {
                     a = copy b
                     => @next
                 }
@@ -378,7 +378,7 @@ Basic Blocks:
         stop
     }
 
-    @1 $0 {
+    @1 $0 -> $0 $0 {
         $1 = copy $0
         => @2
     }
