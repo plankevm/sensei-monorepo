@@ -1,28 +1,32 @@
 use crate::{
-    cst::{NodeIdx, TokenIdx},
+    cst::NodeIdx,
     error_report::LineIndex,
-    lexer::{Lexer, SourceSpan},
+    lexer::{Lexed, SourceSpan, TokenIdx},
 };
-use sensei_core::{Idx, IndexVec, Span};
+use sensei_core::{Idx, Span};
 
 use crate::cst::ConcreteSyntaxTree;
 
 #[derive(Debug)]
-pub struct DisplayCST<'src, 'ast> {
+pub struct DisplayCST<'src, 'lexed, 'ast> {
     line_index: LineIndex,
-    token_source_offsets: IndexVec<TokenIdx, u32>,
+    lexed: &'lexed Lexed<'src>,
     source: &'src str,
-    cst: &'ast ConcreteSyntaxTree<'ast>,
+    cst: &'ast ConcreteSyntaxTree,
     show_line: bool,
     show_node_index: bool,
     show_token_spans: bool,
 }
 
-impl<'src, 'ast> DisplayCST<'src, 'ast> {
-    pub fn new(cst: &'ast ConcreteSyntaxTree<'ast>, source: &'src str) -> Self {
+impl<'src, 'lexed, 'ast> DisplayCST<'src, 'lexed, 'ast> {
+    pub fn new(
+        cst: &'ast ConcreteSyntaxTree,
+        source: &'src str,
+        lexed: &'lexed Lexed<'src>,
+    ) -> Self {
         DisplayCST {
             line_index: LineIndex::new(source),
-            token_source_offsets: Lexer::new(source).map(|(_, span)| span.start).collect(), /* TODO: Lex once and accumulate */
+            lexed,
             source,
             cst,
             show_line: false,
@@ -47,27 +51,12 @@ impl<'src, 'ast> DisplayCST<'src, 'ast> {
     }
 
     fn token_src_span(&self, token: TokenIdx) -> SourceSpan {
-        let start = self.token_source_offsets[token];
-        let end =
-            self.token_source_offsets.get(token + 1).copied().unwrap_or(self.source.len() as u32);
-        Span::new(start, end)
+        self.lexed.token_src_span(token)
     }
 
     fn token_src(&self, token: TokenIdx) -> &'src str {
         &self.source[self.token_src_span(token).usize_range()]
     }
-
-    #[allow(dead_code)]
-    fn token_span_to_src(&self, tokens: Span<TokenIdx>) -> SourceSpan {
-        let start = self.token_source_offsets[tokens.start];
-        let end = self
-            .token_source_offsets
-            .get(tokens.end + 1)
-            .copied()
-            .unwrap_or(self.source.len() as u32);
-        Span::new(start, end)
-    }
-
     fn write_indent(f: &mut std::fmt::Formatter<'_>, level: u32) -> std::fmt::Result {
         for _ in 0..level {
             write!(f, "    ")?
@@ -136,7 +125,7 @@ impl<'src, 'ast> DisplayCST<'src, 'ast> {
     }
 }
 
-impl<'src, 'ast> std::fmt::Display for DisplayCST<'src, 'ast> {
+impl<'src, 'lexed, 'ast> std::fmt::Display for DisplayCST<'src, 'lexed, 'ast> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         self.fmt_node(f, ConcreteSyntaxTree::FILE_IDX, 0)
     }

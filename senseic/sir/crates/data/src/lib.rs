@@ -5,6 +5,7 @@ pub mod view;
 
 pub use crate::{index::*, operation::Operation, view::*};
 use alloy_primitives::U256;
+use sensei_core::list_of_lists::ListOfLists;
 use std::fmt;
 
 /// Implemented in a data oriented way. Instead of each basic block and function holding its own
@@ -18,27 +19,15 @@ pub struct EthIRProgram {
     pub functions: IndexVec<FunctionId, Function>,
     pub basic_blocks: IndexVec<BasicBlockId, BasicBlock>,
     pub operations: IndexVec<OperationIdx, Operation>,
-    pub data_segments_start: IndexVec<DataId, DataOffset>,
+    pub data_segments: ListOfLists<DataId, u8>,
     // IR Data
     pub locals: IndexVec<LocalIdx, LocalId>,
-    pub data_bytes: IndexVec<DataOffset, u8>,
     pub large_consts: IndexVec<LargeConstId, U256>,
     pub cases: IndexVec<CasesId, Cases>,
     pub cases_bb_ids: IndexVec<CasesBasicBlocksIdx, BasicBlockId>,
     // Codegeneration helpers
     pub next_free_local_id: LocalId,
     pub next_static_alloc_id: StaticAllocId,
-}
-
-impl EthIRProgram {
-    /// Get the byte range for a data segment
-    pub fn get_segment_span(&self, id: DataId) -> Span<DataOffset> {
-        let start = self.data_segments_start[id];
-        match self.data_segments_start.get(id + 1) {
-            Some(&end) => Span::new(start, end),
-            None => Span::new(start, self.data_bytes.len_idx()),
-        }
-    }
 }
 
 /// Simple display of IR program - shows all elements independently without grouping
@@ -74,16 +63,15 @@ pub fn display_program(ir: &EthIRProgram) -> String {
     }
 
     // Display data segments
-    if !ir.data_segments_start.is_empty() {
+    if !ir.data_segments.is_empty() {
         writeln!(&mut output).unwrap();
 
-        for (segment_id, _) in ir.data_segments_start.enumerate_idx() {
+        for (segment_id, data) in ir.data_segments.enumerate_idx() {
             write!(&mut output, "data .{segment_id} ").unwrap();
 
-            let range = ir.get_segment_span(segment_id);
             write!(&mut output, "0x").unwrap();
-            for i in range.start.get()..range.end.get() {
-                write!(&mut output, "{:02x}", ir.data_bytes[DataOffset::new(i)]).unwrap();
+            for &byte in data {
+                write!(&mut output, "{:02x}", byte).unwrap();
             }
             writeln!(&mut output).unwrap();
         }

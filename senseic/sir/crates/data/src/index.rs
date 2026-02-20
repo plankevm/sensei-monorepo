@@ -8,7 +8,6 @@ newtype_index! {
     pub struct BasicBlockId;
     pub struct OperationIdx;
     pub struct DataId;
-    pub struct DataOffset;
     pub struct LocalId;
     pub struct LocalIdx;
     pub struct LargeConstId;
@@ -26,8 +25,6 @@ mod tests {
         assert_eq!(std::mem::size_of::<Option<BasicBlockId>>(), 4);
         assert_eq!(std::mem::size_of::<OperationIdx>(), 4);
         assert_eq!(std::mem::size_of::<Option<OperationIdx>>(), 4);
-        assert_eq!(std::mem::size_of::<DataOffset>(), 4);
-        assert_eq!(std::mem::size_of::<Option<DataOffset>>(), 4);
         assert_eq!(std::mem::size_of::<LocalId>(), 4);
         assert_eq!(std::mem::size_of::<Option<LocalId>>(), 4);
         assert_eq!(std::mem::size_of::<LocalIdx>(), 4);

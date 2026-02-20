@@ -1,12 +1,14 @@
 use crate::{
+    StrId,
     cst::{self, *},
     diagnostics::DiagnosticsContext,
     lexer::*,
     parser::token_item_iter::TokenItems,
 };
 use allocator_api2::vec::Vec;
-use bumpalo::Bump;
-use sensei_core::{Idx, IndexVec, Span, span::IncIterable};
+use sensei_core::{
+    Idx, IndexVec, Span, bigint, intern::StringInterner, list_of_lists::ListOfLists,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 struct OpPriority(u8);
@@ -42,57 +44,65 @@ struct UnfinishedNode {
     last_child: Option<NodeIdx>,
 }
 
-// Ensure fields are private letting us more easily enforce the invariant that the iterator either
-// consumes fuel or advances.
 mod token_item_iter {
-    use crate::lexer::{Lexer, SourceSpan, Token};
+    use crate::lexer::{Lexed, SourceSpan, Token, TokenIdx};
+    use sensei_core::Idx;
 
-    pub(super) struct TokenItems<'src> {
-        lexer: Lexer<'src>,
-        peeked: Option<(Token, SourceSpan)>,
+    pub(super) struct TokenItems<'a> {
+        lexed: &'a Lexed<'a>,
+        current: TokenIdx,
         fuel: u32,
     }
 
-    impl<'src> TokenItems<'src> {
-        const DEFAULT_FUEL: u32 = 256;
+    impl<'a> TokenItems<'a> {
+        const DEFAULT_FUEL: u32 = 1024;
 
-        pub(crate) fn new(lexer: Lexer<'src>) -> Self {
-            TokenItems { lexer, peeked: None, fuel: Self::DEFAULT_FUEL }
+        pub(crate) fn new(lexed: &'a Lexed) -> Self {
+            TokenItems { lexed, current: TokenIdx::ZERO, fuel: Self::DEFAULT_FUEL }
         }
 
-        fn next_fuel_unchanged(&mut self) -> (Token, SourceSpan) {
-            self.peeked.take().unwrap_or_else(|| {
-                let (tok, span) = self.lexer.next_with_eof();
-                (tok, span)
-            })
+        #[allow(unused)]
+        pub(super) fn fuel(&self) -> u32 {
+            self.fuel
         }
 
-        pub(crate) fn peek(&mut self) -> (Token, SourceSpan) {
+        pub(super) fn lexed(&self) -> &'a Lexed<'a> {
+            self.lexed
+        }
+
+        pub(super) fn current(&self) -> TokenIdx {
+            self.current
+        }
+
+        pub(super) fn peek(&mut self) -> (Token, SourceSpan) {
             self.fuel =
                 self.fuel.checked_sub(1).expect("out of fuel: likely caused by infinite loop");
-            let next = self.next_fuel_unchanged();
-            self.peeked = Some(next);
-            next
+            self.lexed.get(self.current)
         }
 
         pub(super) fn next(&mut self) -> (Token, SourceSpan) {
             self.fuel = Self::DEFAULT_FUEL;
-            self.peeked.take().unwrap_or_else(|| self.next_fuel_unchanged())
+            let result = self.lexed.get(self.current);
+            self.current += 1;
+            result
         }
     }
 }
 
-struct Parser<'ast, 'd, 'src, D: DiagnosticsContext> {
-    nodes: IndexVec<cst::NodeIdx, cst::Node, &'ast Bump>,
-    expected: Vec<Token, &'ast Bump>,
-    tokens: TokenItems<'src>,
-    diagnostics: &'d mut D,
-    current_token_idx: TokenIdx,
+struct Parser<'a, D: DiagnosticsContext> {
+    nodes: IndexVec<cst::NodeIdx, cst::Node>,
+    num_lit_limbs: ListOfLists<NumLitId, u32>,
+    expected: Vec<Token>,
+    tokens: TokenItems<'a>,
+    interner: &'a mut StringInterner<StrId>,
+    diagnostics: &'a mut D,
     last_src_span: SourceSpan,
     last_unexpected: Option<TokenIdx>,
 }
 
-impl<'ast, 'd, 'src, D> Parser<'ast, 'd, 'src, D>
+const LEN_TO_NODE_CAPACITY: usize = 4;
+
+impl<'a, D> Parser<'a, D>
 where
     D: DiagnosticsContext,
 {
@@ -102,22 +112,21 @@ where
     const STRUCT_LITERAL_PRIORITY: OpPriority = OpPriority(21);
 
     fn new(
-        arena: &'ast Bump,
-        lexer: Lexer<'src>,
-        estimated_node_count: usize,
-        diagnostics: &'d mut D,
+        lexed: &'a Lexed,
+        interner: &'a mut StringInterner<StrId>,
+        diagnostics: &'a mut D,
     ) -> Self {
         Parser {
-            tokens: TokenItems::new(lexer),
-            nodes: IndexVec::with_capacity_in(estimated_node_count, arena),
-            expected: Vec::with_capacity_in(8, arena),
+            tokens: TokenItems::new(lexed),
+            nodes: IndexVec::with_capacity(lexed.len().get() as usize / LEN_TO_NODE_CAPACITY),
+            num_lit_limbs: ListOfLists::new(),
+            expected: Vec::with_capacity(8),
+            interner,
             diagnostics,
-            current_token_idx: TokenIdx::ZERO,
-            last_src_span: Span::new(0, 0),
+            last_src_span: Span::new(SourceByteOffset::ZERO, SourceByteOffset::ZERO),
             last_unexpected: None,
         }
     }
-
     fn assert_complete(&mut self) {
         assert!(self.eof());
         for (i, node) in self.nodes.enumerate_idx() {
@@ -129,15 +138,11 @@ where
         self.tokens.peek().0
     }
 
-    fn current_src_span(&mut self) -> SourceSpan {
-        self.tokens.peek().1
-    }
-
     fn advance(&mut self) {
         self.expected.clear();
 
+        let ti = self.tokens.current();
         let (token, src_span) = self.tokens.next();
-        let ti = self.current_token_idx.get_and_inc();
         self.last_src_span = src_span;
         if token.is_lex_error() {
             self.diagnostics.emit_lexer_error(token, ti, src_span);
@@ -176,12 +181,11 @@ where
     }
 
     fn emit_unexpected(&mut self) {
-        if self.last_unexpected.is_some_and(|ti| ti == self.current_token_idx) {
+        if self.last_unexpected.is_some_and(|ti| ti == self.tokens.current()) {
             return;
         }
-        let found = self.current_token();
-        let span = self.current_src_span();
-        self.last_unexpected = Some(self.current_token_idx);
+        let (found, span) = self.tokens.peek();
+        self.last_unexpected = Some(self.tokens.current());
         self.diagnostics.emit_unexpected_token(found, &self.expected, span);
         self.expected.clear();
     }
@@ -212,7 +216,7 @@ where
     fn alloc_node(&mut self, kind: NodeKind) -> UnfinishedNode {
         let idx = self.nodes.push(Node {
             kind,
-            tokens: Span::new(self.current_token_idx, self.current_token_idx),
+            tokens: Span::new(self.tokens.current(), self.tokens.current()),
             next_sibling: None,
             first_child: None,
         });
@@ -220,7 +224,7 @@ where
     }
 
     fn close_node(&mut self, node: UnfinishedNode) -> NodeIdx {
-        self.nodes[node.idx].tokens.end = self.current_token_idx;
+        self.nodes[node.idx].tokens.end = self.tokens.current();
         node.idx
     }
 
@@ -249,8 +253,34 @@ where
     }
 
     fn alloc_last_token_as_node(&mut self, kind: NodeKind) -> NodeIdx {
-        let node = self.alloc_node_from(self.current_token_idx - 1, kind);
+        let node = self.alloc_node_from(self.tokens.current() - 1, kind);
         self.close_node(node)
+    }
+
+    fn try_parse_num_literal(&mut self) -> Option<NodeKind> {
+        type ParseFn = fn(&str, &mut ListOfLists<NumLitId, u32>) -> NumLitId;
+
+        let token_idx = self.tokens.current();
+        let (token, _) = self.tokens.peek();
+
+        let (prefix_len, parse_fn): (usize, ParseFn) = match token {
+            Token::DecimalLiteral => (0, bigint::from_radix10_in),
+            Token::HexLiteral => (2, bigint::from_radix16_in), // Skip "0x"
+            Token::BinLiteral => (2, bigint::from_radix2_in),  // Skip "0b"
+            _ => return None,
+        };
+
+        self.advance();
+
+        let src = self.tokens.lexed().token_src(token_idx);
+        let (negative, digits) = if let Some(rest) = src.strip_prefix('-') {
+            (true, &rest[prefix_len..])
+        } else {
+            (false, &src[prefix_len..])
+        };
+
+        let id = parse_fn(digits, &mut self.num_lit_limbs);
+        Some(NodeKind::NumLiteral { negative, id })
     }
 
     // ======================== EXPRESSION PARSING (PRATT) ========================
@@ -310,9 +340,15 @@ where
         None
     }
 
+    fn intern(&mut self, ti: TokenIdx) -> StrId {
+        debug_assert!(self.tokens.lexed().get(ti).0 == Token::Identifier);
+        self.interner.intern(self.tokens.lexed().token_src(ti))
+    }
+
     fn try_parse_ident(&mut self) -> Option<NodeIdx> {
         if self.eat(Token::Identifier) {
-            return Some(self.alloc_last_token_as_node(NodeKind::Identifier));
+            let ident = self.intern(self.tokens.current() - 1);
+            return Some(self.alloc_last_token_as_node(NodeKind::Identifier { ident }));
         }
         None
     }
@@ -327,7 +363,7 @@ where
     // ========================== EXPRESSION PARSING ==========================
 
     fn try_parse_conditional(&mut self) -> Option<NodeIdx> {
-        let condition_chain_start = self.current_token_idx;
+        let condition_chain_start = self.tokens.current();
         if !self.eat(Token::If) {
             return None;
         }
@@ -336,7 +372,7 @@ where
 
         let if_condition = self.parse_expr(ParseExprMode::NoPostFixCurlyBrace);
         self.push_child(&mut conditional, if_condition);
-        let if_body = self.parse_block(self.current_token_idx, NodeKind::Block);
+        let if_body = self.parse_block(self.tokens.current(), NodeKind::Block);
         self.push_child(&mut conditional, if_body);
 
         let mut else_ifs = self.alloc_node(NodeKind::ElseIfBranchList);
@@ -344,11 +380,11 @@ where
         let mut r#else = None;
         while self.check(Token::Else) {
             // More robust way to get token offset at the `Else` token than `eat; current-1`.
-            let branch_start = self.current_token_idx;
+            let branch_start = self.tokens.current();
             assert!(self.expect(Token::Else));
 
             if !self.eat(Token::If) {
-                let else_body = self.parse_block(self.current_token_idx, NodeKind::Block);
+                let else_body = self.parse_block(self.tokens.current(), NodeKind::Block);
                 r#else = Some(else_body);
 
                 break;
@@ -358,7 +394,7 @@ where
 
             let else_condition = self.parse_expr(ParseExprMode::NoPostFixCurlyBrace);
             self.push_child(&mut else_if, else_condition);
-            let branch_body = self.parse_block(self.current_token_idx, NodeKind::Block);
+            let branch_body = self.parse_block(self.tokens.current(), NodeKind::Block);
             self.push_child(&mut else_if, branch_body);
 
             let else_if = self.close_node(else_if);
@@ -377,15 +413,17 @@ where
     }
 
     fn try_parse_standalone_expr(&mut self) -> Option<NodeIdx> {
-        let start = self.current_token_idx;
+        let start = self.tokens.current();
 
-        if self.eat(Token::DecimalLiteral)
-            || self.eat(Token::BinLiteral)
-            || self.eat(Token::HexLiteral)
-            || self.eat(Token::True)
-            || self.eat(Token::False)
-        {
-            return Some(self.alloc_last_token_as_node(NodeKind::LiteralExpr));
+        if self.eat(Token::True) {
+            return Some(self.alloc_last_token_as_node(NodeKind::BoolLiteral(true)));
+        }
+        if self.eat(Token::False) {
+            return Some(self.alloc_last_token_as_node(NodeKind::BoolLiteral(false)));
+        }
+
+        if let Some(kind) = self.try_parse_num_literal() {
+            return Some(self.alloc_last_token_as_node(kind));
         }
 
         if let Some(identifier) = self.try_parse_ident() {
@@ -414,7 +452,7 @@ where
         }
 
         if self.check(Token::LeftCurly) {
-            return Some(self.parse_block(self.current_token_idx, NodeKind::Block));
+            return Some(self.parse_block(self.tokens.current(), NodeKind::Block));
         }
 
         if let Some(conditional) = self.try_parse_conditional() {
@@ -430,7 +468,7 @@ where
 
         let mut parameter_list = self.alloc_node(NodeKind::ParamList);
         loop {
-            let parameter_start = self.current_token_idx;
+            let parameter_start = self.tokens.current();
             let mut parameter = if self.eat(Token::Comptime) {
                 let mut parameter =
                     self.alloc_node_from(parameter_start, NodeKind::ComptimeParameter);
@@ -442,7 +480,8 @@ where
                     break;
                 }
                 let mut parameter = self.alloc_node_from(parameter_start, NodeKind::Parameter);
-                let name = self.alloc_last_token_as_node(NodeKind::Identifier);
+                let ident = self.intern(self.tokens.current() - 1);
+                let name = self.alloc_last_token_as_node(NodeKind::Identifier { ident });
                 self.push_child(&mut parameter, name);
                 parameter
             };
@@ -466,7 +505,7 @@ where
         let return_type = self.parse_expr(ParseExprMode::NoPostFixCurlyBrace);
         self.push_child(&mut function, return_type);
 
-        let body = self.parse_block(self.current_token_idx, NodeKind::Block);
+        let body = self.parse_block(self.tokens.current(), NodeKind::Block);
         self.push_child(&mut function, body);
 
         self.close_node(function)
@@ -521,7 +560,7 @@ where
         mode: ParseExprMode,
         min_bp: OpPriority,
     ) -> Option<NodeIdx> {
-        let start = self.current_token_idx;
+        let start = self.tokens.current();
 
         let mut expr = if let Some(((), rhs, kind)) = self.eat_unary() {
             let mut unary = self.alloc_node_from(start, NodeKind::UnaryExpr(kind));
@@ -631,14 +670,14 @@ where
         let condition = self.parse_expr(ParseExprMode::NoPostFixCurlyBrace);
         self.push_child(&mut while_stmt, condition);
 
-        let body = self.parse_block(self.current_token_idx, NodeKind::Block);
+        let body = self.parse_block(self.tokens.current(), NodeKind::Block);
         self.push_child(&mut while_stmt, body);
 
         Some(self.close_node(while_stmt))
     }
 
     fn try_parse_stmt(&mut self) -> Option<StmtResult> {
-        let stmt_start = self.current_token_idx;
+        let stmt_start = self.tokens.current();
 
         self.skip_trivia();
 
@@ -761,13 +800,15 @@ where
     }
 
     fn parse_decl(&mut self) -> NodeIdx {
-        let start = self.current_token_idx;
+        let start = self.tokens.current();
         if self.eat(Token::Init) {
             self.parse_block(start, NodeKind::InitBlock)
         } else if self.eat(Token::Run) {
             self.parse_block(start, NodeKind::RunBlock)
-        } else if self.check(Token::Const) {
-            self.parse_const_decl()
+        } else if self.eat(Token::Const) {
+            self.parse_const_decl(start)
+        } else if self.eat(Token::Import) {
+            self.parse_import_decl(start)
         } else {
             self.emit_unexpected();
             self.advance();
@@ -775,10 +816,40 @@ where
         }
     }
 
-    fn parse_const_decl(&mut self) -> NodeIdx {
-        let start = self.current_token_idx;
-        assert!(self.expect(Token::Const));
+    fn parse_import_decl(&mut self, start: TokenIdx) -> NodeIdx {
+        let mut import_path = self.alloc_node_from(start, NodeKind::ImportDecl { glob: false });
+        let path_start = self.expect_ident();
+        self.push_child(&mut import_path, path_start);
 
+        while self.eat(Token::DoubleColon) {
+            if self.eat(Token::Star) {
+                self.update_kind(import_path, NodeKind::ImportDecl { glob: true });
+                self.expect(Token::Semicolon);
+                return self.close_node(import_path);
+            }
+
+            let ident = self.expect_ident();
+            self.push_child(&mut import_path, ident);
+        }
+
+        if self.eat(Token::Semicolon) {
+            return self.close_node(import_path);
+        }
+
+        self.update_kind(import_path, NodeKind::ImportPath);
+        let import_path = self.close_node(import_path);
+        let mut import = self.alloc_node_from(start, NodeKind::ImportAsDecl);
+        self.push_child(&mut import, import_path);
+
+        self.expect(Token::As);
+        let as_name = self.expect_ident();
+        self.push_child(&mut import, as_name);
+        self.expect(Token::Semicolon);
+
+        self.close_node(import)
+    }
+
+    fn parse_const_decl(&mut self, start: TokenIdx) -> NodeIdx {
         let mut r#const = self.alloc_node_from(start, NodeKind::ConstDecl { typed: false });
         let name = self.expect_ident();
         self.push_child(&mut r#const, name);
@@ -802,18 +873,17 @@ where
     }
 }
 
-pub fn parse<'ast, 'src, D: DiagnosticsContext>(
-    arena: &'ast Bump,
-    lexer: Lexer<'src>,
-    estimated_node_count: usize,
+pub fn parse<D: DiagnosticsContext>(
+    lexed: &Lexed,
+    interner: &mut StringInterner<StrId>,
     diagnostics: &mut D,
-) -> ConcreteSyntaxTree<'ast> {
-    let mut parser = Parser::new(arena, lexer, estimated_node_count, diagnostics);
+) -> ConcreteSyntaxTree {
+    let mut parser = Parser::new(lexed, interner, diagnostics);
 
     let file = parser.parse_file();
     assert_eq!(file, ConcreteSyntaxTree::FILE_IDX);
 
     parser.assert_complete();
 
-    ConcreteSyntaxTree { nodes: parser.nodes }
+    ConcreteSyntaxTree { nodes: parser.nodes, num_lit_limbs: parser.num_lit_limbs }
 }

@@ -20,7 +20,8 @@ jobs:
       - uses: dtolnay/rust-toolchain@nightly
         with:
           components: rustfmt
-      - run: cargo +nightly fmt --all --check
+      - uses: ./.github/actions/setup-rust-env
+      - run: just ci-fmt
 
   clippy:
     name: Clippy
@@ -33,7 +34,5 @@ jobs:
       - uses: dtolnay/rust-toolchain@nightly
         with:
           components: clippy
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: senseic -> target
-      - run: cargo +nightly clippy --workspace --all-targets --all-features -- -D warnings
+      - uses: ./.github/actions/setup-rust-env
+      - run: just ci-clippy

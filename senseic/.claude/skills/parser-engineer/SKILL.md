@@ -12,6 +12,8 @@ frontend/parser/src/
 ├── lib.rs              # Crate root, re-exports
 ├── lexer.rs            # Token definitions (logos) and Lexer implementation
 ├── parser.rs           # Main parser implementation
+├── ast.rs              # AST definitions
+├── const_print.rs      # Constant printing utilities
 ├── cst/
 │   ├── mod.rs          # CST types: Node, NodeKind, NodeIdx, TokenIdx
 │   └── display.rs      # Pretty-printing CST for tests/debugging
@@ -19,7 +21,8 @@ frontend/parser/src/
 ├── error_report.rs     # Error formatting, LineIndex
 └── tests/
     ├── mod.rs          # Test utilities: assert_parses_to_cst_no_errors, etc.
-    └── errorless.rs    # Happy-path parsing tests
+    ├── errorless.rs    # Happy-path parsing tests
+    └── resiliency.rs   # Error recovery tests
 ```
 
 **Key Types:**
@@ -126,10 +129,6 @@ We use a homogenous Concrete Syntax Tree (CST) to represent the input source
 file. The primary purpose of this data structure is:
 - faithfully represent the entire input source file, even when it contains
   incomplete constructs or extra tokens
-- memory dense for better cache performance
-- nodes should be created such that the final tree is stored as close to pre-order
-  traversal as possible without compromising the parser's top-down, constant
-  lookahead (e.g. parsing post-fix operator expressions such as `(3 + x).b` cannot easily have its nodes generated in pre-order without an uncapped lookahead)
 - all relevant semantic information should always be inferable from the tree
   **without having to** look at the associated tokens with the exception of
   atoms (literals, identifiers), this includes keywords that modify the semantic
@@ -151,6 +150,15 @@ with intricate introspection of children.
 Existing examples in codebase:
 - `ConstDecl` vs `TypedConstDecl` (with/without type annotation)
 - `Block` vs `ComptimeBlock` (runtime vs compile-time)
+
+## CPU Friendly Layout
+- memory dense for better cache performance
+- parse & allocate nodes such that the tree's nodes is stored in pre-order in
+  the nodes arena
+- certain syntax constructs such as post-fix operators (e.g. member access
+  `<expr>.name`) will require allocating parents after children in the arena
+-
+
 
 ## Robust Expected Token Set Tracking
 

@@ -1,0 +1,11 @@
+name: 'Setup Rust Environment'
+description: 'Sets up Foundry, Rust cache, and Just'
+
+runs:
+  using: 'composite'
+  steps:
+    - uses: foundry-rs/foundry-toolchain@v1
+    - uses: Swatinem/rust-cache@v2
+      with:
+        workspaces: senseic -> target
+    - uses: extractions/setup-just@v3

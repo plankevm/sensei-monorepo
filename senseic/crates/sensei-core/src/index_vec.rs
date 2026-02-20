@@ -271,7 +271,7 @@ impl<I: Idx, T> Default for IndexVec<I, T, Global> {
 }
 
 impl<I: Idx, T> IndexVec<I, T, Global> {
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self::from_raw(Vec::new())
     }
 
@@ -288,7 +288,7 @@ impl<I: Idx, T> IndexVec<I, T, Global> {
     }
 
     pub fn iter_idx(&self) -> impl Iterator<Item = I> + use<I, T> {
-        Span::new(I::new(0), self.len_idx()).iter()
+        Span::new(I::ZERO, self.len_idx()).iter()
     }
 }
 
@@ -300,7 +300,7 @@ impl<I: Idx, T, A: Allocator> IndexVec<I, T, A> {
         Self::from_raw(Vec::new_in(alloc))
     }
 
-    pub fn from_raw(raw: Vec<T, A>) -> Self {
+    pub const fn from_raw(raw: Vec<T, A>) -> Self {
         Self { raw, _index: PhantomData }
     }
 
@@ -312,7 +312,7 @@ impl<I: Idx, T, A: Allocator> IndexVec<I, T, A> {
     }
 
     pub fn enumerate_idx(&self) -> impl Iterator<Item = (I, &T)> {
-        let mut idx = I::new(0);
+        let mut idx = I::ZERO;
         self.iter().map(move |element| {
             let current = idx;
             idx += 1;
@@ -321,7 +321,7 @@ impl<I: Idx, T, A: Allocator> IndexVec<I, T, A> {
     }
 
     pub fn enumerate_mut_idx(&mut self) -> impl Iterator<Item = (I, &mut T)> {
-        let mut idx = I::new(0);
+        let mut idx = I::ZERO;
         self.iter_mut().map(move |element| {
             let current = idx;
             idx += 1;
@@ -369,13 +369,13 @@ impl<I: Idx, T, A: Allocator> IndexVec<I, T, A> {
     /// Returns a `RelSlice` for the entire Vec, preserving absolute indices.
     #[inline]
     pub fn as_rel_slice(&self) -> RelSlice<'_, I, T> {
-        RelSlice::new(I::new(0), &self.raw)
+        RelSlice::new(I::ZERO, &self.raw)
     }
 
     /// Returns a `RelSliceMut` for the entire Vec, preserving absolute indices.
     #[inline]
     pub fn as_rel_slice_mut(&mut self) -> RelSliceMut<'_, I, T> {
-        RelSliceMut::new(I::new(0), &mut self.raw)
+        RelSliceMut::new(I::ZERO, &mut self.raw)
     }
 
     /// Returns a reference to the underlying slice.

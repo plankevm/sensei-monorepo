@@ -243,7 +243,7 @@ impl<'a> Legalizer<'a> {
                     }
                 }
                 Operation::SetDataOffset(data) => {
-                    if self.program.data_segments_start.get(data.segment_id).is_none() {
+                    if self.program.data_segments.get(data.segment_id).is_none() {
                         return Err(LegalizerError::InvalidSegmentId(data.segment_id));
                     }
                 }

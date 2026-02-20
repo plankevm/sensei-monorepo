@@ -1,0 +1,24 @@
+default: check test
+
+fmt:
+    cargo +nightly fmt --all
+
+check: fmt
+    cargo +nightly clippy --workspace --all-targets --all-features -- -D warnings -A dead_code
+
+test:
+    cargo test --workspace
+
+[working-directory: 'sir/sir-solidity-diff-tests']
+test-all: test
+     forge test --ffi
+
+ci-fmt:
+    (cd sir/sir-solidity-diff-tests/ && forge fmt --check)
+    cargo +nightly fmt --all --check
+
+ci-clippy:
+    cargo +nightly clippy --workspace --all-targets --all-features -- -D warnings
+
+ci-all: test-all ci-clippy ci-fmt
+

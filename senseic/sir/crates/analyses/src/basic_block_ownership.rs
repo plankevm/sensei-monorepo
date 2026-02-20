@@ -1,4 +1,4 @@
-use sir_data::{BasicBlockId, DataOffset, EthIRProgram, FunctionId, Idx, IndexVec, index_vec};
+use sir_data::{BasicBlockId, EthIRProgram, FunctionId, IndexVec, index_vec};
 
 #[derive(Debug, Clone)]
 pub struct BasicBlockOwnershipAndReachability {
@@ -75,16 +75,15 @@ impl BasicBlockOwnershipAndReachability {
             }
         }
 
-        if !program.data_segments_start.is_empty() {
+        if !program.data_segments.is_empty() {
             writeln!(&mut output).unwrap();
 
-            for (segment_id, _) in program.data_segments_start.enumerate_idx() {
+            for (segment_id, data) in program.data_segments.enumerate_idx() {
                 write!(&mut output, "data .{segment_id} ").unwrap();
 
-                let range = program.get_segment_span(segment_id);
                 write!(&mut output, "0x").unwrap();
-                for i in range.start.get()..range.end.get() {
-                    write!(&mut output, "{:02x}", program.data_bytes[DataOffset::new(i)]).unwrap();
+                for &byte in data {
+                    write!(&mut output, "{:02x}", byte).unwrap();
                 }
                 writeln!(&mut output).unwrap();
             }

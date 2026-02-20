@@ -1,15 +1,14 @@
-use crate::const_print::const_assert_eq;
-use bumpalo::Bump;
-use sensei_core::{Idx, IndexVec, Span, newtype_index};
+use crate::{StrId, const_print::const_assert_eq, lexer::TokenIdx};
+use sensei_core::{Idx, IndexVec, Span, list_of_lists::ListOfLists, newtype_index};
 
 pub mod display;
 
 newtype_index! {
-    pub struct TokenIdx;
     pub struct NodeIdx;
+    pub struct NumLitId;
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct Node {
     pub kind: NodeKind,
     pub tokens: Span<TokenIdx>,
@@ -17,7 +16,7 @@ pub struct Node {
     pub first_child: Option<NodeIdx>,
 }
 
-const _ASSERT_NODE_SIZE: () = const_assert_eq(std::mem::size_of::<Node>(), 20);
+const _ASSERT_NODE_SIZE: () = const_assert_eq(std::mem::size_of::<Node>(), 24);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BinaryOp {
@@ -60,12 +59,14 @@ pub enum UnaryOp {
     Tilde,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub enum NodeKind {
     File,
 
     // Declarations
     ConstDecl { typed: bool },
+    ImportDecl { glob: bool },
+    ImportAsDecl,
     InitBlock,
     RunBlock,
 
@@ -93,8 +94,9 @@ pub enum NodeKind {
     ElseIfBranch,
 
     // Atoms
-    LiteralExpr,
-    Identifier,
+    BoolLiteral(bool),
+    NumLiteral { negative: bool, id: NumLitId },
+    Identifier { ident: StrId },
 
     // Function Definition
     FnDef,
@@ -104,11 +106,56 @@ pub enum NodeKind {
 
     // Misc
     StatementsList,
+    ImportPath,
     FieldDef,
     FieldAssign,
 
     // Errors
     Error,
+}
+
+impl std::fmt::Debug for NodeKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::File => write!(f, "File"),
+            Self::ConstDecl { typed } => f.debug_struct("ConstDecl").field("typed", typed).finish(),
+            Self::ImportDecl { glob } => f.debug_struct("ImportDecl").field("glob", glob).finish(),
+            Self::ImportAsDecl => write!(f, "ImportAsDecl"),
+            Self::InitBlock => write!(f, "InitBlock"),
+            Self::RunBlock => write!(f, "RunBlock"),
+            Self::ComptimeBlock => write!(f, "ComptimeBlock"),
+            Self::Block => write!(f, "Block"),
+            Self::LetStmt { mutable, typed } => {
+                f.debug_struct("LetStmt").field("mutable", mutable).field("typed", typed).finish()
+            }
+            Self::ReturnStmt => write!(f, "ReturnStmt"),
+            Self::AssignStmt => write!(f, "AssignStmt"),
+            Self::WhileStmt => write!(f, "WhileStmt"),
+            Self::InlineWhileStmt => write!(f, "InlineWhileStmt"),
+            Self::BinaryExpr(op) => write!(f, "BinaryExpr({op:?})"),
+            Self::UnaryExpr(op) => write!(f, "UnaryExpr({op:?})"),
+            Self::ParenExpr => write!(f, "ParenExpr"),
+            Self::CallExpr => write!(f, "CallExpr"),
+            Self::MemberExpr => write!(f, "MemberExpr"),
+            Self::StructDef => write!(f, "StructDef"),
+            Self::StructLit => write!(f, "StructLit"),
+            Self::If => write!(f, "If"),
+            Self::ElseIfBranchList => write!(f, "ElseIfBranchList"),
+            Self::ElseIfBranch => write!(f, "ElseIfBranch"),
+            Self::BoolLiteral(value) => write!(f, "BoolLiteral({value})"),
+            Self::NumLiteral { .. } => write!(f, "NumLiteral"),
+            Self::Identifier { .. } => write!(f, "Identifier"),
+            Self::FnDef => write!(f, "FnDef"),
+            Self::ParamList => write!(f, "ParamList"),
+            Self::Parameter => write!(f, "Parameter"),
+            Self::ComptimeParameter => write!(f, "ComptimeParameter"),
+            Self::StatementsList => write!(f, "StatementsList"),
+            Self::ImportPath => write!(f, "ImportPath"),
+            Self::FieldDef => write!(f, "FieldDef"),
+            Self::FieldAssign => write!(f, "FieldAssign"),
+            Self::Error => write!(f, "Error"),
+        }
+    }
 }
 
 impl NodeKind {
@@ -123,20 +170,75 @@ impl NodeKind {
             | Self::FnDef
             | Self::StructDef
             | Self::StructLit
-            | Self::LiteralExpr
-            | Self::Identifier => Some(true),
+            | Self::BoolLiteral(_)
+            | Self::NumLiteral { .. }
+            | Self::Identifier { .. } => Some(true),
+            _ => None,
+        }
+    }
+
+    pub fn as_ident(&self) -> Option<StrId> {
+        match self {
+            Self::Identifier { ident } => Some(*ident),
             _ => None,
         }
     }
 }
 
 #[derive(Debug, Clone)]
-pub struct ConcreteSyntaxTree<'ast> {
-    pub nodes: IndexVec<NodeIdx, Node, &'ast Bump>,
+pub struct ConcreteSyntaxTree {
+    pub nodes: IndexVec<NodeIdx, Node>,
+    pub num_lit_limbs: ListOfLists<NumLitId, u32>,
 }
 
-impl<'ast> ConcreteSyntaxTree<'ast> {
+#[derive(Debug, Clone, Copy)]
+pub struct NodeView<'cst> {
+    cst: &'cst ConcreteSyntaxTree,
+    idx: NodeIdx,
+}
+
+impl<'cst> NodeView<'cst> {
+    pub fn new(cst: &'cst ConcreteSyntaxTree, idx: NodeIdx) -> Self {
+        assert!(idx < cst.nodes.len_idx(), "idx out of bounds");
+        Self { cst, idx }
+    }
+
+    fn node(self) -> &'cst Node {
+        // Safety: Constructor validates `idx`
+        unsafe { self.cst.nodes.get_unchecked(self.idx.idx()) }
+    }
+
+    pub fn kind(self) -> NodeKind {
+        self.node().kind
+    }
+
+    pub fn span(self) -> Span<TokenIdx> {
+        self.node().tokens
+    }
+
+    pub fn idx(self) -> NodeIdx {
+        self.idx
+    }
+
+    pub fn children(self) -> impl Iterator<Item = NodeView<'cst>> {
+        self.cst.iter_children(self.idx).map(|idx| NodeView::new(self.cst, idx))
+    }
+
+    pub fn child(self, i: u32) -> Option<NodeView<'cst>> {
+        self.children().nth(i as usize)
+    }
+
+    pub fn ident(self) -> Option<StrId> {
+        self.kind().as_ident()
+    }
+}
+
+impl ConcreteSyntaxTree {
     pub const FILE_IDX: NodeIdx = NodeIdx::ZERO;
+
+    pub fn file_view(&self) -> NodeView<'_> {
+        NodeView::new(self, Self::FILE_IDX)
+    }
 
     pub fn iter_children(&self, node: NodeIdx) -> impl Iterator<Item = NodeIdx> {
         let mut next_child = self.nodes[node].first_child;

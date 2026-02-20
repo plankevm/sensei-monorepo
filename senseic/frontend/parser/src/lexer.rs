@@ -1,5 +1,5 @@
 use logos::{Lexer as LogosLexer, Logos};
-use sensei_core::Span;
+use sensei_core::{Idx, IndexVec, Span, newtype_index};
 
 type CharsPeekable<'a> = std::iter::Peekable<std::str::CharIndices<'a>>;
 
@@ -81,6 +81,8 @@ pub enum Token {
     LeftSquare,
     #[token("]")]
     RightSquare,
+    #[token("::")]
+    DoubleColon,
 
     // Operators
     #[token("=")]
@@ -181,6 +183,10 @@ pub enum Token {
     And,
     #[token("or")]
     Or,
+    #[token("import")]
+    Import,
+    #[token("as")]
+    As,
 
     #[regex("[a-zA-Z_][a-zA-Z0-9_]*")]
     Identifier,
@@ -283,6 +289,9 @@ impl Token {
             Token::False => "`false`",
             Token::And => "`and`",
             Token::Or => "`or`",
+            Token::Import => "`import`",
+            Token::As => "`as`",
+            Token::DoubleColon => "`::`",
             Token::Identifier => "identifier",
             Token::DecimalLiteral => "decimal literal",
             Token::HexLiteral => "hex literal",
@@ -298,7 +307,79 @@ impl Token {
     }
 }
 
-pub type SourceSpan = Span<u32>;
+newtype_index! {
+    pub struct TokenIdx;
+    pub struct SourceByteOffset;
+}
+
+pub type SourceSpan = Span<SourceByteOffset>;
+
+#[derive(Debug, Clone)]
+pub struct Lexed<'src> {
+    source: &'src str,
+    tokens: IndexVec<TokenIdx, Token>,
+    source_ends: IndexVec<TokenIdx, SourceByteOffset>,
+}
+
+const LEN_TO_TOKEN_CAPACITY: usize = 4;
+
+impl<'src> Lexed<'src> {
+    pub fn lex(source: &'src str) -> Self {
+        let mut tokens = IndexVec::with_capacity(source.len().div_ceil(LEN_TO_TOKEN_CAPACITY));
+        let mut source_ends = IndexVec::with_capacity(source.len().div_ceil(LEN_TO_TOKEN_CAPACITY));
+        let mut last_end = SourceByteOffset::ZERO;
+
+        let mut lexer = Lexer::new(source);
+        loop {
+            let (tok, span) = lexer.next_with_eof();
+            tokens.push(tok);
+            source_ends.push(span.end);
+            debug_assert!(last_end == span.start);
+            last_end = span.end;
+            if tok == Token::Eof {
+                break;
+            }
+        }
+
+        Self { source, tokens, source_ends }
+    }
+
+    fn token_src_start(&self, token: TokenIdx) -> SourceByteOffset {
+        if token == TokenIdx::ZERO { SourceByteOffset::ZERO } else { self.source_ends[token - 1] }
+    }
+
+    pub fn source(&self) -> &str {
+        self.source
+    }
+
+    pub fn token_src(&self, token: TokenIdx) -> &str {
+        &self.source[self.token_src_span(token).usize_range()]
+    }
+
+    pub fn tokens_src(&self, tokens: Span<TokenIdx>) -> &str {
+        &self.source[self.tokens_src_span(tokens).usize_range()]
+    }
+
+    pub fn tokens_src_span(&self, tokens: Span<TokenIdx>) -> Span<SourceByteOffset> {
+        let start = self.token_src_start(tokens.start);
+        // Span is exclusive so we want the end token's start.
+        let end = self.token_src_start(tokens.end);
+        Span::new(start, end)
+    }
+
+    pub fn token_src_span(&self, index: TokenIdx) -> Span<SourceByteOffset> {
+        let start = self.token_src_start(index);
+        Span::new(start, self.source_ends[index])
+    }
+
+    pub fn get(&self, index: TokenIdx) -> (Token, Span<SourceByteOffset>) {
+        (self.tokens[index], self.token_src_span(index))
+    }
+
+    pub fn len(&self) -> TokenIdx {
+        self.tokens.len_idx()
+    }
+}
 
 pub const MAX_SOURCE_LENGTH: u32 = u32::MAX - 1;
 
@@ -312,10 +393,14 @@ impl<'src> Lexer<'src> {
         // Ensures source offsets always fit into u32 and results in at most 2^32-1 tokens
         // (including Eof).
         assert!(
-            source.len() <= MAX_SOURCE_LENGTH as usize,
+            source.len() <= SourceByteOffset::MAX_USIZE,
             "source.len() exceeds MAX_SOURCE_LENGTH"
         );
         Self { inner: Token::lexer(source) }
+    }
+
+    pub fn remaining_source(&self) -> &'src str {
+        self.inner.remainder()
     }
 
     pub fn next_with_eof(&mut self) -> (Token, SourceSpan) {
@@ -324,7 +409,10 @@ impl<'src> Lexer<'src> {
             None => Token::Eof,
         };
         let span = self.inner.span();
-        let span = Span::new(span.start as u32, span.end as u32);
+        let span = Span::new(
+            SourceByteOffset::new(span.start as u32),
+            SourceByteOffset::new(span.end as u32),
+        );
         (token, span)
     }
 }
@@ -344,7 +432,7 @@ mod tests {
 
     fn lex_all(source: &str) -> Vec<(Token, std::ops::Range<u32>, &str)> {
         Lexer::new(source)
-            .map(|(tok, span)| (tok, span.range(), &source[span.usize_range()]))
+            .map(|(tok, span)| (tok, span.start.get()..span.end.get(), &source[span.usize_range()]))
             .collect()
     }
 

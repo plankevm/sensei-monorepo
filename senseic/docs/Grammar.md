@@ -2,11 +2,14 @@
 
 ```ebnf
 program = decl*
-decl = init | run | const_def
+decl = init | run | const_def | import
 
 init = "init" block
 run = "run" block
 const_def = "const" IDENT (":" expr)? "=" expr ";"
+import = "import" IDENT ("::" IDENT)* (suffix_import_all | suffix_import_as)? ";"
+suffix_import_all = "::" "*"
+suffix_import_as = "as" IDENT
 
 # Expressions
 expr = "comptime"? block | if_expr | expr_no_block

@@ -18,11 +18,10 @@ pub struct EthIRBuilder {
     pub(crate) functions: IndexVec<FunctionId, Function>,
     pub(crate) basic_blocks: IndexVec<BasicBlockId, BasicBlock>,
     pub(crate) operations: IndexVec<OperationIdx, Operation>,
-    pub(crate) data_segments_start: IndexVec<DataId, DataOffset>,
+    pub(crate) data_segments: ListOfLists<DataId, u8>,
 
     // IR Data
     pub(crate) locals: IndexVec<LocalIdx, LocalId>,
-    pub(crate) data_bytes: IndexVec<DataOffset, u8>,
     pub(crate) large_consts: IndexVec<LargeConstId, U256>,
     pub(crate) cases: IndexVec<CasesId, Cases>,
     pub(crate) cases_bb_ids: IndexVec<CasesBasicBlocksIdx, BasicBlockId>,
@@ -31,14 +30,13 @@ pub struct EthIRBuilder {
 impl EthIRBuilder {
     pub fn new() -> Self {
         Self {
-            next_local_id: LocalId::new(0),
-            next_alloc_id: StaticAllocId::new(0),
+            next_local_id: LocalId::default(),
+            next_alloc_id: StaticAllocId::default(),
             functions: IndexVec::new(),
             basic_blocks: IndexVec::new(),
             operations: IndexVec::new(),
-            data_segments_start: IndexVec::new(),
+            data_segments: ListOfLists::new(),
             locals: IndexVec::new(),
-            data_bytes: IndexVec::new(),
             large_consts: IndexVec::new(),
             cases: IndexVec::new(),
             cases_bb_ids: IndexVec::new(),
@@ -52,9 +50,8 @@ impl EthIRBuilder {
             functions: self.functions,
             basic_blocks: self.basic_blocks,
             operations: self.operations,
-            data_segments_start: self.data_segments_start,
+            data_segments: self.data_segments,
             locals: self.locals,
-            data_bytes: self.data_bytes,
             large_consts: self.large_consts,
             cases: self.cases,
             cases_bb_ids: self.cases_bb_ids,
@@ -95,9 +92,7 @@ impl EthIRBuilder {
     }
 
     pub fn push_data_bytes(&mut self, bytes: &[u8]) -> DataId {
-        let start_offset = self.data_bytes.next_idx();
-        self.data_bytes.as_mut_vec().extend_from_slice(bytes);
-        self.data_segments_start.push(start_offset)
+        self.data_segments.push_copy_slice(bytes)
     }
 
     // Function builder

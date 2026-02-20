@@ -92,7 +92,6 @@ fn dfs_postorder(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use sir_data::Idx;
     use sir_parser::{EmitConfig, parse_or_panic};
 
     fn bb(n: u32) -> BasicBlockId {

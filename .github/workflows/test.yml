@@ -18,10 +18,5 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - uses: foundry-rs/foundry-toolchain@v1
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: senseic -> target
-      - run: cargo test --workspace
-      - run: forge test --ffi
-        working-directory: senseic/sir/sir-solidity-diff-tests
+      - uses: ./.github/actions/setup-rust-env
+      - run: just test-all

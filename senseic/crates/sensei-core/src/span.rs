@@ -1,4 +1,4 @@
-use crate::{Idx, newtype_index};
+use crate::Idx;
 
 pub trait IncIterable: Eq + Ord {
     fn get_and_inc(&mut self) -> Self;
@@ -41,8 +41,8 @@ impl<T: Eq> Span<T> {
 }
 
 impl<I: Idx> Span<I> {
-    pub fn dummy() -> Self {
-        Self { start: I::max_value(), end: I::new(0) }
+    pub const fn dummy() -> Self {
+        Self { start: I::MAX, end: I::ZERO }
     }
 
     pub fn is_dummy(self) -> bool {
@@ -63,13 +63,6 @@ impl<T: IncIterable> Span<T> {
         IncIterator { start, end }
     }
 }
-
-const _SPAN_OPTION_SIZE: () = const {
-    newtype_index! {
-        struct ExampleIdx;
-    }
-    assert!(std::mem::size_of::<Option<Span<ExampleIdx>>>() == 8);
-};
 
 pub trait ToUsize {
     fn to_usize(self) -> usize;

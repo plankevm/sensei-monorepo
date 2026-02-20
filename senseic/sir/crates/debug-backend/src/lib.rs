@@ -30,7 +30,7 @@ impl MarkMap {
         next_mark_id += ir.basic_blocks.len() as u32;
 
         let data_marks_start = next_mark_id;
-        next_mark_id += ir.data_segments_start.len() as u32;
+        next_mark_id += ir.data_segments.len() as u32;
 
         let runtime_start = next_mark_id.get_and_inc();
         let bytecode_end = next_mark_id.get_and_inc();
@@ -210,8 +210,7 @@ pub fn ir_to_bytecode(ir: &EthIRProgram, result: &mut Vec<u8>) {
         translator.translate_basic_blocks_from_entry_point(main_entry);
     }
 
-    for data_id in sensei_core::Span::new(DataId::ZERO, ir.data_segments_start.len_idx()).iter() {
-        let bytes = &ir.data_bytes[ir.get_segment_span(data_id)];
+    for (data_id, bytes) in ir.data_segments.enumerate_idx() {
         let mark = translator.mark_map.get_data_mark(data_id);
         translator.asm.push_mark(mark);
         translator.asm.push_data(bytes);
