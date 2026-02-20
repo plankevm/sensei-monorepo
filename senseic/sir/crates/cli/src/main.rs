@@ -1,6 +1,6 @@
 use clap::Parser;
 use sir_data::EthIRProgram;
-use sir_optimizations::{Optimization, PrunerState};
+use sir_optimizations::{GlobalPruner, Optimization};
 use sir_parser::{EmitConfig, parse_or_panic};
 use std::{
     fs,
@@ -88,7 +88,7 @@ fn main() {
 
     let program = if cli.global_prune {
         let mut new_ir = EthIRProgram::default();
-        let mut pruner = PrunerState::new();
+        let mut pruner = GlobalPruner::new();
         pruner.run(&program, &mut new_ir, None);
         new_ir
     } else {

@@ -1,11 +1,11 @@
 mod constant_propagation;
 mod copy_propagation;
-mod global_prune_pass;
+mod global_pruner;
 mod unused_operation_elimination;
 
 use sir_data::EthIRProgram;
 
-pub use global_prune_pass::PrunerState;
+pub use global_pruner::GlobalPruner;
 
 pub enum Optimization {
     CopyPropagation,
