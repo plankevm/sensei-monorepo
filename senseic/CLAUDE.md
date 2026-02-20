@@ -6,11 +6,15 @@ Senseic is a compiler frontend for the Sensei programming language.
 
 ```bash
 cargo test -p <crate name> # Run during work on a specific crate for validation
-./run-all-tests.sh # Run all tests at end of task
 
 # Run formatter & linter at the end of a task
-cargo +nightly fmt --all
-cargo +nightly clippy --workspace --all-targets --all-features -- -D warnings
+just check
+
+# Run all rust tests
+just test
+
+# Run all tests (including SIR solidity diff tests)
+just test-all
 ```
 
 ## Workspace Structure
@@ -56,3 +60,15 @@ Only add comments for non-obvious *why* decisions.
 Where heap allocations cannot be avoided you MUST ENSURE that the algorithms or
 functions you write at a high-level only make a constant number of allocations
 relative to the input size.
+
+### Warnings
+
+Never add `#[allow(dead_code)]` to supress dead code warnings. For WIP code it
+is expected, for code that's actually dead no longer used & will not be used in
+future delete.
+
+## Docs (`docs/`)
+- `./docs/Grammar.md`: Grammar definition, to be referenced for parser work
+- `./docs/Frontend-Architecture.md`: Frontend architecture, read for context on
+  intended frontend design and structure.
+
