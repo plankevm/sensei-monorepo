@@ -1,5 +1,6 @@
 use clap::Parser;
-use sir_optimizations::Optimization;
+use sir_data::EthIRProgram;
+use sir_optimizations::{Optimization, PrunerState};
 use sir_parser::{EmitConfig, parse_or_panic};
 use std::{
     fs,
@@ -78,16 +79,21 @@ fn main() {
     let mut program = parse_or_panic(&source, config);
 
     if cli.copy_propagation {
-        Optimization::CopyPropagation.apply(&mut program, None);
+        Optimization::CopyPropagation.apply(&mut program);
     }
 
     if cli.constant_propagation {
-        Optimization::ConstantPropagation.apply(&mut program, None);
+        Optimization::ConstantPropagation.apply(&mut program);
     }
 
-    if cli.global_prune {
-        Optimization::ConstantPropagation.apply(&mut program, None);
-    }
+    let program = if cli.global_prune {
+        let mut new_ir = EthIRProgram::default();
+        let mut pruner = PrunerState::new();
+        pruner.run(&program, &mut new_ir, None);
+        new_ir
+    } else {
+        program
+    };
 
     let mut bytecode = Vec::with_capacity(0x6000);
     sir_debug_backend::ir_to_bytecode(&program, &mut bytecode);
