@@ -21,7 +21,7 @@ fn strip_leading(s: &str) -> &[u8] {
 pub fn from_radix16_in<I: Idx>(s: &str, limb_storage: &mut ListOfLists<I, u32>) -> I {
     limb_storage.push_with(|mut pusher| {
         let mut i = 0usize;
-        let mut limb = 0 as u32;
+        let mut limb = 0u32;
         for &c in strip_leading(s).iter().rev() {
             let nibble_shift = i * NIBBLE_BITS;
             let nibble = match c {
@@ -53,7 +53,7 @@ pub fn from_radix16_in<I: Idx>(s: &str, limb_storage: &mut ListOfLists<I, u32>) 
 pub fn from_radix2_in<I: Idx>(s: &str, limb_storage: &mut ListOfLists<I, u32>) -> I {
     limb_storage.push_with(|mut pusher| {
         let mut i = 0usize;
-        let mut limb = 0 as u32;
+        let mut limb = 0u32;
         for &c in strip_leading(s).iter().rev() {
             let bit_shift = i;
             let bit = match c {
