@@ -1553,6 +1553,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "sensei-hir"
+version = "0.1.0"
+dependencies = [
+ "allocator-api2",
+ "alloy-primitives",
+ "hashbrown 0.16.0",
+ "plank-diagnostics",
+ "sensei-core",
+ "sensei-parser",
+]
+
+[[package]]
 name = "sensei-parser"
 version = "0.1.0"
 dependencies = [

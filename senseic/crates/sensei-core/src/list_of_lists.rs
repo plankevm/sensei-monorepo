@@ -77,6 +77,18 @@ impl<I: Idx, T> ListOfLists<I, T> {
     pub fn len(&self) -> usize {
         self.starts.len()
     }
+
+    pub fn get(&self, index: I) -> Option<&[T]> {
+        let start = *self.starts.get(index)? as usize;
+        let end = self.values_end(index);
+        Some(&self.values[start..end])
+    }
+
+    pub fn get_mut(&mut self, index: I) -> Option<&mut [T]> {
+        let start = *self.starts.get(index)? as usize;
+        let end = self.values_end(index);
+        Some(&mut self.values[start..end])
+    }
 }
 
 impl<I: Idx, T> std::ops::Index<I> for ListOfLists<I, T> {
