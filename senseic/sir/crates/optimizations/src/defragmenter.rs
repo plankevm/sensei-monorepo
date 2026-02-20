@@ -1,31 +1,31 @@
 use sensei_core::span::IncIterable;
 use sir_data::{
-    BasicBlock, BasicBlockId, Branch, Cases, CasesId, Control, ControlView, DataId, DenseIndexSet,
-    EthIRProgram, Function, FunctionId, Idx, LargeConstId, LocalId, LocalIdx, Operation,
-    OperationIdx, Span, StaticAllocId, Switch,
+    BasicBlock, BasicBlockId, BlockView, Branch, Cases, CasesId, Control, ControlView, DataId,
+    DenseIndexSet, EthIRProgram, Function, FunctionId, Idx, LargeConstId, LocalId, LocalIdx,
+    Operation, OperationIdx, Span, StaticAllocId, Switch,
     operation::{OpVisitor, OpVisitorMut},
 };
 use std::collections::HashMap;
 
-pub struct GlobalPruner {
+pub struct Defragmenter {
     func_worklist: Vec<FunctionId>,
     block_worklist: Vec<BasicBlockId>,
     local_map: HashMap<LocalId, LocalId>,
     static_alloc_map: HashMap<StaticAllocId, StaticAllocId>,
-    large_const_map: HashMap<LargeConstId, Option<LargeConstId>>,
-    data_map: HashMap<DataId, Option<DataId>>,
-    function_map: HashMap<FunctionId, Option<FunctionId>>,
-    block_map: HashMap<BasicBlockId, Option<BasicBlockId>>,
-    cases_map: HashMap<CasesId, Option<CasesId>>,
+    large_const_map: HashMap<LargeConstId, LargeConstId>,
+    data_map: HashMap<DataId, DataId>,
+    function_map: HashMap<FunctionId, FunctionId>,
+    block_map: HashMap<BasicBlockId, BasicBlockId>,
+    cases_map: HashMap<CasesId, CasesId>,
 }
 
-impl Default for GlobalPruner {
+impl Default for Defragmenter {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl GlobalPruner {
+impl Defragmenter {
     pub fn new() -> Self {
         Self {
             func_worklist: Vec::new(),
@@ -60,181 +60,124 @@ impl GlobalPruner {
     ) {
         self.clear();
         dst.clear();
-        let mut pruner = PrunerContext { state: self, src, dst, live_blocks };
-        pruner.analyze();
-        pruner.apply();
+        Rewriter { state: self, src, dst, live_blocks }.rewrite();
     }
 }
 
-struct PrunerContext<'a> {
-    state: &'a mut GlobalPruner,
+struct Rewriter<'a> {
+    state: &'a mut Defragmenter,
     src: &'a EthIRProgram,
     dst: &'a mut EthIRProgram,
     live_blocks: Option<&'a DenseIndexSet<BasicBlockId>>,
 }
 
-impl<'a> PrunerContext<'a> {
-    fn analyze(&mut self) {
+impl<'a> Rewriter<'a> {
+    fn rewrite(mut self) {
         self.state.func_worklist.push(self.src.init_entry);
         if let Some(main) = self.src.main_entry {
             self.state.func_worklist.push(main);
         }
 
         while let Some(function) = self.state.func_worklist.pop() {
-            self.track_function(function);
+            self.emit_function(function);
+        }
+
+        self.patch_block_control();
+
+        self.dst.init_entry = self.state.function_map[&self.src.init_entry];
+        self.dst.main_entry = self.src.main_entry.map(|m| self.state.function_map[&m]);
+    }
+
+    fn emit_function(&mut self, old_id: FunctionId) {
+        let old_func = self.src.function(old_id);
+        let old_entry_id = old_func.entry().id();
+
+        // We check block_map instead of function_map because visit_icall eagerly
+        // reserves function IDs before the function is emitted. Entry block being
+        // emitted implies the function has been fully processed.
+        if self.state.block_map.contains_key(&old_entry_id) {
+            return;
+        }
+
+        self.reserve_function_id(old_id);
+
+        self.push_block(old_entry_id);
+        while let Some(bb) = self.state.block_worklist.pop() {
+            self.emit_block(bb);
+        }
+
+        let new_id = self.state.function_map[&old_id];
+        let new_entry = self.state.block_map[&old_entry_id];
+        self.dst.functions[new_id] = Function::new(new_entry, old_func.num_outputs());
+    }
+
+    fn reserve_function_id(&mut self, old_id: FunctionId) -> bool {
+        if self.state.function_map.contains_key(&old_id) {
+            false
+        } else {
+            let placeholder =
+                Function::new(BasicBlockId::ZERO, self.src.function(old_id).num_outputs());
+            self.state.function_map.insert(old_id, self.dst.functions.push(placeholder));
+            true
         }
     }
 
-    fn apply(&mut self) {
-        self.copy_data_segments();
-        self.copy_large_consts();
-        self.reserve_block_ids();
-        self.copy_cases();
-        self.copy_functions();
-        self.fill_blocks();
+    fn emit_block(&mut self, old_id: BasicBlockId) {
+        if self.state.block_map.contains_key(&old_id) {
+            return;
+        }
+        if self.live_blocks.is_some_and(|blocks| !blocks.contains(old_id)) {
+            return;
+        }
 
-        self.dst.init_entry =
-            self.state.function_map[&self.src.init_entry].expect("init_entry should be copied");
-        self.dst.main_entry = self
-            .src
-            .main_entry
-            .map(|m| self.state.function_map[&m].expect("main_entry should be copied"));
+        let placeholder = BasicBlock {
+            inputs: Span::new(LocalIdx::ZERO, LocalIdx::ZERO),
+            outputs: Span::new(LocalIdx::ZERO, LocalIdx::ZERO),
+            operations: Span::new(OperationIdx::ZERO, OperationIdx::ZERO),
+            control: Control::LastOpTerminates,
+        };
+        let new_id = self.dst.basic_blocks.push(placeholder);
+        self.state.block_map.insert(old_id, new_id);
+        let block = self.src.block(old_id);
+
+        let inputs = self.emit_block_locals(block.inputs());
+        let outputs = self.emit_block_locals(block.outputs());
+        let operations = self.emit_block_operations(block);
+
+        self.dst.basic_blocks[new_id] =
+            BasicBlock { inputs, outputs, operations, control: Control::LastOpTerminates };
+
+        self.discover_successors(block);
     }
 
-    fn copy_data_segments(&mut self) {
-        for (old_id, bytes) in self.src.data_segments.enumerate_idx() {
-            if let Some(None) = self.state.data_map.get(&old_id) {
-                let new_id = self.dst.data_segments.push_copy_slice(bytes);
-                self.state.data_map.insert(old_id, Some(new_id));
+    fn emit_block_locals(&mut self, locals: &[LocalId]) -> Span<LocalIdx> {
+        let start = self.dst.locals.next_idx();
+        for local in locals {
+            self.emit_local(*local);
+            self.dst.locals.push(self.state.local_map[local]);
+        }
+        Span::new(start, self.dst.locals.next_idx())
+    }
+
+    fn emit_local(&mut self, local: LocalId) {
+        self.state
+            .local_map
+            .entry(local)
+            .or_insert_with(|| self.dst.next_free_local_id.get_and_inc());
+    }
+
+    fn emit_block_operations(&mut self, block: BlockView<'_>) -> Span<OperationIdx> {
+        let start = self.dst.operations.next_idx();
+        for op in block.operations() {
+            let operation = op.op();
+            if matches!(operation, Operation::Noop(())) {
+                continue;
             }
+            operation.visit_data(self);
+            let remapped = self.remap_operation(operation);
+            self.dst.operations.push(remapped);
         }
-    }
-
-    fn copy_large_consts(&mut self) {
-        for (old_id, &value) in self.src.large_consts.enumerate_idx() {
-            if let Some(None) = self.state.large_const_map.get(&old_id) {
-                let new_id = self.dst.large_consts.push(value);
-                self.state.large_const_map.insert(old_id, Some(new_id));
-            }
-        }
-    }
-
-    fn reserve_block_ids(&mut self) {
-        for (old_id, _) in self.src.basic_blocks.enumerate_idx() {
-            if let Some(None) = self.state.block_map.get(&old_id) {
-                let placeholder = BasicBlock {
-                    inputs: Span::new(LocalIdx::ZERO, LocalIdx::ZERO),
-                    outputs: Span::new(LocalIdx::ZERO, LocalIdx::ZERO),
-                    operations: Span::new(OperationIdx::ZERO, OperationIdx::ZERO),
-                    control: Control::LastOpTerminates,
-                };
-                let new_id = self.dst.basic_blocks.push(placeholder);
-                self.state.block_map.insert(old_id, Some(new_id));
-            }
-        }
-    }
-
-    fn copy_cases(&mut self) {
-        for (old_id, old_cases) in self.src.cases.enumerate_idx() {
-            if let Some(None) = self.state.cases_map.get(&old_id) {
-                let new_values_start = self.state.large_const_map[&old_cases.values_start_id]
-                    .expect("large const should be copied");
-                debug_assert!((0..old_cases.cases_count).all(|i| {
-                    self.state.large_const_map[&(old_cases.values_start_id + i)]
-                        == Some(new_values_start + i)
-                }));
-
-                let new_targets_start = self.dst.cases_bb_ids.next_idx();
-                for old_bb_id in old_cases.get_bb_ids(self.src).as_raw_slice() {
-                    let new_bb_id =
-                        self.state.block_map[old_bb_id].expect("block should be copied");
-                    self.dst.cases_bb_ids.push(new_bb_id);
-                }
-
-                let new_cases = Cases {
-                    values_start_id: new_values_start,
-                    targets_start_id: new_targets_start,
-                    cases_count: old_cases.cases_count,
-                };
-                let new_id = self.dst.cases.push(new_cases);
-                self.state.cases_map.insert(old_id, Some(new_id));
-            }
-        }
-    }
-
-    fn copy_functions(&mut self) {
-        for (old_id, old_func) in self.src.functions.enumerate_idx() {
-            if let Some(None) = self.state.function_map.get(&old_id) {
-                let new_entry =
-                    self.state.block_map[&old_func.entry()].expect("entry block should be copied");
-                let new_func = Function::new(new_entry, old_func.get_outputs());
-                let new_id = self.dst.functions.push(new_func);
-                self.state.function_map.insert(old_id, Some(new_id));
-            }
-        }
-    }
-
-    fn fill_blocks(&mut self) {
-        for (old_id, old_block) in self.src.basic_blocks.enumerate_idx() {
-            if let Some(Some(new_id)) = self.state.block_map.get(&old_id).copied() {
-                let inputs_start = self.dst.locals.next_idx();
-                for old_local in self.src.block(old_id).inputs() {
-                    let new_local = self.state.local_map[old_local];
-                    self.dst.locals.push(new_local);
-                }
-                let inputs_end = self.dst.locals.next_idx();
-
-                let outputs_start = self.dst.locals.next_idx();
-                for old_local in self.src.block(old_id).outputs() {
-                    let new_local = self.state.local_map[old_local];
-                    self.dst.locals.push(new_local);
-                }
-                let outputs_end = self.dst.locals.next_idx();
-
-                let ops_start = self.dst.operations.next_idx();
-                for op in self.src.block(old_id).operations() {
-                    if matches!(op.op(), Operation::Noop(())) {
-                        continue;
-                    }
-                    let remapped_op = self.remap_operation(op.op());
-                    self.dst.operations.push(remapped_op);
-                }
-                let ops_end = self.dst.operations.next_idx();
-
-                let new_control = self.remap_control(&old_block.control);
-
-                self.dst.basic_blocks[new_id] = BasicBlock {
-                    inputs: Span::new(inputs_start, inputs_end),
-                    outputs: Span::new(outputs_start, outputs_end),
-                    operations: Span::new(ops_start, ops_end),
-                    control: new_control,
-                };
-            }
-        }
-    }
-
-    fn remap_control(&self, control: &Control) -> Control {
-        match control {
-            Control::LastOpTerminates => Control::LastOpTerminates,
-            Control::InternalReturn => Control::InternalReturn,
-            Control::ContinuesTo(bb) => {
-                Control::ContinuesTo(self.state.block_map[bb].expect("block should be copied"))
-            }
-            Control::Branches(branch) => Control::Branches(Branch {
-                condition: self.state.local_map[&branch.condition],
-                non_zero_target: self.state.block_map[&branch.non_zero_target]
-                    .expect("block should be copied"),
-                zero_target: self.state.block_map[&branch.zero_target]
-                    .expect("block should be copied"),
-            }),
-            Control::Switch(switch) => Control::Switch(Switch {
-                condition: self.state.local_map[&switch.condition],
-                fallback: switch
-                    .fallback
-                    .map(|fb| self.state.block_map[&fb].expect("block should be copied")),
-                cases: self.state.cases_map[&switch.cases].expect("cases should be copied"),
-            }),
-        }
+        Span::new(start, self.dst.operations.next_idx())
     }
 
     fn remap_operation(&mut self, mut op: Operation) -> Operation {
@@ -242,103 +185,120 @@ impl<'a> PrunerContext<'a> {
         op
     }
 
-    fn track_function(&mut self, function: FunctionId) {
-        if self.state.function_map.contains_key(&function) {
-            return;
-        }
-        self.state.function_map.insert(function, None);
-        self.state.block_worklist.push(self.src.function(function).entry().id());
-        while let Some(bb) = self.state.block_worklist.pop() {
-            self.track_block(bb);
-        }
-    }
-
-    fn track_block(&mut self, bb: BasicBlockId) {
-        if self.state.block_map.contains_key(&bb) {
-            return;
-        }
-        if self.live_blocks.is_some_and(|reachable| !reachable.contains(bb)) {
-            return;
-        }
-
-        self.state.block_map.insert(bb, None);
-        let block = self.src.block(bb);
-
-        for op in block.operations() {
-            if matches!(op.op(), Operation::Noop(())) {
-                continue;
-            }
-            op.op().visit_data(self);
-        }
-
-        for input in block.inputs() {
-            self.track_local(*input);
-        }
-        for output in block.outputs() {
-            self.track_local(*output);
-        }
-
+    fn discover_successors(&mut self, block: BlockView<'_>) {
         match block.control() {
             ControlView::LastOpTerminates | ControlView::InternalReturn => {}
-            ControlView::ContinuesTo(to) => self.state.block_worklist.push(to),
+            ControlView::ContinuesTo(to) => self.push_block(to),
             ControlView::Branches { condition, non_zero_target, zero_target } => {
-                self.track_local(condition);
-                self.state.block_worklist.push(non_zero_target);
-                self.state.block_worklist.push(zero_target);
+                debug_assert!(self.state.local_map.contains_key(&condition));
+                self.push_block(non_zero_target);
+                self.push_block(zero_target);
             }
-            ControlView::Switch(switch_view) => {
-                self.track_local(switch_view.condition());
-                self.track_cases(switch_view.cases_id());
-
-                if let Some(fb) = switch_view.fallback() {
-                    self.state.block_worklist.push(fb);
+            ControlView::Switch(switch) => {
+                debug_assert!(self.state.local_map.contains_key(&switch.condition()));
+                if let Some(fb) = switch.fallback() {
+                    self.push_block(fb);
                 }
-
-                for (_, target) in switch_view.cases() {
-                    self.state.block_worklist.push(target);
+                let old_cases = &self.src.cases[switch.cases_id()];
+                for i in 0..old_cases.cases_count {
+                    self.emit_large_const(old_cases.values_start_id + i);
                 }
-
-                for const_id in switch_view.value_ids() {
-                    self.track_large_const(const_id);
+                for old_bb_id in old_cases.get_bb_ids(self.src).as_raw_slice() {
+                    self.push_block(*old_bb_id);
                 }
             }
         }
     }
 
-    fn track_local(&mut self, local: LocalId) {
-        if !self.state.local_map.contains_key(&local) {
-            let new_id = self.dst.next_free_local_id.get_and_inc();
-            self.state.local_map.insert(local, new_id);
+    fn push_block(&mut self, bb: BasicBlockId) {
+        debug_assert!(
+            self.live_blocks.is_none_or(|live| live.contains(bb)),
+            "successor {bb:?} should be in live_blocks"
+        );
+        self.state.block_worklist.push(bb);
+    }
+
+    fn patch_block_control(&mut self) {
+        let block_map = &self.state.block_map;
+        let local_map = &self.state.local_map;
+        let large_const_map = &self.state.large_const_map;
+        let cases_map = &mut self.state.cases_map;
+
+        for (old_id, new_id) in block_map {
+            let new_control = match self.src.block(*old_id).control() {
+                ControlView::LastOpTerminates => Control::LastOpTerminates,
+                ControlView::InternalReturn => Control::InternalReturn,
+                ControlView::ContinuesTo(bb) => Control::ContinuesTo(block_map[&bb]),
+                ControlView::Branches { condition, non_zero_target, zero_target } => {
+                    Control::Branches(Branch {
+                        condition: local_map[&condition],
+                        non_zero_target: block_map[&non_zero_target],
+                        zero_target: block_map[&zero_target],
+                    })
+                }
+                ControlView::Switch(switch) => {
+                    let cases_id = *cases_map.entry(switch.cases_id()).or_insert_with(|| {
+                        let old_cases = &self.src.cases[switch.cases_id()];
+                        let new_values_start = large_const_map[&old_cases.values_start_id];
+
+                        debug_assert!(
+                            (0..old_cases.cases_count).all(|i| {
+                                large_const_map[&(old_cases.values_start_id + i)]
+                                    == new_values_start + i
+                            }),
+                            "case value large consts should be contiguous after emission"
+                        );
+
+                        let new_targets_start = self.dst.cases_bb_ids.next_idx();
+                        for old_bb_id in old_cases.get_bb_ids(self.src).as_raw_slice() {
+                            self.dst.cases_bb_ids.push(block_map[old_bb_id]);
+                        }
+
+                        self.dst.cases.push(Cases {
+                            values_start_id: new_values_start,
+                            targets_start_id: new_targets_start,
+                            cases_count: old_cases.cases_count,
+                        })
+                    });
+                    Control::Switch(Switch {
+                        condition: local_map[&switch.condition()],
+                        fallback: switch.fallback().map(|fb| block_map[&fb]),
+                        cases: cases_id,
+                    })
+                }
+            };
+            self.dst.basic_blocks[*new_id].control = new_control;
         }
     }
 
-    fn track_static_alloc(&mut self, alloc_id: StaticAllocId) {
-        if !self.state.static_alloc_map.contains_key(&alloc_id) {
-            let new_id = self.dst.next_static_alloc_id.get_and_inc();
-            self.state.static_alloc_map.insert(alloc_id, new_id);
-        }
+    fn emit_static_alloc(&mut self, alloc_id: StaticAllocId) {
+        self.state
+            .static_alloc_map
+            .entry(alloc_id)
+            .or_insert_with(|| self.dst.next_static_alloc_id.get_and_inc());
     }
 
-    fn track_large_const(&mut self, const_id: LargeConstId) {
-        self.state.large_const_map.entry(const_id).or_insert(None);
+    fn emit_large_const(&mut self, const_id: LargeConstId) {
+        self.state
+            .large_const_map
+            .entry(const_id)
+            .or_insert_with(|| self.dst.large_consts.push(self.src.large_consts[const_id]));
     }
 
-    fn track_data(&mut self, data_id: DataId) {
-        self.state.data_map.entry(data_id).or_insert(None);
-    }
-
-    fn track_cases(&mut self, cases_id: CasesId) {
-        self.state.cases_map.entry(cases_id).or_insert(None);
+    fn emit_data(&mut self, data_id: DataId) {
+        self.state.data_map.entry(data_id).or_insert_with(|| {
+            self.dst.data_segments.push_copy_slice(&self.src.data_segments[data_id])
+        });
     }
 }
 
-impl<'a> OpVisitor<'_, ()> for PrunerContext<'a> {
+impl<'a> OpVisitor<'_, ()> for Rewriter<'a> {
     fn visit_inline_operands<const INS: usize, const OUTS: usize>(
         &mut self,
         data: &'_ sir_data::operation::InlineOperands<INS, OUTS>,
     ) {
         for local in data.ins.iter().chain(data.outs.iter()) {
-            self.track_local(*local);
+            self.emit_local(*local);
         }
     }
 
@@ -347,52 +307,54 @@ impl<'a> OpVisitor<'_, ()> for PrunerContext<'a> {
         data: &'_ sir_data::operation::AllocatedIns<INS, OUTS>,
     ) {
         for local in data.get_inputs(self.src).iter().chain(data.outs.iter()) {
-            self.track_local(*local);
+            self.emit_local(*local);
         }
     }
 
     fn visit_static_alloc(&mut self, data: &'_ sir_data::operation::StaticAllocData) {
-        self.track_local(data.ptr_out);
-        self.track_static_alloc(data.alloc_id);
+        self.emit_local(data.ptr_out);
+        self.emit_static_alloc(data.alloc_id);
     }
 
     fn visit_memory_load(&mut self, data: &'_ sir_data::operation::MemoryLoadData) {
-        self.track_local(data.out);
-        self.track_local(data.ptr);
+        self.emit_local(data.out);
+        self.emit_local(data.ptr);
     }
 
     fn visit_memory_store(&mut self, data: &'_ sir_data::operation::MemoryStoreData) {
         for local in data.ins {
-            self.track_local(local);
+            self.emit_local(local);
         }
     }
 
     fn visit_set_small_const(&mut self, data: &'_ sir_data::operation::SetSmallConstData) {
-        self.track_local(data.sets);
+        self.emit_local(data.sets);
     }
 
     fn visit_set_large_const(&mut self, data: &'_ sir_data::operation::SetLargeConstData) {
-        self.track_local(data.sets);
-        self.track_large_const(data.value);
+        self.emit_local(data.sets);
+        self.emit_large_const(data.value);
     }
 
     fn visit_set_data_offset(&mut self, data: &'_ sir_data::operation::SetDataOffsetData) {
-        self.track_local(data.sets);
-        self.track_data(data.segment_id);
+        self.emit_local(data.sets);
+        self.emit_data(data.segment_id);
     }
 
     fn visit_icall(&mut self, data: &'_ sir_data::operation::InternalCallData) {
-        self.state.func_worklist.push(data.function);
+        if self.reserve_function_id(data.function) {
+            self.state.func_worklist.push(data.function);
+        }
 
-        for &local in data.get_inputs(self.src).iter().chain(data.get_outputs(self.src).iter()) {
-            self.track_local(local);
+        for local in data.get_inputs(self.src).iter().chain(data.get_outputs(self.src).iter()) {
+            self.emit_local(*local);
         }
     }
 
     fn visit_void(&mut self) {}
 }
 
-impl<'a> OpVisitorMut<'_, ()> for PrunerContext<'a> {
+impl<'a> OpVisitorMut<'_, ()> for Rewriter<'a> {
     fn visit_inline_operands_mut<const INS: usize, const OUTS: usize>(
         &mut self,
         data: &mut sir_data::operation::InlineOperands<INS, OUTS>,
@@ -439,27 +401,26 @@ impl<'a> OpVisitorMut<'_, ()> for PrunerContext<'a> {
 
     fn visit_set_large_const_mut(&mut self, data: &mut sir_data::operation::SetLargeConstData) {
         data.sets = self.state.local_map[&data.sets];
-        data.value = self.state.large_const_map[&data.value].expect("large const should be copied");
+        data.value = self.state.large_const_map[&data.value];
     }
 
     fn visit_set_data_offset_mut(&mut self, data: &mut sir_data::operation::SetDataOffsetData) {
         data.sets = self.state.local_map[&data.sets];
-        data.segment_id =
-            self.state.data_map[&data.segment_id].expect("data segment should be copied");
+        data.segment_id = self.state.data_map[&data.segment_id];
     }
 
     fn visit_icall_mut(&mut self, data: &mut sir_data::operation::InternalCallData) {
         let new_ins_start = self.dst.locals.next_idx();
-        for &old_local in data.get_inputs(self.src) {
-            self.dst.locals.push(self.state.local_map[&old_local]);
+        for old_local in data.get_inputs(self.src) {
+            self.dst.locals.push(self.state.local_map[old_local]);
         }
 
         let new_outs_start = self.dst.locals.next_idx();
-        for &old_local in data.get_outputs(self.src) {
-            self.dst.locals.push(self.state.local_map[&old_local]);
+        for old_local in data.get_outputs(self.src) {
+            self.dst.locals.push(self.state.local_map[old_local]);
         }
 
-        data.function = self.state.function_map[&data.function].expect("function should be copied");
+        data.function = self.state.function_map[&data.function];
         data.ins_start = new_ins_start;
         data.outs_start = new_outs_start;
     }
@@ -508,7 +469,7 @@ mod tests {
     }
 
     #[test]
-    fn test_sccp_unused_elim_and_prune() {
+    fn test_sccp_unused_elim_and_defragment() {
         let input = r#"
             fn init:
                 entry {
@@ -621,35 +582,35 @@ data .0 0xcafebabe
         );
 
         let mut dst = EthIRProgram::default();
-        let mut pruner = GlobalPruner::new();
-        pruner.run(&ir, &mut dst, Some(&sccp.reachable));
+        let mut defragmenter = Defragmenter::new();
+        defragmenter.run(&ir, &mut dst, Some(&sccp.reachable));
 
         let dst_str = sir_data::display_program(&dst);
         let expected_dst = r#"
 Functions:
-    fn @0 -> entry @0  (outputs: 1)
-    fn @1 -> entry @1  (outputs: 0)
+    fn @0 -> entry @0  (outputs: 0)
+    fn @1 -> entry @2  (outputs: 1)
 
 Basic Blocks:
-    @0 $4 $5 -> $6 {
-        $6 = add $4 $5
-        iret
+    @0 {
+        => @1
     }
 
     @1 {
-        => @2
-    }
-
-    @2 {
         $0 = const 0x1
         $1 = const 0x2
-        $2 = icall @0 $0 $1
+        $2 = icall @1 $0 $1
         $3 = const 0x0
         sstore $3 $2
         stop
     }
+
+    @2 $4 $5 -> $6 {
+        $6 = add $4 $5
+        iret
+    }
         "#;
-        assert_trim_strings_eq_with_diff(&dst_str, expected_dst, "dst after prune");
+        assert_trim_strings_eq_with_diff(&dst_str, expected_dst, "dst after defragment");
 
         assert_eq!(
             IrShape::of(&dst),
@@ -670,7 +631,7 @@ Basic Blocks:
     }
 
     #[test]
-    fn test_prune_dead_function_data() {
+    fn test_defragment_dead_function_data() {
         let input = r#"
             fn init:
                 entry {
@@ -773,7 +734,7 @@ Basic Blocks:
 data .0 0x1234
 data .1 0x5678
         "#;
-        assert_trim_strings_eq_with_diff(&src_str, expected_src, "src before prune");
+        assert_trim_strings_eq_with_diff(&src_str, expected_src, "src before defragment");
 
         assert_eq!(
             IrShape::of(&ir),
@@ -793,8 +754,8 @@ data .1 0x5678
         );
 
         let mut dst = EthIRProgram::default();
-        let mut pruner = GlobalPruner::new();
-        pruner.run(&ir, &mut dst, None);
+        let mut defragmenter = Defragmenter::new();
+        defragmenter.run(&ir, &mut dst, None);
 
         let dst_str = sir_data::display_program(&dst);
         let expected_dst = r#"
@@ -809,8 +770,8 @@ Basic Blocks:
         sstore $2 $0
         $3 = const 0x0
         switch $3 {
-            1 => @1,
-            2 => @2,
+            1 => @2,
+            2 => @1,
             else => @3
         }
 
@@ -831,7 +792,7 @@ Basic Blocks:
 
 data .0 0x1234
         "#;
-        assert_trim_strings_eq_with_diff(&dst_str, expected_dst, "dst after prune");
+        assert_trim_strings_eq_with_diff(&dst_str, expected_dst, "dst after defragment");
 
         assert_eq!(
             IrShape::of(&dst),

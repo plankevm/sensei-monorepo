@@ -1,6 +1,6 @@
 use clap::Parser;
 use sir_data::EthIRProgram;
-use sir_optimizations::{GlobalPruner, Optimization};
+use sir_optimizations::{Defragmenter, Optimization};
 use sir_parser::{EmitConfig, parse_or_panic};
 use std::{
     fs,
@@ -40,9 +40,9 @@ struct Cli {
     #[arg(long)]
     constant_propagation: bool,
 
-    /// Enable global pruning
+    /// Enable defragmentation
     #[arg(long)]
-    global_prune: bool,
+    defragment: bool,
 }
 
 fn read_input(input: Option<PathBuf>) -> String {
@@ -86,10 +86,10 @@ fn main() {
         Optimization::ConstantPropagation.apply(&mut program);
     }
 
-    let program = if cli.global_prune {
+    let program = if cli.defragment {
         let mut new_ir = EthIRProgram::default();
-        let mut pruner = GlobalPruner::new();
-        pruner.run(&program, &mut new_ir, None);
+        let mut defragmenter = Defragmenter::new();
+        defragmenter.run(&program, &mut new_ir, None);
         new_ir
     } else {
         program

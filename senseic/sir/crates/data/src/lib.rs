@@ -57,7 +57,7 @@ impl EthIRProgram {
         self.functions.clear();
         self.basic_blocks.clear();
         self.operations.clear();
-        self.data_segments = ListOfLists::new();
+        self.data_segments.clear();
         self.locals.clear();
         self.large_consts.clear();
         self.cases.clear();
