@@ -3,8 +3,8 @@ mod expr;
 pub use expr::*;
 
 use crate::{
-    cst::{NodeIdx, NodeKind, NodeView},
     StrId,
+    cst::{NodeIdx, NodeKind, NodeView},
 };
 
 #[derive(Debug, Clone, Copy)]

@@ -151,7 +151,7 @@ pub struct StructDef<'cst> {
 }
 
 impl<'cst> StructDef<'cst> {
-    pub fn type_expr(&self) -> Expr<'cst> {
+    pub fn index_expr(&self) -> Expr<'cst> {
         let child = self.view.child(0).expect("StructDef must have type_expr child");
         Expr::new_unwrap(child)
     }
@@ -260,9 +260,9 @@ impl<'cst> IfExpr<'cst> {
         Expr::new_unwrap(child)
     }
 
-    pub fn body(&self) -> Expr<'cst> {
+    pub fn body(&self) -> BlockExpr<'cst> {
         let child = self.view.child(1).expect("If must have body child");
-        Expr::new_unwrap(child)
+        BlockExpr::new(child)
     }
 
     /// Returns an iterator over the else-if branches.
@@ -272,8 +272,8 @@ impl<'cst> IfExpr<'cst> {
     }
 
     /// Returns the else body if present.
-    pub fn else_body(&self) -> Option<Expr<'cst>> {
-        self.view.child(3).map(Expr::new_unwrap)
+    pub fn else_body(&self) -> Option<BlockExpr<'cst>> {
+        self.view.child(3).map(BlockExpr::new)
     }
 
     pub fn node(&self) -> NodeView<'cst> {
@@ -300,9 +300,9 @@ impl<'cst> ElseIfBranch<'cst> {
         Expr::new_unwrap(node)
     }
 
-    pub fn body(&self) -> Expr<'cst> {
+    pub fn body(&self) -> BlockExpr<'cst> {
         let node = self.view.child(1).expect("ElseIfBranch must have body child");
-        Expr::new_unwrap(node)
+        BlockExpr::new(node)
     }
 
     pub fn node(&self) -> NodeView<'cst> {
@@ -375,6 +375,15 @@ pub struct BlockExpr<'cst> {
 }
 
 impl<'cst> BlockExpr<'cst> {
+    fn new(view: NodeView<'cst>) -> Self {
+        assert!(
+            matches!(view.kind(), NodeKind::Block | NodeKind::ComptimeBlock),
+            "BlockExpr::new called with non-block node: {:?}",
+            view.kind()
+        );
+        Self { view }
+    }
+
     /// Returns an iterator over the statements in this block.
     /// Currently unimplemented — use this when statement AST wrappers are added.
     pub fn statements(&self) -> impl Iterator<Item = NodeView<'cst>> {
