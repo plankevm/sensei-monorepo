@@ -102,14 +102,9 @@ impl<'a> PrunerContext<'a> {
     }
 
     fn copy_data_segments(&mut self) {
-        for (old_id, _) in self.src.data_segments_start.enumerate_idx() {
+        for (old_id, bytes) in self.src.data_segments.enumerate_idx() {
             if let Some(None) = self.state.data_map.get(&old_id) {
-                let span = self.src.get_segment_span(old_id);
-                let bytes = &self.src.data_bytes.as_raw_slice()
-                    [span.start.get() as usize..span.end.get() as usize];
-                let start_offset = self.dst.data_bytes.next_idx();
-                self.dst.data_bytes.as_mut_vec().extend_from_slice(bytes);
-                let new_id = self.dst.data_segments_start.push(start_offset);
+                let new_id = self.dst.data_segments.push_copy_slice(bytes);
                 self.state.data_map.insert(old_id, Some(new_id));
             }
         }
@@ -470,4 +465,389 @@ impl<'a> OpVisitorMut<'_, ()> for PrunerContext<'a> {
     }
 
     fn visit_void_mut(&mut self) {}
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{constant_propagation::SCCPAnalysis, unused_operation_elimination};
+    use sir_parser::{EmitConfig, parse_or_panic};
+    use sir_test_utils::assert_trim_strings_eq_with_diff;
+
+    #[derive(Debug, PartialEq, Eq)]
+    struct IrShape {
+        functions: usize,
+        basic_blocks: usize,
+        operations: usize,
+        locals: usize,
+        large_consts: usize,
+        data_segments: usize,
+        data_bytes: usize,
+        cases: usize,
+        cases_bb_ids: usize,
+        next_local: usize,
+        next_static_alloc: usize,
+    }
+
+    impl IrShape {
+        fn of(ir: &EthIRProgram) -> Self {
+            Self {
+                functions: ir.functions.len(),
+                basic_blocks: ir.basic_blocks.len(),
+                operations: ir.operations.len(),
+                locals: ir.locals.len(),
+                large_consts: ir.large_consts.len(),
+                data_segments: ir.data_segments.len(),
+                data_bytes: ir.data_segments.iter().map(|s| s.len()).sum(),
+                cases: ir.cases.len(),
+                cases_bb_ids: ir.cases_bb_ids.len(),
+                next_local: ir.next_free_local_id.idx(),
+                next_static_alloc: ir.next_static_alloc_id.idx(),
+            }
+        }
+    }
+
+    #[test]
+    fn test_sccp_unused_elim_and_prune() {
+        let input = r#"
+            fn init:
+                entry {
+                    cond = const 1
+                    => cond ? @live : @dead
+                }
+                live {
+                    a = const 1
+                    b = const 2
+                    result = icall @helper a b
+                    unused_local = add a b
+                    key = const 0
+                    sstore key result
+                    stop
+                }
+                dead {
+                    offset = data_offset .dead_data
+                    x = const 99
+                    y = const 100
+                    p q = icall @dead_helper x y
+                    stop
+                }
+
+            fn helper:
+                entry x y -> sum {
+                    sum = add x y
+                    iret
+                }
+
+            fn dead_helper:
+                entry a b -> product quotient {
+                    product = mul a b
+                    quotient = div a b
+                    iret
+                }
+
+            data dead_data 0xcafebabe
+        "#;
+
+        let mut ir = parse_or_panic(input, EmitConfig::init_only());
+
+        let mut sccp = SCCPAnalysis::new(&ir);
+        sccp.analysis(&ir);
+        sccp.apply(&mut ir);
+
+        unused_operation_elimination::run(&mut ir);
+
+        let src_str = sir_data::display_program(&ir);
+        let expected_src = r#"
+Functions:
+    fn @0 -> entry @0  (outputs: 1)
+    fn @1 -> entry @1  (outputs: 2)
+    fn @2 -> entry @2  (outputs: 0)
+
+Basic Blocks:
+    @0 $0 $1 -> $2 {
+        $2 = add $0 $1
+        iret
+    }
+
+    @1 $3 $4 -> $5 $6 {
+        $5 = mul $3 $4
+        $6 = div $3 $4
+        iret
+    }
+
+    @2 {
+        noop
+        => @3
+    }
+
+    @3 {
+        $8 = const 0x1
+        $9 = const 0x2
+        $10 = icall @0 $8 $9
+        noop
+        $12 = const 0x0
+        sstore $12 $10
+        stop
+    }
+
+    @4 {
+        noop
+        $14 = const 0x63
+        $15 = const 0x64
+        $16 $17 = icall @1 $14 $15
+        stop
+    }
+
+
+data .0 0xcafebabe
+        "#;
+        assert_trim_strings_eq_with_diff(&src_str, expected_src, "src after sccp + unused elim");
+
+        assert_eq!(
+            IrShape::of(&ir),
+            IrShape {
+                functions: 3,
+                basic_blocks: 5,
+                operations: 16,
+                locals: 14,
+                large_consts: 0,
+                data_segments: 1,
+                data_bytes: 4,
+                cases: 0,
+                cases_bb_ids: 0,
+                next_local: 18,
+                next_static_alloc: 0,
+            }
+        );
+
+        let mut dst = EthIRProgram::default();
+        let mut pruner = GlobalPruner::new();
+        pruner.run(&ir, &mut dst, Some(&sccp.reachable));
+
+        let dst_str = sir_data::display_program(&dst);
+        let expected_dst = r#"
+Functions:
+    fn @0 -> entry @0  (outputs: 1)
+    fn @1 -> entry @1  (outputs: 0)
+
+Basic Blocks:
+    @0 $4 $5 -> $6 {
+        $6 = add $4 $5
+        iret
+    }
+
+    @1 {
+        => @2
+    }
+
+    @2 {
+        $0 = const 0x1
+        $1 = const 0x2
+        $2 = icall @0 $0 $1
+        $3 = const 0x0
+        sstore $3 $2
+        stop
+    }
+        "#;
+        assert_trim_strings_eq_with_diff(&dst_str, expected_dst, "dst after prune");
+
+        assert_eq!(
+            IrShape::of(&dst),
+            IrShape {
+                functions: 2,
+                basic_blocks: 3,
+                operations: 7,
+                locals: 6,
+                large_consts: 0,
+                data_segments: 0,
+                data_bytes: 0,
+                cases: 0,
+                cases_bb_ids: 0,
+                next_local: 7,
+                next_static_alloc: 0,
+            }
+        );
+    }
+
+    #[test]
+    fn test_prune_dead_function_data() {
+        let input = r#"
+            fn init:
+                entry {
+                    val = large_const 0xaabbccddaabbccddaabbccddaabbccddaabbccddaabbccddaabbccddaabbccdd
+                    offset = data_offset .live_data
+                    live_ptr = salloc 64
+                    sstore live_ptr val
+                    selector = const 0
+                    switch selector {
+                        1 => @case_one
+                        2 => @case_two
+                        default => @fallback
+                    }
+                }
+                case_one { stop }
+                case_two { stop }
+                fallback { stop }
+
+            fn dead_fn:
+                entry {
+                    dead_val = large_const 0x1122334411223344112233441122334411223344112233441122334411223344
+                    dead_offset = data_offset .dead_data
+                    dead_ptr = salloc 128
+                    s = const 0
+                    switch s {
+                        100 => @dead_a
+                        200 => @dead_b
+                        default => @dead_c
+                    }
+                }
+                dead_a { stop }
+                dead_b { stop }
+                dead_c { stop }
+
+            data live_data 0x1234
+            data dead_data 0x5678
+        "#;
+
+        let ir = parse_or_panic(input, EmitConfig::init_only());
+
+        let src_str = sir_data::display_program(&ir);
+        let expected_src = r#"
+Functions:
+    fn @0 -> entry @0  (outputs: 0)
+    fn @1 -> entry @4  (outputs: 0)
+
+Basic Blocks:
+    @0 {
+        $0 = large_const 0xaabbccddaabbccddaabbccddaabbccddaabbccddaabbccddaabbccddaabbccdd
+        $1 = data_offset .0
+        $2 = salloc 64 #0
+        sstore $2 $0
+        $3 = const 0x0
+        switch $3 {
+            1 => @1,
+            2 => @2,
+            else => @3
+        }
+
+    }
+
+    @1 {
+        stop
+    }
+
+    @2 {
+        stop
+    }
+
+    @3 {
+        stop
+    }
+
+    @4 {
+        $4 = large_const 0x1122334411223344112233441122334411223344112233441122334411223344
+        $5 = data_offset .1
+        $6 = salloc 128 #1
+        $7 = const 0x0
+        switch $7 {
+            64 => @5,
+            c8 => @6,
+            else => @7
+        }
+
+    }
+
+    @5 {
+        stop
+    }
+
+    @6 {
+        stop
+    }
+
+    @7 {
+        stop
+    }
+
+
+data .0 0x1234
+data .1 0x5678
+        "#;
+        assert_trim_strings_eq_with_diff(&src_str, expected_src, "src before prune");
+
+        assert_eq!(
+            IrShape::of(&ir),
+            IrShape {
+                functions: 2,
+                basic_blocks: 8,
+                operations: 15,
+                locals: 0,
+                large_consts: 6,
+                data_segments: 2,
+                data_bytes: 4,
+                cases: 2,
+                cases_bb_ids: 4,
+                next_local: 8,
+                next_static_alloc: 2,
+            }
+        );
+
+        let mut dst = EthIRProgram::default();
+        let mut pruner = GlobalPruner::new();
+        pruner.run(&ir, &mut dst, None);
+
+        let dst_str = sir_data::display_program(&dst);
+        let expected_dst = r#"
+Functions:
+    fn @0 -> entry @0  (outputs: 0)
+
+Basic Blocks:
+    @0 {
+        $0 = large_const 0xaabbccddaabbccddaabbccddaabbccddaabbccddaabbccddaabbccddaabbccdd
+        $1 = data_offset .0
+        $2 = salloc 64 #0
+        sstore $2 $0
+        $3 = const 0x0
+        switch $3 {
+            1 => @1,
+            2 => @2,
+            else => @3
+        }
+
+    }
+
+    @1 {
+        stop
+    }
+
+    @2 {
+        stop
+    }
+
+    @3 {
+        stop
+    }
+
+
+data .0 0x1234
+        "#;
+        assert_trim_strings_eq_with_diff(&dst_str, expected_dst, "dst after prune");
+
+        assert_eq!(
+            IrShape::of(&dst),
+            IrShape {
+                functions: 1,
+                basic_blocks: 4,
+                operations: 8,
+                locals: 0,
+                large_consts: 3,
+                data_segments: 1,
+                data_bytes: 2,
+                cases: 1,
+                cases_bb_ids: 2,
+                next_local: 4,
+                next_static_alloc: 1,
+            }
+        );
+    }
 }
