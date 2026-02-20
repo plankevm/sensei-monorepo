@@ -13,8 +13,12 @@ test:
 test-all: test
      forge test --ffi
 
-ci: test-all
-    cargo +nightly clippy --workspace --all-targets --all-features -- -D warnings
+ci-fmt:
     (cd sir/sir-solidity-diff-tests/ && forge fmt --check)
     cargo +nightly fmt --all --check
+
+ci-clippy:
+    cargo +nightly clippy --workspace --all-targets --all-features -- -D warnings
+
+ci-all: test-all ci-clippy ci-fmt
 

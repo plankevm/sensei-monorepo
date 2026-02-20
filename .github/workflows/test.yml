@@ -22,6 +22,4 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: senseic -> target
-      - run: cargo test --workspace
-      - run: forge test --ffi
-        working-directory: senseic/sir/sir-solidity-diff-tests
+      - run: just test-all
