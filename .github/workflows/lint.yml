@@ -20,7 +20,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@nightly
         with:
           components: rustfmt
-      - uses: foundry-rs/foundry-toolchain@v1
+      - uses: ./.github/actions/setup-rust-env
       - run: just ci-fmt
 
   clippy:
@@ -34,8 +34,5 @@ jobs:
       - uses: dtolnay/rust-toolchain@nightly
         with:
           components: clippy
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: senseic -> target
-      - uses: extractions/setup-just@v3
+      - uses: ./.github/actions/setup-rust-env
       - run: just ci-clippy
