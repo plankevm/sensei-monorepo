@@ -507,6 +507,7 @@ Basic Blocks:
     }
         "#;
         assert_trim_strings_eq_with_diff(&dst_str, expected_dst, "dst after defragment");
+        assert_eq!(sir_analyses::legalize(&dst), Ok(()));
     }
 
     #[test]
@@ -655,5 +656,6 @@ Basic Blocks:
 data .0 0x1234
         "#;
         assert_trim_strings_eq_with_diff(&dst_str, expected_dst, "dst after defragment");
+        assert_eq!(sir_analyses::legalize(&dst), Ok(()));
     }
 }
