@@ -91,6 +91,11 @@ impl<I: Idx, T> ListOfLists<I, T> {
         let end = self.values_end(index);
         Some(&mut self.values[start..end])
     }
+
+    pub fn clear(&mut self) {
+        self.starts.clear();
+        self.values.clear();
+    }
 }
 
 impl<I: Idx, T> std::ops::Index<I> for ListOfLists<I, T> {

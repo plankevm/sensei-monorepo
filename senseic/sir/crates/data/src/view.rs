@@ -1,6 +1,6 @@
 use crate::{
-    BasicBlockId, CasesIter, Control, EthIRProgram, FunctionId, LocalId, Operation, OperationIdx,
-    OutgoingConnectionsIter,
+    BasicBlockId, CasesId, CasesIter, Control, EthIRProgram, FunctionId, LargeConstId, LocalId,
+    Operation, OperationIdx, OutgoingConnectionsIter,
 };
 use std::fmt;
 
@@ -151,6 +151,7 @@ impl<'ir> ControlView<'ir> {
             Control::Switch(switch) => Self::Switch(SwitchView {
                 condition: switch.condition,
                 fallback: switch.fallback,
+                cases_id: switch.cases,
                 cases: &ir.cases[switch.cases],
                 ir,
             }),
@@ -162,6 +163,7 @@ impl<'ir> ControlView<'ir> {
 pub struct SwitchView<'ir> {
     condition: LocalId,
     fallback: Option<BasicBlockId>,
+    cases_id: CasesId,
     cases: &'ir crate::Cases,
     ir: &'ir EthIRProgram,
 }
@@ -177,6 +179,14 @@ impl<'ir> SwitchView<'ir> {
 
     pub fn cases(&self) -> CasesIter<'ir> {
         self.cases.iter(self.ir)
+    }
+
+    pub fn cases_id(&self) -> CasesId {
+        self.cases_id
+    }
+
+    pub fn value_ids(&self) -> impl Iterator<Item = LargeConstId> {
+        (0..self.cases.cases_count).map(move |i| self.cases.values_start_id + i)
     }
 }
 

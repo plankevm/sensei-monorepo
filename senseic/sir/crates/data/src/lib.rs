@@ -30,6 +30,42 @@ pub struct EthIRProgram {
     pub next_static_alloc_id: StaticAllocId,
 }
 
+impl Default for EthIRProgram {
+    fn default() -> Self {
+        Self {
+            init_entry: FunctionId::ZERO,
+            main_entry: Default::default(),
+            functions: Default::default(),
+            basic_blocks: Default::default(),
+            operations: Default::default(),
+            data_segments: Default::default(),
+            locals: Default::default(),
+            large_consts: Default::default(),
+            cases: Default::default(),
+            cases_bb_ids: Default::default(),
+            next_free_local_id: LocalId::ZERO,
+            next_static_alloc_id: StaticAllocId::ZERO,
+        }
+    }
+}
+
+impl EthIRProgram {
+    /// Clears all data and resets values to their defaults
+    pub fn clear(&mut self) {
+        self.init_entry = FunctionId::ZERO;
+        self.main_entry = None;
+        self.functions.clear();
+        self.basic_blocks.clear();
+        self.operations.clear();
+        self.data_segments.clear();
+        self.locals.clear();
+        self.large_consts.clear();
+        self.cases.clear();
+        self.cases_bb_ids.clear();
+        self.next_free_local_id = LocalId::ZERO;
+        self.next_static_alloc_id = StaticAllocId::ZERO;
+    }
+}
 /// Simple display of IR program - shows all elements independently without grouping
 pub fn display_program(ir: &EthIRProgram) -> String {
     use fmt::Write;
