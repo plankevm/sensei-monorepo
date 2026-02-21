@@ -76,6 +76,10 @@ impl<I: Idx, T> ListOfLists<I, T> {
         self.starts.len()
     }
 
+    pub fn len_idx(&self) -> I {
+        self.starts.len_idx()
+    }
+
     pub fn get(&self, index: I) -> Option<&[T]> {
         let start = *self.starts.get(index)? as usize;
         let end = self.values_end(index);

@@ -108,20 +108,24 @@ impl<'a, 'b> BlockLowerer<'a, 'b> {
         }
     }
 
-    fn lower_nested_block(&mut self, block: ast::BlockExpr<'_>) -> Expr {
+    fn scoped<R>(&mut self, f: impl FnOnce(&mut Self) -> R) -> R {
         let scope_start = self.locals.len();
-
-        for stmt in block.statements() {
-            self.lower_statement(stmt);
-        }
-
-        let result = match block.end_expr() {
-            Some(expr) => self.lower_expr(expr),
-            None => Expr::Void,
-        };
-
+        let result = f(self);
         self.locals.truncate(scope_start);
         result
+    }
+
+    fn lower_nested_block(&mut self, block: ast::BlockExpr<'_>) -> Expr {
+        self.scoped(|lowerer| {
+            for stmt in block.statements() {
+                lowerer.lower_statement(stmt);
+            }
+
+            match block.end_expr() {
+                Some(expr) => lowerer.lower_expr(expr),
+                None => Expr::Void,
+            }
+        })
     }
 
     fn lower_statement(&mut self, stmt: Statement<'_>) {
@@ -192,10 +196,11 @@ pub fn lower(cst: &ConcreteSyntaxTree) -> Hir {
         match def {
             TopLevelDef::Const(const_def) => {
                 let id = consts.const_name_to_id[&const_def.name];
-                const_deps.push_with(|pusher| {
+                let dep_id = const_deps.push_with(|pusher| {
                     consts.const_defs[id].instructions = BlockLowerer::new(&consts, Some(pusher))
                         .into_block(|lowerer| lowerer.lower_expr(const_def.assign));
                 });
+                assert_eq!(id, dep_id, "ID in-syncness invariant violated");
             }
             TopLevelDef::Init(init_def) => {
                 init = BlockLowerer::new(&consts, None)
