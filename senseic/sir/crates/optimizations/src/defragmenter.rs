@@ -349,7 +349,7 @@ impl<'a> OpVisitorMut<'_, ()> for Rewriter<'a> {
     }
 
     fn visit_icall_mut(&mut self, data: &mut sir_data::operation::InternalCallData) {
-        let (_, is_new) = self.reserve_function_id(data.function);
+        let (new_func_id, is_new) = self.reserve_function_id(data.function);
         if is_new {
             self.state.func_worklist.push(data.function);
         }
@@ -366,7 +366,7 @@ impl<'a> OpVisitorMut<'_, ()> for Rewriter<'a> {
             self.dst.locals.push(new_local);
         }
 
-        data.function = self.state.function_map[&data.function];
+        data.function = new_func_id;
         data.ins_start = new_ins_start;
         data.outs_start = new_outs_start;
     }
