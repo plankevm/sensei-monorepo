@@ -24,7 +24,6 @@ newtype_index! {
 pub struct ConstMap {
     pub const_name_to_id: HashMap<StrId, ConstId>,
     pub const_defs: IndexVec<ConstId, ConstDef>,
-    pub const_deps: ListOfLists<ConstId, ConstId>,
 }
 
 #[derive(Debug, Clone)]
@@ -49,6 +48,7 @@ pub enum Instruction {
 #[derive(Debug, Clone)]
 pub struct Hir {
     pub consts: ConstMap,
+    pub const_deps: ListOfLists<ConstId, ConstId>,
     pub init: Vec<Instruction>,
     pub run: Option<Vec<Instruction>>,
 }
@@ -148,12 +148,7 @@ impl<'a, 'b> BlockLowerer<'a, 'b> {
 }
 
 pub fn lower(cst: &ConcreteSyntaxTree) -> Hir {
-    let mut hir = Hir {
-        consts: ConstMap::default(),
-        // TODO: Capacity estimation
-        init: Vec::with_capacity(0),
-        run: None,
-    };
+    let mut consts = ConstMap::default();
     let file = ast::File::new(cst.file_view()).expect("failed to init file from CST");
 
     let mut found_init = false;
@@ -162,14 +157,13 @@ pub fn lower(cst: &ConcreteSyntaxTree) -> Hir {
     for def in file.iter_defs() {
         match def {
             TopLevelDef::Const(const_def) => {
-                match hir.consts.const_name_to_id.entry(const_def.name) {
+                match consts.const_name_to_id.entry(const_def.name) {
                     Entry::Occupied(_) => {
                         // TODO: error diagnostic
                         panic!("duplicate const def")
                     }
                     Entry::Vacant(entry) => {
-                        let new_const_id = hir
-                            .consts
+                        let new_const_id = consts
                             .const_defs
                             .push(ConstDef { source: const_def.span(), instructions: Vec::new() });
 
@@ -190,32 +184,32 @@ pub fn lower(cst: &ConcreteSyntaxTree) -> Hir {
     }
 
     let mut const_deps: ListOfLists<ConstId, ConstId> = ListOfLists::new();
+    // TODO: Capacity estimation
+    let mut init = Vec::with_capacity(0);
+    let mut run = None;
 
     for def in file.iter_defs() {
         match def {
             TopLevelDef::Const(const_def) => {
-                let id = hir.consts.const_name_to_id[&const_def.name];
+                let id = consts.const_name_to_id[&const_def.name];
                 const_deps.push_with(|pusher| {
-                    hir.consts.const_defs[id].instructions =
-                        BlockLowerer::new(&hir.consts, Some(pusher))
-                            .into_block(|lowerer| lowerer.lower_expr(const_def.assign));
+                    consts.const_defs[id].instructions = BlockLowerer::new(&consts, Some(pusher))
+                        .into_block(|lowerer| lowerer.lower_expr(const_def.assign));
                 });
             }
-            TopLevelDef::Init(init) => {
-                hir.init = BlockLowerer::new(&hir.consts, None)
-                    .into_block(|lowerer| lowerer.lower_nested_block(init.body()))
+            TopLevelDef::Init(init_def) => {
+                init = BlockLowerer::new(&consts, None)
+                    .into_block(|lowerer| lowerer.lower_nested_block(init_def.body()))
             }
-            TopLevelDef::Run(run) => {
-                hir.run = Some(
-                    BlockLowerer::new(&hir.consts, None)
-                        .into_block(|lowerer| lowerer.lower_nested_block(run.body())),
+            TopLevelDef::Run(run_def) => {
+                run = Some(
+                    BlockLowerer::new(&consts, None)
+                        .into_block(|lowerer| lowerer.lower_nested_block(run_def.body())),
                 )
             }
             TopLevelDef::Import(_) => todo!(),
         }
     }
 
-    hir.consts.const_deps = const_deps;
-
-    hir
+    Hir { consts, const_deps, init, run }
 }
