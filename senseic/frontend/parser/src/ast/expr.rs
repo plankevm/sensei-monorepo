@@ -374,7 +374,69 @@ pub struct BlockExpr<'cst> {
     view: NodeView<'cst>,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct LetStmt<'cst> {
+    pub name: StrId,
+    pub mutable: bool,
+    type_view: Option<NodeView<'cst>>,
+    value_view: NodeView<'cst>,
+}
+
+impl<'cst> LetStmt<'cst> {
+    pub fn new(view: NodeView<'cst>) -> Option<Self> {
+        let NodeKind::LetStmt { mutable, typed } = view.kind() else {
+            return None;
+        };
+        let mut children = view.children();
+        let name = children.next().and_then(NodeView::ident).expect("TODO: malformed");
+        let type_view = typed.then(|| children.next().expect("TODO: malformed"));
+        let value_view = children.next().expect("TODO: malformed");
+        Some(Self { name, mutable, type_view, value_view })
+    }
+
+    pub fn type_expr(&self) -> Option<Expr<'cst>> {
+        self.type_view.map(Expr::new_unwrap)
+    }
+
+    pub fn value(&self) -> Expr<'cst> {
+        Expr::new_unwrap(self.value_view)
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum Statement<'cst> {
+    Let(LetStmt<'cst>),
+    Expr(Expr<'cst>),
+}
+
+impl<'cst> Statement<'cst> {
+    pub fn new(view: NodeView<'cst>) -> Option<Self> {
+        if let Some(let_stmt) = LetStmt::new(view) {
+            return Some(Statement::Let(let_stmt));
+        }
+        if let Some(expr) = Expr::new(view) {
+            return Some(Statement::Expr(expr));
+        }
+        None
+    }
+}
+
 impl<'cst> BlockExpr<'cst> {
+    pub(super) fn from_view(view: NodeView<'cst>) -> Self {
+        assert!(
+            matches!(
+                view.kind(),
+                NodeKind::Block
+                    | NodeKind::ComptimeBlock
+                    | NodeKind::InitBlock
+                    | NodeKind::RunBlock
+            ),
+            "BlockExpr::from_view called with non-block node: {:?}",
+            view.kind()
+        );
+        Self { view }
+    }
+
     fn new(view: NodeView<'cst>) -> Self {
         assert!(
             matches!(view.kind(), NodeKind::Block | NodeKind::ComptimeBlock),
@@ -385,10 +447,10 @@ impl<'cst> BlockExpr<'cst> {
     }
 
     /// Returns an iterator over the statements in this block.
-    /// Currently unimplemented — use this when statement AST wrappers are added.
-    pub fn statements(&self) -> impl Iterator<Item = NodeView<'cst>> {
-        let _ = self;
-        std::iter::from_fn(|| todo!("Statement iteration not yet implemented"))
+    pub fn statements(&self) -> impl Iterator<Item = Statement<'cst>> {
+        let list = self.view.child(0).expect("todo: malformed block missing stmt list child");
+        list.children()
+            .map(|view| Statement::new(view).expect("todo: non-statement child of stmt list"))
     }
 
     /// Returns the trailing/end expression if present.

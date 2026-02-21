@@ -1,10 +1,12 @@
 mod expr;
 
 pub use expr::*;
+use sensei_core::Span;
 
 use crate::{
     StrId,
     cst::{NodeIdx, NodeKind, NodeView},
+    lexer::TokenIdx,
 };
 
 #[derive(Debug, Clone, Copy)]
@@ -18,6 +20,10 @@ impl<'cst> InitBlock<'cst> {
             NodeKind::InitBlock => Some(Self { view }),
             _ => None,
         }
+    }
+
+    pub fn body(&self) -> BlockExpr<'cst> {
+        BlockExpr::from_view(self.view)
     }
 
     pub fn node(&self) -> NodeView<'cst> {
@@ -38,6 +44,10 @@ impl<'cst> RunBlock<'cst> {
         }
     }
 
+    pub fn body(&self) -> BlockExpr<'cst> {
+        BlockExpr::from_view(self.view)
+    }
+
     pub fn node(&self) -> NodeView<'cst> {
         self.view
     }
@@ -46,6 +56,7 @@ impl<'cst> RunBlock<'cst> {
 #[derive(Debug, Clone, Copy)]
 pub struct ConstDecl<'cst> {
     pub name: StrId,
+    view: NodeView<'cst>,
     pub r#type: Option<Expr<'cst>>,
     pub assign: Expr<'cst>,
 }
@@ -63,7 +74,11 @@ impl<'cst> ConstDecl<'cst> {
             None
         };
         let assign = children.next().and_then(Expr::new).expect("TODO: malformed");
-        Some(Self { name, r#type, assign })
+        Some(Self { name, view, r#type, assign })
+    }
+
+    pub fn span(&self) -> Span<TokenIdx> {
+        self.view.span()
     }
 }
 

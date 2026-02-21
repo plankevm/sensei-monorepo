@@ -1583,6 +1583,8 @@ name = "senseic"
 version = "0.1.0"
 dependencies = [
  "bumpalo",
+ "clap",
+ "sensei-hir",
  "sensei-parser",
 ]
 
