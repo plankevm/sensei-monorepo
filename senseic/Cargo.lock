@@ -1706,6 +1706,7 @@ name = "sir-cli"
 version = "0.1.0"
 dependencies = [
  "clap",
+ "sir-data",
  "sir-debug-backend",
  "sir-optimizations",
  "sir-parser",
@@ -1737,6 +1738,7 @@ name = "sir-optimizations"
 version = "0.1.0"
 dependencies = [
  "alloy-primitives",
+ "sensei-core",
  "sir-analyses",
  "sir-data",
  "sir-parser",

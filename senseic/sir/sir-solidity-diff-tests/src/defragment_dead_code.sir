@@ -1,0 +1,49 @@
+fn init:
+    init_entry {
+        c0 = const 0
+        c32 = const 32
+        a = calldataload c0
+        b = calldataload c32
+        result = add a b
+        no_gud = gt a result
+        => no_gud ? @error : @gud
+    }
+    error {
+        revert c0 c0
+    }
+    gud {
+        buf = sallocany 32
+        mstore256 buf result
+        return buf c32
+    }
+
+fn dead_fn:
+    dead_entry {
+        c0_d = const 0
+        selector = calldataload c0_d
+        switch selector {
+            0 => @dead_case_a
+            1 => @dead_case_b
+            default => @dead_default
+        }
+    }
+    dead_case_a {
+        blob_loc = data_offset .dead_data
+        c64 = const 64
+        dead_buf_a = sallocany 64
+        codecopy dead_buf_a blob_loc c64
+        return dead_buf_a c64
+    }
+    dead_case_b {
+        c42 = const 42
+        c32_d = const 32
+        dead_buf_b = sallocany 32
+        mstore256 dead_buf_b c42
+        return dead_buf_b c32_d
+    }
+    dead_default {
+        revert c0_d c0_d
+    }
+
+data dead_data
+    0xdeadbeefcafebabedeadbeefcafebabedeadbeefcafebabedeadbeefcafebabedeadbeefcafebabedeadbeefcafebabedeadbeefcafebabedeadbeefcafebabe

@@ -1,5 +1,6 @@
 use clap::Parser;
-use sir_optimizations::Optimization;
+use sir_data::EthIRProgram;
+use sir_optimizations::{Defragmenter, Optimization};
 use sir_parser::{EmitConfig, parse_or_panic};
 use std::{
     fs,
@@ -38,6 +39,10 @@ struct Cli {
     /// Enable constant propagation optimization
     #[arg(long)]
     constant_propagation: bool,
+
+    /// Enable defragmentation
+    #[arg(long)]
+    defragment: bool,
 }
 
 fn read_input(input: Option<PathBuf>) -> String {
@@ -80,6 +85,15 @@ fn main() {
     if cli.constant_propagation {
         Optimization::ConstantPropagation.apply(&mut program);
     }
+
+    let program = if cli.defragment {
+        let mut new_ir = EthIRProgram::default();
+        let mut defragmenter = Defragmenter::new();
+        defragmenter.run(&program, &mut new_ir, None);
+        new_ir
+    } else {
+        program
+    };
 
     let mut bytecode = Vec::with_capacity(0x6000);
     sir_debug_backend::ir_to_bytecode(&program, &mut bytecode);

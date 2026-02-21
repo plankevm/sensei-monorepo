@@ -9,6 +9,7 @@ name = "sir"
 path = "src/main.rs"
 
 [dependencies]
+sir-data.workspace = true
 sir-parser.workspace = true
 sir-debug-backend.workspace = true
 sir-optimizations.workspace = true
