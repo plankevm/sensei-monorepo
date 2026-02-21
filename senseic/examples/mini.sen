@@ -1,0 +1,18 @@
+const wow = {};
+
+const other = {
+    let nice = wow;
+    nice
+};
+
+const alias = other;
+
+init {
+    let x = {
+        let y = {
+            other
+        };
+    };
+}
+
+run {}

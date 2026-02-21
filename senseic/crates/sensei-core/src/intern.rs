@@ -25,10 +25,6 @@ impl<I: Idx> BytesInterner<I> {
         }
     }
 
-    pub fn get(&self, index: I) -> &[u8] {
-        &self.bytes[index]
-    }
-
     pub fn intern(&mut self, bytes: &[u8]) -> I {
         let entry = self.bytes_to_idx.entry(
             self.hasher.hash_one(bytes),
@@ -52,6 +48,14 @@ impl<I: Idx> Default for BytesInterner<I> {
     }
 }
 
+impl<I: Idx> std::ops::Index<I> for BytesInterner<I> {
+    type Output = [u8];
+
+    fn index(&self, index: I) -> &Self::Output {
+        &self.bytes[index]
+    }
+}
+
 pub struct StringInterner<I: Idx>(BytesInterner<I>);
 
 impl<I: Idx> Default for StringInterner<I> {
@@ -72,10 +76,14 @@ impl<I: Idx> StringInterner<I> {
     pub fn intern(&mut self, string: &str) -> I {
         self.0.intern(string.as_bytes())
     }
+}
 
-    pub fn get(&self, index: I) -> &str {
+impl<I: Idx> std::ops::Index<I> for StringInterner<I> {
+    type Output = str;
+
+    fn index(&self, index: I) -> &Self::Output {
         // Safety: BytesInterner guarantees we receive the same bytes we interned.
-        unsafe { std::str::from_utf8_unchecked(self.0.get(index)) }
+        unsafe { std::str::from_utf8_unchecked(&self.0[index]) }
     }
 }
 
@@ -96,9 +104,9 @@ mod tests {
         let id2 = interner.intern(b"world");
         let id3 = interner.intern(b"");
 
-        assert_eq!(interner.get(id1), b"hello");
-        assert_eq!(interner.get(id2), b"world");
-        assert_eq!(interner.get(id3), b"");
+        assert_eq!(&interner[id1], b"hello");
+        assert_eq!(&interner[id2], b"world");
+        assert_eq!(&interner[id3], b"");
     }
 
     #[test]
@@ -111,6 +119,6 @@ mod tests {
 
         assert_eq!(id1, id3);
         assert_ne!(id1, id2);
-        assert_eq!(interner.get(id1), interner.get(id3));
+        assert_eq!(&interner[id1], &interner[id3]);
     }
 }

@@ -208,6 +208,10 @@ impl<'cst> NodeView<'cst> {
         unsafe { self.cst.nodes.get_unchecked(self.idx.idx()) }
     }
 
+    pub fn cst(self) -> &'cst ConcreteSyntaxTree {
+        self.cst
+    }
+
     pub fn kind(self) -> NodeKind {
         self.node().kind
     }

@@ -1,8 +1,6 @@
 use crate::{Idx, IncIterable, IndexVec};
 use allocator_api2::vec::Vec;
 
-// WIP
-
 #[derive(Debug, Clone)]
 pub struct ListOfLists<I: Idx, T> {
     starts: IndexVec<I, u32>,
@@ -76,6 +74,10 @@ impl<I: Idx, T> ListOfLists<I, T> {
 
     pub fn len(&self) -> usize {
         self.starts.len()
+    }
+
+    pub fn len_idx(&self) -> I {
+        self.starts.len_idx()
     }
 
     pub fn get(&self, index: I) -> Option<&[T]> {

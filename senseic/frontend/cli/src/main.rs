@@ -1,3 +1,5 @@
+use clap::Parser;
+use sensei_hir::{display::DisplayHir, lower};
 use sensei_parser::{
     StringInterner,
     cst::display::DisplayCST,
@@ -6,28 +8,31 @@ use sensei_parser::{
     parser::parse,
 };
 
+#[derive(Parser)]
+#[command(name = "senseic", about = "Sensei compiler frontend")]
+struct Args {
+    file_path: String,
+
+    #[arg(short = 'l', long = "show-lines", help = "enables line numbers in the CST output")]
+    show_lines: bool,
+
+    #[arg(short = 'c', long = "show-cst", help = "show CST")]
+    show_cst: bool,
+}
+
 fn main() {
-    let mut args = std::env::args();
-    args.next();
-    let file_path = args.next().expect("Missing: PATH");
-    let mut show_lines = false;
-
-    for arg in args {
-        match arg.as_str() {
-            "--show-lines" | "-l" => show_lines = true,
-            unknown => panic!("Unexpected value or flag {unknown:?}"),
-        }
-    }
-
-    let source = std::fs::read_to_string(&file_path).expect("Failed to read file");
+    let args = Args::parse();
+    let source = std::fs::read_to_string(&args.file_path).expect("Failed to read file");
 
     let lexed = Lexed::lex(&source);
     let mut collector = ErrorCollector::default();
     let mut interner = StringInterner::default();
     let cst = parse(&lexed, &mut interner, &mut collector);
 
-    let display = DisplayCST::new(&cst, &source, &lexed).show_line(show_lines);
-    println!("{}", display);
+    if args.show_cst {
+        let display = DisplayCST::new(&cst, &source, &lexed).show_line(args.show_lines);
+        println!("{}", display);
+    }
 
     if !collector.errors.is_empty() {
         let line_index = LineIndex::new(&source);
@@ -36,5 +41,14 @@ fn main() {
         }
 
         std::process::exit(1);
+    }
+
+    let hir = lower(&cst);
+
+    print!("{}", DisplayHir::new(&hir, &interner));
+
+    println!("==== Const Deps ====");
+    for (const_id, deps) in hir.const_deps.enumerate_idx() {
+        println!("{const_id:?} -> {deps:?}");
     }
 }
