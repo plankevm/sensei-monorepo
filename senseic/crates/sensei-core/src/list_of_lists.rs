@@ -1,8 +1,6 @@
 use crate::{Idx, IncIterable, IndexVec};
 use allocator_api2::vec::Vec;
 
-// WIP
-
 #[derive(Debug, Clone)]
 pub struct ListOfLists<I: Idx, T> {
     starts: IndexVec<I, u32>,
