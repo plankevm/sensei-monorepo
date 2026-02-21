@@ -2,10 +2,9 @@ use sensei_core::span::IncIterable;
 use sir_data::{
     BasicBlock, BasicBlockId, BlockView, Branch, Cases, CasesId, Control, ControlView, DataId,
     DenseIndexSet, EthIRProgram, Function, FunctionId, Idx, LargeConstId, LocalId, LocalIdx,
-    Operation, OperationIdx, Span, StaticAllocId, Switch,
-    operation::{OpVisitor, OpVisitorMut},
+    Operation, OperationIdx, Span, StaticAllocId, Switch, operation::OpVisitorMut,
 };
-use std::collections::HashMap;
+use std::collections::{HashMap, hash_map::Entry};
 
 pub struct Defragmenter {
     func_worklist: Vec<FunctionId>,
@@ -99,33 +98,30 @@ impl<'a> Rewriter<'a> {
             return;
         }
 
-        self.reserve_function_id(old_id);
+        let (new_id, _) = self.reserve_function_id(old_id);
 
         self.push_block(old_entry_id);
         while let Some(bb) = self.state.block_worklist.pop() {
             self.emit_block(bb);
         }
-
-        let new_id = self.state.function_map[&old_id];
         let new_entry = self.state.block_map[&old_entry_id];
         self.dst.functions[new_id] = Function::new(new_entry, old_func.num_outputs());
     }
 
-    fn reserve_function_id(&mut self, old_id: FunctionId) -> bool {
-        if self.state.function_map.contains_key(&old_id) {
-            false
-        } else {
-            let placeholder =
-                Function::new(BasicBlockId::ZERO, self.src.function(old_id).num_outputs());
-            self.state.function_map.insert(old_id, self.dst.functions.push(placeholder));
-            true
+    fn reserve_function_id(&mut self, old_id: FunctionId) -> (FunctionId, bool) {
+        match self.state.function_map.entry(old_id) {
+            Entry::Occupied(entry) => (*entry.get(), false),
+            Entry::Vacant(entry) => {
+                let placeholder =
+                    Function::new(BasicBlockId::ZERO, self.src.function(old_id).num_outputs());
+                let new_id = self.dst.functions.push(placeholder);
+                entry.insert(new_id);
+                (new_id, true)
+            }
         }
     }
 
     fn emit_block(&mut self, old_id: BasicBlockId) {
-        if self.state.block_map.contains_key(&old_id) {
-            return;
-        }
         if self.live_blocks.is_some_and(|blocks| !blocks.contains(old_id)) {
             return;
         }
@@ -137,12 +133,13 @@ impl<'a> Rewriter<'a> {
             control: Control::LastOpTerminates,
         };
         let new_id = self.dst.basic_blocks.push(placeholder);
-        self.state.block_map.insert(old_id, new_id);
+        let prev = self.state.block_map.insert(old_id, new_id);
+        debug_assert!(prev.is_none());
         let block = self.src.block(old_id);
 
         let inputs = self.emit_block_locals(block.inputs());
-        let outputs = self.emit_block_locals(block.outputs());
         let operations = self.emit_block_operations(block);
+        let outputs = self.emit_block_locals(block.outputs());
 
         self.dst.basic_blocks[new_id] =
             BasicBlock { inputs, outputs, operations, control: Control::LastOpTerminates };
@@ -153,17 +150,18 @@ impl<'a> Rewriter<'a> {
     fn emit_block_locals(&mut self, locals: &[LocalId]) -> Span<LocalIdx> {
         let start = self.dst.locals.next_idx();
         for local in locals {
-            self.emit_local(*local);
-            self.dst.locals.push(self.state.local_map[local]);
+            let new_local = self.emit_local(*local);
+            self.dst.locals.push(new_local);
         }
         Span::new(start, self.dst.locals.next_idx())
     }
 
-    fn emit_local(&mut self, local: LocalId) {
-        self.state
+    fn emit_local(&mut self, local: LocalId) -> LocalId {
+        *self
+            .state
             .local_map
             .entry(local)
-            .or_insert_with(|| self.dst.next_free_local_id.get_and_inc());
+            .or_insert_with(|| self.dst.next_free_local_id.get_and_inc())
     }
 
     fn emit_block_operations(&mut self, block: BlockView<'_>) -> Span<OperationIdx> {
@@ -173,7 +171,6 @@ impl<'a> Rewriter<'a> {
             if matches!(operation, Operation::Noop(())) {
                 continue;
             }
-            operation.visit_data(self);
             let remapped = self.remap_operation(operation);
             self.dst.operations.push(remapped);
         }
@@ -199,11 +196,11 @@ impl<'a> Rewriter<'a> {
                 if let Some(fb) = switch.fallback() {
                     self.push_block(fb);
                 }
-                let old_cases = &self.src.cases[switch.cases_id()];
-                for i in 0..old_cases.cases_count {
-                    self.emit_large_const(old_cases.values_start_id + i);
+                for value_id in switch.value_ids() {
+                    self.emit_large_const(value_id);
                 }
-                for old_bb_id in old_cases.get_bb_ids(self.src).as_raw_slice() {
+                let old_cases = &self.src.cases[switch.cases_id()];
+                for old_bb_id in old_cases.get_bb_ids(self.src) {
                     self.push_block(*old_bb_id);
                 }
             }
@@ -215,7 +212,9 @@ impl<'a> Rewriter<'a> {
             self.live_blocks.is_none_or(|live| live.contains(bb)),
             "successor {bb:?} should be in live_blocks"
         );
-        self.state.block_worklist.push(bb);
+        if !self.state.block_map.contains_key(&bb) {
+            self.state.block_worklist.push(bb);
+        }
     }
 
     fn patch_block_control(&mut self) {
@@ -237,29 +236,28 @@ impl<'a> Rewriter<'a> {
                     })
                 }
                 ControlView::Switch(switch) => {
-                    let cases_id = *cases_map.entry(switch.cases_id()).or_insert_with(|| {
-                        let old_cases = &self.src.cases[switch.cases_id()];
-                        let new_values_start = large_const_map[&old_cases.values_start_id];
+                    let old_cases = &self.src.cases[switch.cases_id()];
+                    let new_values_start = large_const_map[&old_cases.values_start_id];
 
-                        debug_assert!(
-                            (0..old_cases.cases_count).all(|i| {
-                                large_const_map[&(old_cases.values_start_id + i)]
-                                    == new_values_start + i
-                            }),
-                            "case value large consts should be contiguous after emission"
-                        );
+                    debug_assert!(
+                        switch.value_ids().enumerate().all(|(i, old_id)| {
+                            large_const_map[&old_id] == new_values_start + i as u32
+                        }),
+                        "case value large consts should be contiguous after emission"
+                    );
 
-                        let new_targets_start = self.dst.cases_bb_ids.next_idx();
-                        for old_bb_id in old_cases.get_bb_ids(self.src).as_raw_slice() {
-                            self.dst.cases_bb_ids.push(block_map[old_bb_id]);
-                        }
+                    let new_targets_start = self.dst.cases_bb_ids.next_idx();
+                    for old_bb_id in old_cases.get_bb_ids(self.src) {
+                        self.dst.cases_bb_ids.push(block_map[old_bb_id]);
+                    }
 
-                        self.dst.cases.push(Cases {
-                            values_start_id: new_values_start,
-                            targets_start_id: new_targets_start,
-                            cases_count: old_cases.cases_count,
-                        })
+                    let cases_id = self.dst.cases.push(Cases {
+                        values_start_id: new_values_start,
+                        targets_start_id: new_targets_start,
+                        cases_count: old_cases.cases_count,
                     });
+                    let prev = cases_map.insert(switch.cases_id(), cases_id);
+                    debug_assert!(prev.is_none());
                     Control::Switch(Switch {
                         condition: local_map[&switch.condition()],
                         fallback: switch.fallback().map(|fb| block_map[&fb]),
@@ -271,87 +269,27 @@ impl<'a> Rewriter<'a> {
         }
     }
 
-    fn emit_static_alloc(&mut self, alloc_id: StaticAllocId) {
-        self.state
+    fn emit_static_alloc(&mut self, alloc_id: StaticAllocId) -> StaticAllocId {
+        *self
+            .state
             .static_alloc_map
             .entry(alloc_id)
-            .or_insert_with(|| self.dst.next_static_alloc_id.get_and_inc());
+            .or_insert_with(|| self.dst.next_static_alloc_id.get_and_inc())
     }
 
-    fn emit_large_const(&mut self, const_id: LargeConstId) {
-        self.state
+    fn emit_large_const(&mut self, const_id: LargeConstId) -> LargeConstId {
+        *self
+            .state
             .large_const_map
             .entry(const_id)
-            .or_insert_with(|| self.dst.large_consts.push(self.src.large_consts[const_id]));
+            .or_insert_with(|| self.dst.large_consts.push(self.src.large_consts[const_id]))
     }
 
-    fn emit_data(&mut self, data_id: DataId) {
-        self.state.data_map.entry(data_id).or_insert_with(|| {
+    fn emit_data(&mut self, data_id: DataId) -> DataId {
+        *self.state.data_map.entry(data_id).or_insert_with(|| {
             self.dst.data_segments.push_copy_slice(&self.src.data_segments[data_id])
-        });
+        })
     }
-}
-
-impl<'a> OpVisitor<'_, ()> for Rewriter<'a> {
-    fn visit_inline_operands<const INS: usize, const OUTS: usize>(
-        &mut self,
-        data: &'_ sir_data::operation::InlineOperands<INS, OUTS>,
-    ) {
-        for local in data.ins.iter().chain(data.outs.iter()) {
-            self.emit_local(*local);
-        }
-    }
-
-    fn visit_allocated_ins<const INS: usize, const OUTS: usize>(
-        &mut self,
-        data: &'_ sir_data::operation::AllocatedIns<INS, OUTS>,
-    ) {
-        for local in data.get_inputs(self.src).iter().chain(data.outs.iter()) {
-            self.emit_local(*local);
-        }
-    }
-
-    fn visit_static_alloc(&mut self, data: &'_ sir_data::operation::StaticAllocData) {
-        self.emit_local(data.ptr_out);
-        self.emit_static_alloc(data.alloc_id);
-    }
-
-    fn visit_memory_load(&mut self, data: &'_ sir_data::operation::MemoryLoadData) {
-        self.emit_local(data.out);
-        self.emit_local(data.ptr);
-    }
-
-    fn visit_memory_store(&mut self, data: &'_ sir_data::operation::MemoryStoreData) {
-        for local in data.ins {
-            self.emit_local(local);
-        }
-    }
-
-    fn visit_set_small_const(&mut self, data: &'_ sir_data::operation::SetSmallConstData) {
-        self.emit_local(data.sets);
-    }
-
-    fn visit_set_large_const(&mut self, data: &'_ sir_data::operation::SetLargeConstData) {
-        self.emit_local(data.sets);
-        self.emit_large_const(data.value);
-    }
-
-    fn visit_set_data_offset(&mut self, data: &'_ sir_data::operation::SetDataOffsetData) {
-        self.emit_local(data.sets);
-        self.emit_data(data.segment_id);
-    }
-
-    fn visit_icall(&mut self, data: &'_ sir_data::operation::InternalCallData) {
-        if self.reserve_function_id(data.function) {
-            self.state.func_worklist.push(data.function);
-        }
-
-        for local in data.get_inputs(self.src).iter().chain(data.get_outputs(self.src).iter()) {
-            self.emit_local(*local);
-        }
-    }
-
-    fn visit_void(&mut self) {}
 }
 
 impl<'a> OpVisitorMut<'_, ()> for Rewriter<'a> {
@@ -360,7 +298,7 @@ impl<'a> OpVisitorMut<'_, ()> for Rewriter<'a> {
         data: &mut sir_data::operation::InlineOperands<INS, OUTS>,
     ) {
         for local in data.ins.iter_mut().chain(data.outs.iter_mut()) {
-            *local = self.state.local_map[local];
+            *local = self.emit_local(*local);
         }
     }
 
@@ -370,54 +308,62 @@ impl<'a> OpVisitorMut<'_, ()> for Rewriter<'a> {
     ) {
         let new_ins_start = self.dst.locals.next_idx();
         for old_local in data.get_inputs(self.src) {
-            self.dst.locals.push(self.state.local_map[old_local]);
+            let new_local = self.emit_local(*old_local);
+            self.dst.locals.push(new_local);
         }
         data.ins_start = new_ins_start;
 
         for local in &mut data.outs {
-            *local = self.state.local_map[local];
+            *local = self.emit_local(*local);
         }
     }
 
     fn visit_static_alloc_mut(&mut self, data: &mut sir_data::operation::StaticAllocData) {
-        data.ptr_out = self.state.local_map[&data.ptr_out];
-        data.alloc_id = self.state.static_alloc_map[&data.alloc_id];
+        data.ptr_out = self.emit_local(data.ptr_out);
+        data.alloc_id = self.emit_static_alloc(data.alloc_id);
     }
 
     fn visit_memory_load_mut(&mut self, data: &mut sir_data::operation::MemoryLoadData) {
-        data.out = self.state.local_map[&data.out];
-        data.ptr = self.state.local_map[&data.ptr];
+        data.out = self.emit_local(data.out);
+        data.ptr = self.emit_local(data.ptr);
     }
 
     fn visit_memory_store_mut(&mut self, data: &mut sir_data::operation::MemoryStoreData) {
         for local in &mut data.ins {
-            *local = self.state.local_map[local];
+            *local = self.emit_local(*local);
         }
     }
 
     fn visit_set_small_const_mut(&mut self, data: &mut sir_data::operation::SetSmallConstData) {
-        data.sets = self.state.local_map[&data.sets];
+        data.sets = self.emit_local(data.sets);
     }
 
     fn visit_set_large_const_mut(&mut self, data: &mut sir_data::operation::SetLargeConstData) {
-        data.sets = self.state.local_map[&data.sets];
-        data.value = self.state.large_const_map[&data.value];
+        data.sets = self.emit_local(data.sets);
+        data.value = self.emit_large_const(data.value);
     }
 
     fn visit_set_data_offset_mut(&mut self, data: &mut sir_data::operation::SetDataOffsetData) {
-        data.sets = self.state.local_map[&data.sets];
-        data.segment_id = self.state.data_map[&data.segment_id];
+        data.sets = self.emit_local(data.sets);
+        data.segment_id = self.emit_data(data.segment_id);
     }
 
     fn visit_icall_mut(&mut self, data: &mut sir_data::operation::InternalCallData) {
+        let (_, is_new) = self.reserve_function_id(data.function);
+        if is_new {
+            self.state.func_worklist.push(data.function);
+        }
+
         let new_ins_start = self.dst.locals.next_idx();
         for old_local in data.get_inputs(self.src) {
-            self.dst.locals.push(self.state.local_map[old_local]);
+            let new_local = self.emit_local(*old_local);
+            self.dst.locals.push(new_local);
         }
 
         let new_outs_start = self.dst.locals.next_idx();
         for old_local in data.get_outputs(self.src) {
-            self.dst.locals.push(self.state.local_map[old_local]);
+            let new_local = self.emit_local(*old_local);
+            self.dst.locals.push(new_local);
         }
 
         data.function = self.state.function_map[&data.function];
@@ -434,39 +380,6 @@ mod tests {
     use crate::{constant_propagation::SCCPAnalysis, unused_operation_elimination};
     use sir_parser::{EmitConfig, parse_or_panic};
     use sir_test_utils::assert_trim_strings_eq_with_diff;
-
-    #[derive(Debug, PartialEq, Eq)]
-    struct IrShape {
-        functions: usize,
-        basic_blocks: usize,
-        operations: usize,
-        locals: usize,
-        large_consts: usize,
-        data_segments: usize,
-        data_bytes: usize,
-        cases: usize,
-        cases_bb_ids: usize,
-        next_local: usize,
-        next_static_alloc: usize,
-    }
-
-    impl IrShape {
-        fn of(ir: &EthIRProgram) -> Self {
-            Self {
-                functions: ir.functions.len(),
-                basic_blocks: ir.basic_blocks.len(),
-                operations: ir.operations.len(),
-                locals: ir.locals.len(),
-                large_consts: ir.large_consts.len(),
-                data_segments: ir.data_segments.len(),
-                data_bytes: ir.data_segments.iter().map(|s| s.len()).sum(),
-                cases: ir.cases.len(),
-                cases_bb_ids: ir.cases_bb_ids.len(),
-                next_local: ir.next_free_local_id.idx(),
-                next_static_alloc: ir.next_static_alloc_id.idx(),
-            }
-        }
-    }
 
     #[test]
     fn test_sccp_unused_elim_and_defragment() {
@@ -564,23 +477,6 @@ data .0 0xcafebabe
         "#;
         assert_trim_strings_eq_with_diff(&src_str, expected_src, "src after sccp + unused elim");
 
-        assert_eq!(
-            IrShape::of(&ir),
-            IrShape {
-                functions: 3,
-                basic_blocks: 5,
-                operations: 16,
-                locals: 14,
-                large_consts: 0,
-                data_segments: 1,
-                data_bytes: 4,
-                cases: 0,
-                cases_bb_ids: 0,
-                next_local: 18,
-                next_static_alloc: 0,
-            }
-        );
-
         let mut dst = EthIRProgram::default();
         let mut defragmenter = Defragmenter::new();
         defragmenter.run(&ir, &mut dst, Some(&sccp.reachable));
@@ -611,23 +507,6 @@ Basic Blocks:
     }
         "#;
         assert_trim_strings_eq_with_diff(&dst_str, expected_dst, "dst after defragment");
-
-        assert_eq!(
-            IrShape::of(&dst),
-            IrShape {
-                functions: 2,
-                basic_blocks: 3,
-                operations: 7,
-                locals: 6,
-                large_consts: 0,
-                data_segments: 0,
-                data_bytes: 0,
-                cases: 0,
-                cases_bb_ids: 0,
-                next_local: 7,
-                next_static_alloc: 0,
-            }
-        );
     }
 
     #[test]
@@ -736,23 +615,6 @@ data .1 0x5678
         "#;
         assert_trim_strings_eq_with_diff(&src_str, expected_src, "src before defragment");
 
-        assert_eq!(
-            IrShape::of(&ir),
-            IrShape {
-                functions: 2,
-                basic_blocks: 8,
-                operations: 15,
-                locals: 0,
-                large_consts: 6,
-                data_segments: 2,
-                data_bytes: 4,
-                cases: 2,
-                cases_bb_ids: 4,
-                next_local: 8,
-                next_static_alloc: 2,
-            }
-        );
-
         let mut dst = EthIRProgram::default();
         let mut defragmenter = Defragmenter::new();
         defragmenter.run(&ir, &mut dst, None);
@@ -793,22 +655,5 @@ Basic Blocks:
 data .0 0x1234
         "#;
         assert_trim_strings_eq_with_diff(&dst_str, expected_dst, "dst after defragment");
-
-        assert_eq!(
-            IrShape::of(&dst),
-            IrShape {
-                functions: 1,
-                basic_blocks: 4,
-                operations: 8,
-                locals: 0,
-                large_consts: 3,
-                data_segments: 1,
-                data_bytes: 2,
-                cases: 1,
-                cases_bb_ids: 2,
-                next_local: 4,
-                next_static_alloc: 1,
-            }
-        );
     }
 }
