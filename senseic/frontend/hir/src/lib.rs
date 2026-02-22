@@ -36,6 +36,7 @@ pub struct ConstDef {
 pub enum Expr {
     ConstRef(ConstId),
     LocalRef(LocalId),
+    Bool(bool),
     Void,
 }
 
@@ -104,6 +105,7 @@ impl<'a, 'b> BlockLowerer<'a, 'b> {
                 }
             }
             ast::Expr::Block(block) => self.lower_nested_block(block),
+            ast::Expr::BoolLiteral(b) => Expr::Bool(b),
             other => todo!("TODO expr lowering for: {other:?}"),
         }
     }

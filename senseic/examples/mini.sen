@@ -2,6 +2,7 @@ const wow = {};
 
 const other = {
     let nice = wow;
+    let wow = false;
     nice
 };
 
