@@ -198,7 +198,8 @@ impl<'a, 'b, 'c> BlockLowerer<'a, 'b, 'c> {
             ast::Expr::BoolLiteral(b) => Expr::Bool(b),
             ast::Expr::NumLiteral { negative, id } => {
                 let limbs = &self.num_lit_limbs[id];
-                let value = sensei_core::bigint::limbs_to_u256(limbs, negative);
+                let value = sensei_core::bigint::limbs_to_u256(limbs, negative)
+                    .expect("number literal out of range");
                 let big_num_id = self.big_nums.push(value);
                 Expr::BigNum(big_num_id)
             }
