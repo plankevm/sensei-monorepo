@@ -1,4 +1,4 @@
-use crate::{ConstId, Hir, Instruction};
+use crate::{BlockId, ConstId, Hir};
 use sensei_parser::{StrId, StringInterner};
 use std::fmt::{self, Display, Formatter};
 
@@ -12,9 +12,11 @@ impl<'hir, 'interner> DisplayHir<'hir, 'interner> {
         Self { hir, interner }
     }
 
-    fn fmt_instructions(&self, f: &mut Formatter<'_>, instructions: &[Instruction]) -> fmt::Result {
-        for i in instructions {
-            writeln!(f, "    {i:?}")?;
+    fn fmt_block(&self, f: &mut Formatter<'_>, block_id: BlockId, indent: usize) -> fmt::Result {
+        let indent_str = "    ".repeat(indent);
+        let instructions = &self.hir.blocks[block_id];
+        for instr in instructions {
+            writeln!(f, "{indent_str}{instr:?}")?;
         }
         Ok(())
     }
@@ -30,7 +32,7 @@ impl<'hir, 'interner> DisplayHir<'hir, 'interner> {
 
         let const_def = &self.hir.consts.const_defs[const_id];
         writeln!(f, "{const_id:?} ({const_name:?}) -> [")?;
-        self.fmt_instructions(f, &const_def.instructions)?;
+        self.fmt_block(f, const_def.body, 1)?;
         writeln!(f, "]")
     }
 }
@@ -43,11 +45,11 @@ impl Display for DisplayHir<'_, '_> {
         }
 
         writeln!(f, "==== Init ====")?;
-        self.fmt_instructions(f, &self.hir.init)?;
+        self.fmt_block(f, self.hir.init, 1)?;
 
-        if let Some(run_instructions) = self.hir.run.as_ref() {
+        if let Some(run_block) = self.hir.run {
             writeln!(f, "==== Run ====")?;
-            self.fmt_instructions(f, run_instructions)?;
+            self.fmt_block(f, run_block, 1)?;
         }
 
         Ok(())

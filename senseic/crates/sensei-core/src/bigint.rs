@@ -1,4 +1,5 @@
 use crate::{Idx, list_of_lists::ListOfLists};
+use alloy_primitives::U256;
 
 const NIBBLE_BITS: usize = 4;
 const BITS_PER_LIMB: usize = u32::BITS as usize;
@@ -112,10 +113,48 @@ fn mul_add_over_limbs(limbs: &mut [u32], mul: u32, add: u32) -> u32 {
     carry
 }
 
+const U32_LIMBS_PER_U256: usize = 8;
+const INT256_MIN_MAGNITUDE: U256 = U256::from_limbs([0, 0, 0, 1 << 63]);
+
+/// Converts u32 limbs (little-endian) to a U256, optionally negating via two's complement.
+///
+/// # Panics
+/// - If `limbs.len() > 8` (value doesn't fit in 256 bits)
+/// - If `negative` is true and the magnitude exceeds 2^255 (the max for int256 two's complement)
+pub fn limbs_to_u256(limbs: &[u32], negative: bool) -> U256 {
+    assert!(
+        limbs.len() <= U32_LIMBS_PER_U256,
+        "limbs exceed 256 bits: {} limbs (max {})",
+        limbs.len(),
+        U32_LIMBS_PER_U256
+    );
+
+    let mut u64_limbs = [0u64; 4];
+    for (i, u64_limb) in u64_limbs.iter_mut().enumerate() {
+        let lo = limbs.get(2 * i).copied().unwrap_or(0) as u64;
+        let hi = limbs.get(2 * i + 1).copied().unwrap_or(0) as u64;
+        *u64_limb = (hi << 32) | lo;
+    }
+
+    let value = U256::from_limbs(u64_limbs);
+
+    if negative && value != U256::ZERO {
+        assert!(
+            value <= INT256_MIN_MAGNITUDE,
+            "negative magnitude {} exceeds int256 minimum (2^255)",
+            value
+        );
+        U256::ZERO.wrapping_sub(value)
+    } else {
+        value
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::{list_of_lists::ListOfLists, newtype_index};
+    use alloy_primitives::uint;
 
     newtype_index! {
         struct UintLimbsIdx;
@@ -216,5 +255,82 @@ mod tests {
         let mut storage: ListOfLists<UintLimbsIdx, u32> = ListOfLists::new();
         let idx = from_radix2_in("000000000000000000000000", &mut storage);
         assert_eq!(fmt_limbs(&storage[idx]), "");
+    }
+
+    #[test]
+    fn test_limbs_to_u256_zero() {
+        assert_eq!(limbs_to_u256(&[], false), U256::ZERO);
+    }
+
+    #[test]
+    fn test_limbs_to_u256_small_positive() {
+        assert_eq!(limbs_to_u256(&[1], false), uint!(1U256));
+        assert_eq!(limbs_to_u256(&[42], false), uint!(42U256));
+        assert_eq!(limbs_to_u256(&[u32::MAX], false), uint!(0xffffffffU256));
+    }
+
+    #[test]
+    fn test_limbs_to_u256_multi_limb() {
+        // 2^32
+        assert_eq!(limbs_to_u256(&[0, 1], false), uint!(0x100000000U256));
+        // 2^64 + 1
+        assert_eq!(limbs_to_u256(&[1, 0, 1], false), uint!(0x10000000000000001U256));
+    }
+
+    #[test]
+    fn test_limbs_to_u256_max() {
+        let max_limbs = [u32::MAX; 8];
+        assert_eq!(limbs_to_u256(&max_limbs, false), U256::MAX);
+    }
+
+    #[test]
+    fn test_limbs_to_u256_negative_one() {
+        // -1 in two's complement is all 1s
+        assert_eq!(limbs_to_u256(&[1], true), U256::ZERO.wrapping_sub(uint!(1U256)));
+    }
+
+    #[test]
+    fn test_limbs_to_u256_negative_small() {
+        // -42 in two's complement
+        assert_eq!(limbs_to_u256(&[42], true), U256::ZERO.wrapping_sub(uint!(42U256)));
+    }
+
+    #[test]
+    fn test_limbs_to_u256_negative_zero() {
+        // -0 is just 0
+        assert_eq!(limbs_to_u256(&[], true), U256::ZERO);
+    }
+
+    #[test]
+    fn test_limbs_to_u256_int256_min() {
+        // -2^255 (the minimum int256 value)
+        // magnitude = 2^255 = 0x8000...0000
+        let mut limbs = [0u32; 8];
+        limbs[7] = 0x80000000; // high bit of the highest limb
+        let result = limbs_to_u256(&limbs, true);
+        // In two's complement, -2^255 has the same bit pattern as its magnitude
+        assert_eq!(
+            result,
+            U256::ZERO.wrapping_sub(uint!(
+                0x8000000000000000000000000000000000000000000000000000000000000000U256
+            ))
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "limbs exceed 256 bits")]
+    fn test_limbs_to_u256_too_many_limbs() {
+        let limbs = [1u32; 9];
+        limbs_to_u256(&limbs, false);
+    }
+
+    #[test]
+    #[should_panic(expected = "negative magnitude")]
+    fn test_limbs_to_u256_negative_overflow() {
+        // magnitude = 2^255 + 1, which exceeds the int256 minimum
+        let mut limbs = [0u32; 8];
+        limbs[7] = 0x80000000;
+        limbs[0] = 1; // add 1 to make it 2^255 + 1
+        limbs_to_u256(&limbs, true);
     }
 }
