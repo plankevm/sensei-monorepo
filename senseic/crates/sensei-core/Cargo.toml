@@ -6,6 +6,7 @@ license.workspace = true
 
 [dependencies]
 allocator-api2.workspace = true
+alloy-primitives.workspace = true
 bumpalo.workspace = true
 hashbrown.workspace = true
 

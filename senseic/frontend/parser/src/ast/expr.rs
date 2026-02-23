@@ -403,9 +403,97 @@ impl<'cst> LetStmt<'cst> {
     }
 }
 
+/// Return statement: `return expr;`
+#[derive(Debug, Clone, Copy)]
+pub struct ReturnStmt<'cst> {
+    view: NodeView<'cst>,
+}
+
+impl<'cst> ReturnStmt<'cst> {
+    fn new(view: NodeView<'cst>) -> Option<Self> {
+        match view.kind() {
+            NodeKind::ReturnStmt => Some(Self { view }),
+            _ => None,
+        }
+    }
+
+    pub fn value(&self) -> Expr<'cst> {
+        let child = self.view.child(0).expect("ReturnStmt must have value child");
+        Expr::new_unwrap(child)
+    }
+
+    pub fn node(&self) -> NodeView<'cst> {
+        self.view
+    }
+}
+
+/// Assignment statement: `target = value;`
+#[derive(Debug, Clone, Copy)]
+pub struct AssignStmt<'cst> {
+    view: NodeView<'cst>,
+}
+
+impl<'cst> AssignStmt<'cst> {
+    fn new(view: NodeView<'cst>) -> Option<Self> {
+        match view.kind() {
+            NodeKind::AssignStmt => Some(Self { view }),
+            _ => None,
+        }
+    }
+
+    pub fn target(&self) -> Expr<'cst> {
+        let child = self.view.child(0).expect("AssignStmt must have target child");
+        Expr::new_unwrap(child)
+    }
+
+    pub fn value(&self) -> Expr<'cst> {
+        let child = self.view.child(1).expect("AssignStmt must have value child");
+        Expr::new_unwrap(child)
+    }
+
+    pub fn node(&self) -> NodeView<'cst> {
+        self.view
+    }
+}
+
+/// While statement: `while condition { body }` or `inline while condition { body }`
+#[derive(Debug, Clone, Copy)]
+pub struct WhileStmt<'cst> {
+    pub inline: bool,
+    view: NodeView<'cst>,
+}
+
+impl<'cst> WhileStmt<'cst> {
+    fn new(view: NodeView<'cst>) -> Option<Self> {
+        let inline = match view.kind() {
+            NodeKind::WhileStmt => false,
+            NodeKind::InlineWhileStmt => true,
+            _ => return None,
+        };
+        Some(Self { inline, view })
+    }
+
+    pub fn condition(&self) -> Expr<'cst> {
+        let child = self.view.child(0).expect("WhileStmt must have condition child");
+        Expr::new_unwrap(child)
+    }
+
+    pub fn body(&self) -> BlockExpr<'cst> {
+        let child = self.view.child(1).expect("WhileStmt must have body child");
+        BlockExpr::new(child)
+    }
+
+    pub fn node(&self) -> NodeView<'cst> {
+        self.view
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 pub enum Statement<'cst> {
     Let(LetStmt<'cst>),
+    Return(ReturnStmt<'cst>),
+    Assign(AssignStmt<'cst>),
+    While(WhileStmt<'cst>),
     Expr(Expr<'cst>),
 }
 
@@ -413,6 +501,15 @@ impl<'cst> Statement<'cst> {
     pub fn new(view: NodeView<'cst>) -> Option<Self> {
         if let Some(let_stmt) = LetStmt::new(view) {
             return Some(Statement::Let(let_stmt));
+        }
+        if let Some(return_stmt) = ReturnStmt::new(view) {
+            return Some(Statement::Return(return_stmt));
+        }
+        if let Some(assign_stmt) = AssignStmt::new(view) {
+            return Some(Statement::Assign(assign_stmt));
+        }
+        if let Some(while_stmt) = WhileStmt::new(view) {
+            return Some(Statement::While(while_stmt));
         }
         if let Some(expr) = Expr::new(view) {
             return Some(Statement::Expr(expr));
