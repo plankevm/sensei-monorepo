@@ -50,11 +50,19 @@ impl<I: Idx, T> ListOfLists<I, T> {
     where
         F: FnOnce(ListOfListsPusher<'_, I, T>),
     {
+        let (idx, ()) = self.push_with_res(f);
+        idx
+    }
+
+    pub fn push_with_res<F, R>(&mut self, f: F) -> (I, R)
+    where
+        F: FnOnce(ListOfListsPusher<'_, I, T>) -> R,
+    {
         let start = u32::try_from(self.values.len()).unwrap();
-        f(ListOfListsPusher { inner: self, start });
+        let res = f(ListOfListsPusher { inner: self, start });
         let idx = self.starts.push(start);
         u32::try_from(self.values.len()).expect("exceeding maximum of 2^32-1 values");
-        idx
+        (idx, res)
     }
 
     pub fn push_iter(&mut self, iter: impl Iterator<Item = T>) -> I {
