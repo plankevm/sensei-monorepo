@@ -2,13 +2,12 @@ use crate::{
     StrId,
     cst::{self, *},
     diagnostics::DiagnosticsContext,
+    interner::PlankInterner,
     lexer::*,
     parser::token_item_iter::TokenItems,
 };
 use allocator_api2::vec::Vec;
-use sensei_core::{
-    Idx, IndexVec, Span, bigint, intern::StringInterner, list_of_lists::ListOfLists,
-};
+use sensei_core::{Idx, IndexVec, Span, bigint, list_of_lists::ListOfLists};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 struct OpPriority(u8);
@@ -94,7 +93,7 @@ struct Parser<'a, D: DiagnosticsContext> {
     num_lit_limbs: ListOfLists<NumLitId, u32>,
     expected: Vec<Token>,
     tokens: TokenItems<'a>,
-    interner: &'a mut StringInterner<StrId>,
+    interner: &'a mut PlankInterner,
     diagnostics: &'a mut D,
     last_src_span: SourceSpan,
     last_unexpected: Option<TokenIdx>,
@@ -111,11 +110,7 @@ where
     const FN_CALL_PRIORITY: OpPriority = OpPriority(21);
     const STRUCT_LITERAL_PRIORITY: OpPriority = OpPriority(21);
 
-    fn new(
-        lexed: &'a Lexed,
-        interner: &'a mut StringInterner<StrId>,
-        diagnostics: &'a mut D,
-    ) -> Self {
+    fn new(lexed: &'a Lexed, interner: &'a mut PlankInterner, diagnostics: &'a mut D) -> Self {
         Parser {
             tokens: TokenItems::new(lexed),
             nodes: IndexVec::with_capacity(lexed.len().get() as usize / LEN_TO_NODE_CAPACITY),
@@ -875,7 +870,7 @@ where
 
 pub fn parse<D: DiagnosticsContext>(
     lexed: &Lexed,
-    interner: &mut StringInterner<StrId>,
+    interner: &mut PlankInterner,
     diagnostics: &mut D,
 ) -> ConcreteSyntaxTree {
     let mut parser = Parser::new(lexed, interner, diagnostics);

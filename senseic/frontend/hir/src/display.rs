@@ -1,14 +1,14 @@
 use crate::{BlockId, ConstId, Hir};
-use sensei_parser::{StrId, StringInterner};
+use sensei_parser::PlankInterner;
 use std::fmt::{self, Display, Formatter};
 
 pub struct DisplayHir<'hir, 'interner> {
     hir: &'hir Hir,
-    interner: &'interner StringInterner<StrId>,
+    interner: &'interner PlankInterner,
 }
 
 impl<'hir, 'interner> DisplayHir<'hir, 'interner> {
-    pub fn new(hir: &'hir Hir, interner: &'interner StringInterner<StrId>) -> Self {
+    pub fn new(hir: &'hir Hir, interner: &'interner PlankInterner) -> Self {
         Self { hir, interner }
     }
 
@@ -31,7 +31,7 @@ impl<'hir, 'interner> DisplayHir<'hir, 'interner> {
             .expect("missing name map for const ID");
 
         let const_def = &self.hir.consts.const_defs[const_id];
-        writeln!(f, "{const_id:?} ({const_name:?}) -> [")?;
+        writeln!(f, "{const_id:?} ({const_name:?}) result={:?} -> [", const_def.result)?;
         self.fmt_block(f, const_def.body, 1)?;
         writeln!(f, "]")
     }

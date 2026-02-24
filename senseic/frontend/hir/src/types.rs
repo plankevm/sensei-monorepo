@@ -1,7 +1,7 @@
 use crate::values::ValueIdx;
 use hashbrown::{DefaultHashBuilder, HashTable, hash_table::Entry};
 use sensei_core::{Idx, IndexVec, list_of_lists::ListOfLists, newtype_index};
-use sensei_parser::cst;
+use sensei_parser::{StrId, cst, interner::PlankInterner};
 use std::{hash::BuildHasher, num::NonZero};
 
 newtype_index! {
@@ -49,7 +49,7 @@ struct StructStorage {
 
 impl TypeId {
     const VOID: TypeId = TypeId::new(0);
-    const INT: TypeId = TypeId::new(1);
+    const U256: TypeId = TypeId::new(1);
     const BOOL: TypeId = TypeId::new(2);
     const MEMORY_POINTER: TypeId = TypeId::new(3);
     const TYPE: TypeId = TypeId::new(4);
@@ -58,10 +58,22 @@ impl TypeId {
     const LAST_FIXED_ID: TypeId = Self::FUNCTION;
     const STRUCT_IDS_OFFSET: u32 = Self::LAST_FIXED_ID.const_get() + 1;
 
+    pub fn resolve_primitive(name: StrId) -> Option<TypeId> {
+        match name {
+            PlankInterner::VOID_NAME => Some(TypeId::VOID),
+            PlankInterner::U256_NAME => Some(TypeId::U256),
+            PlankInterner::BOOL_NAME => Some(TypeId::BOOL),
+            PlankInterner::MEMPTR_NAME => Some(TypeId::MEMORY_POINTER),
+            PlankInterner::TYPE_NAME => Some(TypeId::TYPE),
+            PlankInterner::FUNCTION_NAME => Some(TypeId::FUNCTION),
+            _ => None,
+        }
+    }
+
     fn get_primitive_id(ty: Type<'_>) -> Result<TypeId, StructInfo<'_>> {
         match ty {
             Type::Void => Ok(Self::VOID),
-            Type::Int => Ok(Self::INT),
+            Type::Int => Ok(Self::U256),
             Type::Bool => Ok(Self::BOOL),
             Type::MemoryPointer => Ok(Self::MEMORY_POINTER),
             Type::Type => Ok(Self::TYPE),
@@ -73,7 +85,7 @@ impl TypeId {
     const fn as_type(self) -> Result<Type<'static>, StructIdx> {
         match self {
             Self::VOID => Ok(Type::Void),
-            Self::INT => Ok(Type::Int),
+            Self::U256 => Ok(Type::Int),
             Self::BOOL => Ok(Type::Bool),
             Self::MEMORY_POINTER => Ok(Type::MemoryPointer),
             Self::TYPE => Ok(Type::Type),
