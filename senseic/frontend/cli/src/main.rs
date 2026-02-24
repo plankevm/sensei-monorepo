@@ -46,9 +46,4 @@ fn main() {
     let hir = lower(&cst);
 
     print!("{}", DisplayHir::new(&hir, &interner));
-
-    println!("==== Const Deps ====");
-    for (const_id, deps) in hir.const_deps.enumerate_idx() {
-        println!("{const_id:?} -> {deps:?}");
-    }
 }

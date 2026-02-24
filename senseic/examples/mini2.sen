@@ -1,0 +1,158 @@
+// mini2.sen - Exercises all features supported by the HIR lowerer
+
+// Const without type annotation
+const MAGIC = 0xdeadbeef;
+
+// Const with type annotation
+const MAX_VALUE: u256 = 115792089237316195423570985008687907853269984665640564039457584007913129639935;
+
+// Const referencing another const (const deps)
+const DOUBLED = {
+    let x = MAGIC;
+    x
+};
+
+// Bool literals
+const IS_ENABLED = true;
+const IS_DISABLED = false;
+
+// Void expression
+const UNIT = {};
+
+// Function definition with params
+const add_nums = fn (a: u256, b: u256) u256 {
+    a
+};
+
+// Function with comptime param
+const type_identity = fn (comptime T: type, skibidi: u256, comptime crack: memptr) type {
+    T
+};
+
+// Struct definition
+const Point = struct {} {
+    x: u256,
+    y: u256,
+};
+
+// Function that creates struct literal and uses member access
+const make_point = fn (x_val: u256, y_val: u256) u256 {
+    let p = Point { x: x_val, y: y_val };
+    p.x
+};
+
+// Function with captures
+const make_adder = fn (amount: u256) function {
+    fn (x: u256) u256 {
+        amount
+    }
+};
+
+// Function demonstrating if/else if/else
+const classify = fn (n: u256) u256 {
+    if IS_ENABLED {
+        0
+    } else if IS_DISABLED {
+        1
+    } else {
+        2
+    }
+};
+
+// Function with return statement
+const early_return = fn (flag: bool) u256 {
+    if flag {
+        return 42;
+    }
+    0
+};
+
+// Function with assignment
+const mutating = fn (start: u256) u256 {
+    let x = start;
+    x = 100;
+    x
+};
+
+// Function with while loop
+const loop_example = fn (limit: u256) u256 {
+    let i = 0;
+    let sum = 0;
+    while true {
+        i
+    }
+    sum
+};
+
+// Function calls
+const caller = fn () u256 {
+    let result = add_nums(1, 2);
+    result
+};
+
+init {
+    // Let binding without type annotation
+    let a = MAGIC;
+
+    // Let binding with type annotation  
+    let b: u256 = 42;
+
+    // Block expression with scoping
+    let c = {
+        let inner = 10;
+        inner
+    };
+
+    // Function call in init
+    let d = add_nums(a, b);
+
+    // Struct literal
+    let pt = Point { x: 1, y: 2 };
+
+    // Member access
+    let x_val = pt.x;
+
+    // If expression
+    let e = if IS_ENABLED {
+        100
+    } else {
+        200
+    };
+
+    // Nested blocks
+    {
+        let nested = {
+            let deep = 5;
+            deep
+        };
+    };
+
+    // While loop
+    let counter = 0;
+    while false {
+        counter
+    }
+
+    // Assignment
+    counter = 999;
+
+    // Void result
+    {}
+}
+
+run {
+    // Similar to init but separate block
+    let val = DOUBLED;
+
+    // Call with struct operations
+    let p = make_point(10, 20);
+
+    // If/else chain
+    if false {
+        let x = 1;
+    } else if true {
+        let y = 2;
+    } else {
+        let z = 3;
+    }
+}
