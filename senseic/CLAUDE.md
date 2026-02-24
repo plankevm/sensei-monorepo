@@ -61,11 +61,19 @@ Where heap allocations cannot be avoided you MUST ENSURE that the algorithms or
 functions you write at a high-level only make a constant number of allocations
 relative to the input size.
 
+**Rust Ownership Induced Violations**
+
+You MUST follow the above principles, if intermediary result buffers are
+required:
+- you MUST comment your reasoning for why it's needed
+- you MUST make the buffer reusable if it may be used multiple times
+
 ### Warnings
 
 Never add `#[allow(dead_code)]` to supress dead code warnings. For WIP code it
 is expected, for code that's actually dead no longer used & will not be used in
 future delete.
+
 
 ## Docs (`docs/`)
 - `./docs/Grammar.md`: Grammar definition, to be referenced for parser work
