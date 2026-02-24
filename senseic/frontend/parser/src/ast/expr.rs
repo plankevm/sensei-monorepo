@@ -40,13 +40,7 @@ impl<'cst> Expr<'cst> {
                 NodeKind::BinaryExpr(op) => Expr::Binary(BinaryExpr { op, view }),
                 NodeKind::UnaryExpr(op) => Expr::Unary(UnaryExpr { op, view }),
                 NodeKind::CallExpr => Expr::Call(CallExpr { view }),
-                NodeKind::MemberExpr => {
-                    let member = view
-                        .child(1)
-                        .and_then(NodeView::ident)
-                        .expect("TODO: handle malformed nodes");
-                    Expr::Member(MemberExpr { member, view })
-                }
+                NodeKind::MemberExpr => Expr::Member(MemberExpr::new(view).unwrap()),
                 NodeKind::StructDef => Expr::StructDef(StructDef { view }),
                 NodeKind::StructLit => Expr::StructLit(StructLit { view }),
                 NodeKind::If => Expr::If(IfExpr { view }),
@@ -134,6 +128,14 @@ pub struct MemberExpr<'cst> {
 }
 
 impl<'cst> MemberExpr<'cst> {
+    pub fn new(view: NodeView<'cst>) -> Option<Self> {
+        if view.kind() != NodeKind::MemberExpr {
+            return None;
+        }
+        let member = view.child(1).and_then(NodeView::ident).expect("TODO: Malformed member expr");
+        Some(Self { member, view })
+    }
+
     pub fn object(&self) -> Expr<'cst> {
         let child = self.view.child(0).expect("MemberExpr must have object child");
         Expr::new_unwrap(child)

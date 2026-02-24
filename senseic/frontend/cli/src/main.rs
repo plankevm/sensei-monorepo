@@ -1,9 +1,9 @@
 use clap::Parser;
 use sensei_hir::{display::DisplayHir, lower};
 use sensei_parser::{
-    StringInterner,
     cst::display::DisplayCST,
     error_report::{ErrorCollector, LineIndex, format_error},
+    interner::PlankInterner,
     lexer::Lexed,
     parser::parse,
 };
@@ -26,7 +26,7 @@ fn main() {
 
     let lexed = Lexed::lex(&source);
     let mut collector = ErrorCollector::default();
-    let mut interner = StringInterner::default();
+    let mut interner = PlankInterner::default();
     let cst = parse(&lexed, &mut interner, &mut collector);
 
     if args.show_cst {
@@ -46,9 +46,4 @@ fn main() {
     let hir = lower(&cst);
 
     print!("{}", DisplayHir::new(&hir, &interner));
-
-    println!("==== Const Deps ====");
-    for (const_id, deps) in hir.const_deps.enumerate_idx() {
-        println!("{const_id:?} -> {deps:?}");
-    }
 }
