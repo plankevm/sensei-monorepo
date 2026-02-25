@@ -8,7 +8,6 @@ pub fn run(program: &mut EthIRProgram) {
     let mut sccp = SCCPAnalysis::new(program);
     sccp.analysis(program, &mut uses);
     sccp.apply(program);
-    sccp.reset(program);
 }
 
 pub struct SCCPAnalysis {
@@ -55,6 +54,7 @@ impl SCCPAnalysis {
     }
 
     pub fn analysis(&mut self, program: &EthIRProgram, uses: &mut DefUse) {
+        self.reset(program);
         compute_def_use(program, uses);
         while let Some(bb_id) = self.cfg_worklist.pop() {
             self.process_block(program, bb_id, uses);
@@ -1475,7 +1475,6 @@ Basic Blocks:
         assert_eq!(sccp.get_lattice()[LocalId::new(1)], LatticeValue::Const(U256::from(20)));
         assert_eq!(sccp.get_lattice()[LocalId::new(2)], LatticeValue::Const(U256::from(30)));
 
-        sccp.reset(&small_ir);
         sccp.analysis(&small_ir, &mut uses);
         let lattice = sccp.get_lattice();
 

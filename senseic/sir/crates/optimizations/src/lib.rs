@@ -1,11 +1,13 @@
 mod constant_propagation;
 mod copy_propagation;
 mod defragmenter;
+mod optimizer;
 mod unused_operation_elimination;
 
 use sir_data::EthIRProgram;
 
 pub use defragmenter::Defragmenter;
+pub use optimizer::Optimizer;
 
 pub enum Optimization {
     CopyPropagation,

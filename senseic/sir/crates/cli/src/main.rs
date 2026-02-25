@@ -1,6 +1,6 @@
 use clap::Parser;
 use sir_data::EthIRProgram;
-use sir_optimizations::{Defragmenter, Optimization};
+use sir_optimizations::{Defragmenter, Optimization, Optimizer};
 use sir_parser::{EmitConfig, parse_or_panic};
 use std::{
     fs,
@@ -43,6 +43,10 @@ struct Cli {
     /// Enable defragmentation
     #[arg(long)]
     defragment: bool,
+
+    /// Optimization passes to run (s=SCCP, c=copy propagation, u=unused elimination, d=defragment)
+    #[arg(short = 'O', long = "optimize")]
+    optimize: Option<String>,
 }
 
 fn read_input(input: Option<PathBuf>) -> String {
@@ -77,6 +81,12 @@ fn main() {
 
     // Parse IR to EthIRProgram
     let mut program = parse_or_panic(&source, config);
+
+    if let Some(passes) = cli.optimize {
+        let mut optimizer = Optimizer::new(program);
+        optimizer.run_passes(&passes);
+        program = optimizer.finish();
+    }
 
     if cli.copy_propagation {
         Optimization::CopyPropagation.apply(&mut program);
