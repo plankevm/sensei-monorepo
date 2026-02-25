@@ -1,19 +1,49 @@
 use sir_analyses::DefUse;
-use sir_data::{BasicBlockId, DenseIndexSet, EthIRProgram};
+use sir_data::EthIRProgram;
 
 use crate::{
     constant_propagation::SCCPAnalysis, copy_propagation::CopyPropagation,
     defragmenter::Defragmenter, unused_operation_elimination::UnusedOperationElimination,
 };
 
+use with_analysis::WithAnalysis;
+mod with_analysis {
+
+    pub(super) struct WithAnalysis<P> {
+        inner: P,
+        valid: bool,
+    }
+
+    impl<P> WithAnalysis<P> {
+        pub(super) fn new(inner: P) -> Self {
+            Self { inner, valid: false }
+        }
+
+        pub(super) fn get_valid(&self) -> Option<&P> {
+            self.valid.then_some(&self.inner)
+        }
+
+        pub(super) fn invalidate(&mut self) {
+            self.valid = false;
+        }
+
+        pub(super) fn validate(&mut self) {
+            self.valid = true;
+        }
+
+        pub(super) fn get_ignoring_validity_mut(&mut self) -> &mut P {
+            &mut self.inner
+        }
+    }
+}
+
 pub struct Optimizer {
     src: EthIRProgram,
     dst: Option<EthIRProgram>,
 
     uses: Option<DefUse>,
-    live_blocks: Option<DenseIndexSet<BasicBlockId>>,
 
-    sccp: Option<SCCPAnalysis>,
+    sccp: Option<WithAnalysis<SCCPAnalysis>>,
     copy_prop: Option<CopyPropagation>,
     unused_elim: Option<UnusedOperationElimination>,
     defragmenter: Option<Defragmenter>,
@@ -25,7 +55,6 @@ impl Optimizer {
             src: program,
             dst: None,
             uses: None,
-            live_blocks: None,
             sccp: None,
             copy_prop: None,
             unused_elim: None,
@@ -35,12 +64,28 @@ impl Optimizer {
 
     pub fn run_passes(&mut self, passes: &str) {
         for c in passes.chars() {
+            // Defensively invalidating the analysis is the default.
+            let mut invalidates_sccp = true;
+
             match c {
-                's' => self.run_sccp(),
-                'c' => self.run_copy_prop(),
-                'u' => self.run_unused_elim(),
+                's' => {
+                    self.run_sccp();
+                    invalidates_sccp = false;
+                }
+                'c' => {
+                    self.run_copy_prop();
+                    invalidates_sccp = false;
+                }
+                'u' => {
+                    self.run_unused_elim();
+                    invalidates_sccp = false;
+                }
                 'd' => self.run_defragment(),
                 _ => unreachable!("should've been validated"),
+            }
+
+            if invalidates_sccp && let Some(sccp) = self.sccp.as_mut() {
+                sccp.invalidate();
             }
         }
     }
@@ -50,11 +95,14 @@ impl Optimizer {
     }
 
     fn run_sccp(&mut self) {
-        let sccp = self.sccp.get_or_insert_with(SCCPAnalysis::new);
+        let sccp = self.sccp.get_or_insert_with(|| WithAnalysis::new(SCCPAnalysis::new()));
         let uses = self.uses.get_or_insert_with(DefUse::new);
-        sccp.analysis(&self.src, uses);
-        sccp.apply(&mut self.src);
-        self.live_blocks = Some(sccp.reachable.clone());
+        {
+            let sccp = sccp.get_ignoring_validity_mut();
+            sccp.analysis(&self.src, uses);
+            sccp.apply(&mut self.src);
+        }
+        sccp.validate();
     }
 
     fn run_copy_prop(&mut self) {
@@ -71,7 +119,11 @@ impl Optimizer {
     fn run_defragment(&mut self) {
         let dst = self.dst.get_or_insert_with(EthIRProgram::default);
         let defragmenter = self.defragmenter.get_or_insert_with(Defragmenter::new);
-        defragmenter.run(&self.src, dst, self.live_blocks.as_ref());
+        defragmenter.run(
+            &self.src,
+            dst,
+            self.sccp.as_ref().and_then(|sccp| sccp.get_valid()).map(|sccp| &sccp.reachable),
+        );
         std::mem::swap(&mut self.src, dst);
     }
 }
