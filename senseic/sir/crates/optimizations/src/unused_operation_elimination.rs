@@ -1,45 +1,62 @@
 use sir_analyses::{DefUse, UseKind, compute_def_use};
-use sir_data::{EthIRProgram, Idx, Operation, index_vec};
+use sir_data::{EthIRProgram, Idx, IndexVec, LocalId, Operation, OperationIdx};
 
-pub fn run(program: &mut EthIRProgram) {
-    let mut local_uses = compute_def_use(program);
+pub struct UnusedOperationElimination {
+    def_sites: IndexVec<LocalId, Option<OperationIdx>>,
+    pending_removals: Vec<OperationIdx>,
+}
 
-    let mut def_sites = index_vec![None; program.next_free_local_id.idx()];
-    let mut pending_removals = Vec::new();
-    for op in program.operations() {
-        for out in op.outputs() {
-            def_sites[*out] = Some(op.id());
-        }
-
-        if is_removable(&op.op(), program, &local_uses) {
-            pending_removals.push(op.id());
-        }
+impl UnusedOperationElimination {
+    pub fn new() -> Self {
+        Self { def_sites: IndexVec::new(), pending_removals: Vec::new() }
     }
 
-    while let Some(op_idx) = pending_removals.pop() {
-        let op = &program.operations[op_idx];
-        if matches!(op, Operation::Noop(())) {
-            continue;
-        }
+    pub fn run(&mut self, program: &mut EthIRProgram) {
+        self.def_sites.clear();
+        self.def_sites.resize(program.next_free_local_id.idx(), None);
+        self.pending_removals.clear();
 
-        for &input in op.inputs(program) {
-            local_uses[input].retain(|u| u.kind != UseKind::Operation(op_idx));
+        let mut local_uses = compute_def_use(program);
 
-            if let Some(def_idx) = def_sites[input] {
-                let defining_op = &program.operations[def_idx];
-                if !matches!(defining_op, Operation::Noop(()))
-                    && is_removable(defining_op, program, &local_uses)
-                {
-                    pending_removals.push(def_idx);
-                }
+        for op in program.operations() {
+            for out in op.outputs() {
+                self.def_sites[*out] = Some(op.id());
+            }
+
+            if is_removable(&op.op(), program, &local_uses) {
+                self.pending_removals.push(op.id());
             }
         }
 
-        for &out in op.outputs(program) {
-            def_sites[out] = None;
+        while let Some(op_idx) = self.pending_removals.pop() {
+            let op = &program.operations[op_idx];
+            if matches!(op, Operation::Noop(())) {
+                continue;
+            }
+
+            for &input in op.inputs(program) {
+                local_uses[input].retain(|u| u.kind != UseKind::Operation(op_idx));
+
+                if let Some(def_idx) = self.def_sites[input] {
+                    let defining_op = &program.operations[def_idx];
+                    if !matches!(defining_op, Operation::Noop(()))
+                        && is_removable(defining_op, program, &local_uses)
+                    {
+                        self.pending_removals.push(def_idx);
+                    }
+                }
+            }
+
+            for &out in op.outputs(program) {
+                self.def_sites[out] = None;
+            }
+            program.operations[op_idx] = Operation::Noop(());
         }
-        program.operations[op_idx] = Operation::Noop(());
     }
+}
+
+pub fn run(program: &mut EthIRProgram) {
+    UnusedOperationElimination::new().run(program);
 }
 
 fn is_removable(op: &Operation, program: &EthIRProgram, uses: &DefUse) -> bool {
