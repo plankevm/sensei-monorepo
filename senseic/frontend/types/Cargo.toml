@@ -1,5 +1,5 @@
 [package]
-name = "sensei-hir"
+name = "sensei-types"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -7,9 +7,4 @@ license.workspace = true
 [dependencies]
 sensei-core.workspace = true
 sensei-parser.workspace = true
-sensei-types.workspace = true
-plank-diagnostics.workspace = true
-
 hashbrown.workspace = true
-allocator-api2.workspace = true
-alloy-primitives.workspace = true

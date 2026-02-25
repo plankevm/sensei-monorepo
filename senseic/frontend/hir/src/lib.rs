@@ -1,18 +1,17 @@
 use alloy_primitives::U256;
-use hashbrown::{HashMap, hash_map::Entry};
-use sensei_core::{Idx, IncIterable, IndexVec, Span, list_of_lists::ListOfLists, newtype_index};
+use hashbrown::{hash_map::Entry, HashMap};
+use sensei_core::{list_of_lists::ListOfLists, newtype_index, Idx, IncIterable, IndexVec, Span};
 use sensei_parser::{
-    StrId,
     ast::{self, Statement, TopLevelDef},
     cst::{ConcreteSyntaxTree, NodeIdx, NumLitId},
     lexer::TokenIdx,
+    StrId,
 };
 
-use crate::types::TypeId;
+pub use sensei_types;
+use sensei_types::TypeId;
 
 pub mod display;
-pub mod types;
-mod values;
 
 newtype_index! {
     pub struct ConstId;

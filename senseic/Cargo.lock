@@ -1563,6 +1563,7 @@ dependencies = [
  "plank-diagnostics",
  "sensei-core",
  "sensei-parser",
+ "sensei-types",
 ]
 
 [[package]]
@@ -1577,6 +1578,15 @@ dependencies = [
  "smallvec",
  "tree-sitter",
  "tree-sitter-sensei",
+]
+
+[[package]]
+name = "sensei-types"
+version = "0.1.0"
+dependencies = [
+ "hashbrown 0.16.0",
+ "sensei-core",
+ "sensei-parser",
 ]
 
 [[package]]

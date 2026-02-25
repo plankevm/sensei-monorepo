@@ -13,6 +13,7 @@ sensei-core = { path = "crates/sensei-core" }
 
 # Frontend Sub Crates
 sensei-parser = { path = "frontend/parser" }
+sensei-types = { path = "frontend/types" }
 sensei-hir = { path = "frontend/hir" }
 plank-diagnostics = { path = "frontend/diagnostics" }
 
