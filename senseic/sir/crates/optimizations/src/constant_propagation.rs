@@ -4,8 +4,9 @@ use sir_data::{operation::*, *};
 use std::cmp::{Ordering, PartialOrd};
 
 pub fn run(program: &mut EthIRProgram) {
+    let mut uses = DefUse::new();
     let mut sccp = SCCPAnalysis::new(program);
-    sccp.analysis(program);
+    sccp.analysis(program, &mut uses);
     sccp.apply(program);
     sccp.reset(program);
 }
@@ -53,10 +54,10 @@ impl SCCPAnalysis {
         }
     }
 
-    pub fn analysis(&mut self, program: &EthIRProgram) {
-        let uses = compute_def_use(program);
+    pub fn analysis(&mut self, program: &EthIRProgram, uses: &mut DefUse) {
+        compute_def_use(program, uses);
         while let Some(bb_id) = self.cfg_worklist.pop() {
-            self.process_block(program, bb_id, &uses);
+            self.process_block(program, bb_id, uses);
         }
     }
 
@@ -565,8 +566,9 @@ mod tests {
 
     fn run_const_prop(source: &str) -> (String, IndexVec<LocalId, LatticeValue>) {
         let mut ir = parse_or_panic(source, EmitConfig::init_only());
+        let mut uses = DefUse::new();
         let mut sccp = SCCPAnalysis::new(&ir);
-        sccp.analysis(&ir);
+        sccp.analysis(&ir, &mut uses);
         let lattice = sccp.get_lattice().clone();
         sccp.apply(&mut ir);
         (sir_data::display_program(&ir), lattice)
@@ -1224,8 +1226,9 @@ Basic Blocks:
         "#;
 
         let ir = parse_or_panic(input, EmitConfig::init_only());
+        let mut uses = DefUse::new();
         let mut sccp = SCCPAnalysis::new(&ir);
-        sccp.analysis(&ir);
+        sccp.analysis(&ir, &mut uses);
 
         assert!(sccp.reachable.contains(BasicBlockId::new(1)));
         assert!(!sccp.reachable.contains(BasicBlockId::new(2)));
@@ -1261,8 +1264,9 @@ Basic Blocks:
         "#;
 
         let ir = parse_or_panic(input, EmitConfig::init_only());
+        let mut uses = DefUse::new();
         let mut sccp = SCCPAnalysis::new(&ir);
-        sccp.analysis(&ir);
+        sccp.analysis(&ir, &mut uses);
         let lattice = sccp.get_lattice();
 
         assert_eq!(lattice[LocalId::new(5)], LatticeValue::EvmConst(EvmConstKind::Address));
@@ -1340,8 +1344,9 @@ Basic Blocks:
             "overdefined input makes both branch targets reachable",
         );
 
+        let mut uses = DefUse::new();
         let mut sccp = SCCPAnalysis::new(&ir);
-        sccp.analysis(&ir);
+        sccp.analysis(&ir, &mut uses);
 
         assert!(
             sccp.reachable.contains(BasicBlockId::new(5)),
@@ -1420,8 +1425,9 @@ Basic Blocks:
             "block output use propagates overdefined to successor",
         );
 
+        let mut uses = DefUse::new();
         let mut sccp = SCCPAnalysis::new(&ir);
-        sccp.analysis(&ir);
+        sccp.analysis(&ir, &mut uses);
         let lattice = sccp.get_lattice();
 
         assert_eq!(
@@ -1462,14 +1468,15 @@ Basic Blocks:
             EmitConfig::init_only(),
         );
 
+        let mut uses = DefUse::new();
         let mut sccp = SCCPAnalysis::new(&large_ir);
-        sccp.analysis(&large_ir);
+        sccp.analysis(&large_ir, &mut uses);
         assert_eq!(sccp.get_lattice()[LocalId::new(0)], LatticeValue::Const(U256::from(10)));
         assert_eq!(sccp.get_lattice()[LocalId::new(1)], LatticeValue::Const(U256::from(20)));
         assert_eq!(sccp.get_lattice()[LocalId::new(2)], LatticeValue::Const(U256::from(30)));
 
         sccp.reset(&small_ir);
-        sccp.analysis(&small_ir);
+        sccp.analysis(&small_ir, &mut uses);
         let lattice = sccp.get_lattice();
 
         assert_eq!(lattice.len(), 1);

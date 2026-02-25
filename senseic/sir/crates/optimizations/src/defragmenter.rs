@@ -378,6 +378,7 @@ impl<'a> OpVisitorMut<'_, ()> for Rewriter<'a> {
 mod tests {
     use super::*;
     use crate::{constant_propagation::SCCPAnalysis, unused_operation_elimination};
+    use sir_analyses::DefUse;
     use sir_parser::{EmitConfig, parse_or_panic};
     use sir_test_utils::assert_trim_strings_eq_with_diff;
 
@@ -424,8 +425,9 @@ mod tests {
 
         let mut ir = parse_or_panic(input, EmitConfig::init_only());
 
+        let mut uses = DefUse::new();
         let mut sccp = SCCPAnalysis::new(&ir);
-        sccp.analysis(&ir);
+        sccp.analysis(&ir, &mut uses);
         sccp.apply(&mut ir);
 
         unused_operation_elimination::run(&mut ir);

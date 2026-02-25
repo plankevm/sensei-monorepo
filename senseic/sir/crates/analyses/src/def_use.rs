@@ -1,6 +1,4 @@
-use sir_data::{
-    BasicBlockId, ControlView, EthIRProgram, Idx, IndexVec, LocalId, OperationIdx, index_vec,
-};
+use sir_data::{BasicBlockId, ControlView, EthIRProgram, Idx, IndexVec, LocalId, OperationIdx};
 
 #[derive(Clone)]
 pub struct UseLocation {
@@ -27,9 +25,12 @@ impl std::fmt::Display for UseKind {
 
 pub type DefUse = IndexVec<LocalId, Vec<UseLocation>>;
 
-pub fn compute_def_use(program: &EthIRProgram) -> DefUse {
+pub fn compute_def_use(program: &EthIRProgram, uses: &mut DefUse) {
     let num_locals = program.next_free_local_id.idx();
-    let mut uses: DefUse = index_vec![Vec::new(); num_locals];
+    for vec in uses.iter_mut() {
+        vec.clear();
+    }
+    uses.resize_with(num_locals, Vec::new);
 
     for block in program.blocks() {
         for op in block.operations() {
@@ -54,5 +55,4 @@ pub fn compute_def_use(program: &EthIRProgram) -> DefUse {
             uses[local].push(UseLocation { block_id: block.id(), kind: UseKind::BlockOutput });
         }
     }
-    uses
 }

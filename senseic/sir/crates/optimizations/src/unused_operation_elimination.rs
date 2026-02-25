@@ -11,19 +11,19 @@ impl UnusedOperationElimination {
         Self { def_sites: IndexVec::new(), pending_removals: Vec::new() }
     }
 
-    pub fn run(&mut self, program: &mut EthIRProgram) {
+    pub fn run(&mut self, program: &mut EthIRProgram, uses: &mut DefUse) {
         self.def_sites.clear();
         self.def_sites.resize(program.next_free_local_id.idx(), None);
         self.pending_removals.clear();
 
-        let mut local_uses = compute_def_use(program);
+        compute_def_use(program, uses);
 
         for op in program.operations() {
             for out in op.outputs() {
                 self.def_sites[*out] = Some(op.id());
             }
 
-            if is_removable(&op.op(), program, &local_uses) {
+            if is_removable(&op.op(), program, uses) {
                 self.pending_removals.push(op.id());
             }
         }
@@ -35,12 +35,12 @@ impl UnusedOperationElimination {
             }
 
             for &input in op.inputs(program) {
-                local_uses[input].retain(|u| u.kind != UseKind::Operation(op_idx));
+                uses[input].retain(|u| u.kind != UseKind::Operation(op_idx));
 
                 if let Some(def_idx) = self.def_sites[input] {
                     let defining_op = &program.operations[def_idx];
                     if !matches!(defining_op, Operation::Noop(()))
-                        && is_removable(defining_op, program, &local_uses)
+                        && is_removable(defining_op, program, uses)
                     {
                         self.pending_removals.push(def_idx);
                     }
@@ -56,7 +56,8 @@ impl UnusedOperationElimination {
 }
 
 pub fn run(program: &mut EthIRProgram) {
-    UnusedOperationElimination::new().run(program);
+    let mut uses = DefUse::new();
+    UnusedOperationElimination::new().run(program, &mut uses);
 }
 
 fn is_removable(op: &Operation, program: &EthIRProgram, uses: &DefUse) -> bool {
