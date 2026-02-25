@@ -3,13 +3,6 @@ use sir_analyses::{DefUse, UseKind, compute_def_use, compute_predecessors};
 use sir_data::{operation::*, *};
 use std::cmp::{Ordering, PartialOrd};
 
-pub fn run(program: &mut EthIRProgram) {
-    let mut uses = DefUse::new();
-    let mut sccp = SCCPAnalysis::new(program);
-    sccp.analysis(program, &mut uses);
-    sccp.apply(program);
-}
-
 pub struct SCCPAnalysis {
     lattice: IndexVec<LocalId, LatticeValue>,
     pub reachable: DenseIndexSet<BasicBlockId>,

@@ -377,7 +377,7 @@ impl<'a> OpVisitorMut<'_, ()> for Rewriter<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{constant_propagation::SCCPAnalysis, unused_operation_elimination};
+    use crate::{constant_propagation::SCCPAnalysis, unused_operation_elimination::UnusedOperationElimination};
     use sir_analyses::DefUse;
     use sir_parser::{EmitConfig, parse_or_panic};
     use sir_test_utils::assert_trim_strings_eq_with_diff;
@@ -430,7 +430,7 @@ mod tests {
         sccp.analysis(&ir, &mut uses);
         sccp.apply(&mut ir);
 
-        unused_operation_elimination::run(&mut ir);
+        UnusedOperationElimination::new().run(&mut ir, &mut uses);
 
         let src_str = sir_data::display_program(&ir);
         let expected_src = r#"

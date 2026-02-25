@@ -55,11 +55,6 @@ impl UnusedOperationElimination {
     }
 }
 
-pub fn run(program: &mut EthIRProgram) {
-    let mut uses = DefUse::new();
-    UnusedOperationElimination::new().run(program, &mut uses);
-}
-
 fn is_removable(op: &Operation, program: &EthIRProgram, uses: &DefUse) -> bool {
     op.kind().is_removable_when_unused()
         && op.outputs(program).iter().all(|out| uses[*out].is_empty())
@@ -67,13 +62,14 @@ fn is_removable(op: &Operation, program: &EthIRProgram, uses: &DefUse) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use super::UnusedOperationElimination;
+    use sir_analyses::DefUse;
     use sir_parser::{EmitConfig, parse_or_panic};
     use sir_test_utils::assert_trim_strings_eq_with_diff;
 
     fn run_pass(source: &str) -> String {
         let mut ir = parse_or_panic(source, EmitConfig::init_only());
-        run(&mut ir);
+        UnusedOperationElimination::new().run(&mut ir, &mut DefUse::new());
         sir_data::display_program(&ir)
     }
 

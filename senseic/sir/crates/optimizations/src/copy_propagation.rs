@@ -110,19 +110,15 @@ impl<'d> OpVisitorMut<'d, ()> for CopyReplacer<'_> {
     fn visit_void_mut(&mut self) {}
 }
 
-pub fn run(program: &mut EthIRProgram) {
-    CopyPropagation::new().run(program);
-}
-
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use super::CopyPropagation;
     use sir_parser::{EmitConfig, parse_or_panic};
     use sir_test_utils::assert_trim_strings_eq_with_diff;
 
     fn run_copy_prop(source: &str) -> String {
         let mut ir = parse_or_panic(source, EmitConfig::init_only());
-        run(&mut ir);
+        CopyPropagation::new().run(&mut ir);
         sir_data::display_program(&ir)
     }
 

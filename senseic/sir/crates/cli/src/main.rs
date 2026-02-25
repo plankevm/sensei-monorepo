@@ -1,12 +1,20 @@
 use clap::Parser;
-use sir_data::EthIRProgram;
-use sir_optimizations::{Defragmenter, Optimization, Optimizer};
+use sir_optimizations::Optimizer;
 use sir_parser::{EmitConfig, parse_or_panic};
 use std::{
     fs,
     io::{self, Read},
     path::PathBuf,
 };
+
+fn parse_optimization_passes(s: &str) -> Result<String, String> {
+    for c in s.chars() {
+        if !matches!(c, 's' | 'c' | 'u' | 'd') {
+            return Err(format!("invalid optimization pass '{}', valid passes: s (SCCP), c (copy propagation), u (unused elimination), d (defragment)", c));
+        }
+    }
+    Ok(s.to_string())
+}
 
 #[derive(Parser)]
 #[command(name = "sir")]
@@ -32,20 +40,13 @@ struct Cli {
     #[arg(long)]
     maximized: bool,
 
-    /// Enable copy propagation optimization
-    #[arg(long)]
-    copy_propagation: bool,
-
-    /// Enable constant propagation optimization
-    #[arg(long)]
-    constant_propagation: bool,
-
-    /// Enable defragmentation
-    #[arg(long)]
-    defragment: bool,
-
-    /// Optimization passes to run (s=SCCP, c=copy propagation, u=unused elimination, d=defragment)
-    #[arg(short = 'O', long = "optimize")]
+    /// Optimization passes to run in order. Each character is a pass:
+    /// s = SCCP (constant propagation),
+    /// c = copy propagation,
+    /// u = unused operation elimination,
+    /// d = defragment.
+    /// Example: -O csud
+    #[arg(short = 'O', long = "optimize", value_parser = parse_optimization_passes)]
     optimize: Option<String>,
 }
 
@@ -87,23 +88,6 @@ fn main() {
         optimizer.run_passes(&passes);
         program = optimizer.finish();
     }
-
-    if cli.copy_propagation {
-        Optimization::CopyPropagation.apply(&mut program);
-    }
-
-    if cli.constant_propagation {
-        Optimization::ConstantPropagation.apply(&mut program);
-    }
-
-    let program = if cli.defragment {
-        let mut new_ir = EthIRProgram::default();
-        let mut defragmenter = Defragmenter::new();
-        defragmenter.run(&program, &mut new_ir, None);
-        new_ir
-    } else {
-        program
-    };
 
     let mut bytecode = Vec::with_capacity(0x6000);
     sir_debug_backend::ir_to_bytecode(&program, &mut bytecode);
