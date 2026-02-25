@@ -12,17 +12,14 @@ pub struct SCCPAnalysis {
 }
 
 impl SCCPAnalysis {
-    pub fn new(program: &EthIRProgram) -> Self {
-        let num_values = program.next_free_local_id.idx();
-        let mut sccp = Self {
-            lattice: index_vec![LatticeValue::Unknown; num_values],
-            reachable: DenseIndexSet::with_capacity_in_bits(program.basic_blocks.len()),
+    pub fn new() -> Self {
+        Self {
+            lattice: IndexVec::new(),
+            reachable: DenseIndexSet::new(),
             cfg_worklist: Vec::new(),
             values_worklist: Vec::new(),
-            predecessors: compute_predecessors(program),
-        };
-        sccp.init_state(program);
-        sccp
+            predecessors: IndexVec::new(),
+        }
     }
 
     pub fn reset(&mut self, program: &EthIRProgram) {
@@ -31,7 +28,7 @@ impl SCCPAnalysis {
         self.reachable.clear();
         self.cfg_worklist.clear();
         self.values_worklist.clear();
-        self.predecessors = compute_predecessors(program);
+        compute_predecessors(program, &mut self.predecessors);
         self.init_state(program);
     }
 
@@ -560,7 +557,7 @@ mod tests {
     fn run_const_prop(source: &str) -> (String, IndexVec<LocalId, LatticeValue>) {
         let mut ir = parse_or_panic(source, EmitConfig::init_only());
         let mut uses = DefUse::new();
-        let mut sccp = SCCPAnalysis::new(&ir);
+        let mut sccp = SCCPAnalysis::new();
         sccp.analysis(&ir, &mut uses);
         let lattice = sccp.get_lattice().clone();
         sccp.apply(&mut ir);
@@ -1220,7 +1217,7 @@ Basic Blocks:
 
         let ir = parse_or_panic(input, EmitConfig::init_only());
         let mut uses = DefUse::new();
-        let mut sccp = SCCPAnalysis::new(&ir);
+        let mut sccp = SCCPAnalysis::new();
         sccp.analysis(&ir, &mut uses);
 
         assert!(sccp.reachable.contains(BasicBlockId::new(1)));
@@ -1258,7 +1255,7 @@ Basic Blocks:
 
         let ir = parse_or_panic(input, EmitConfig::init_only());
         let mut uses = DefUse::new();
-        let mut sccp = SCCPAnalysis::new(&ir);
+        let mut sccp = SCCPAnalysis::new();
         sccp.analysis(&ir, &mut uses);
         let lattice = sccp.get_lattice();
 
@@ -1338,7 +1335,7 @@ Basic Blocks:
         );
 
         let mut uses = DefUse::new();
-        let mut sccp = SCCPAnalysis::new(&ir);
+        let mut sccp = SCCPAnalysis::new();
         sccp.analysis(&ir, &mut uses);
 
         assert!(
@@ -1419,7 +1416,7 @@ Basic Blocks:
         );
 
         let mut uses = DefUse::new();
-        let mut sccp = SCCPAnalysis::new(&ir);
+        let mut sccp = SCCPAnalysis::new();
         sccp.analysis(&ir, &mut uses);
         let lattice = sccp.get_lattice();
 
@@ -1462,7 +1459,7 @@ Basic Blocks:
         );
 
         let mut uses = DefUse::new();
-        let mut sccp = SCCPAnalysis::new(&large_ir);
+        let mut sccp = SCCPAnalysis::new();
         sccp.analysis(&large_ir, &mut uses);
         assert_eq!(sccp.get_lattice()[LocalId::new(0)], LatticeValue::Const(U256::from(10)));
         assert_eq!(sccp.get_lattice()[LocalId::new(1)], LatticeValue::Const(U256::from(20)));

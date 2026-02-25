@@ -7,7 +7,7 @@ import {ConstProp} from "src/ConstProp.sol";
 contract ConstantPropagationTest is BaseTest {
     function test_constantPropagation() public {
         ConstProp solRef = new ConstProp();
-        bytes memory sirCode = sir(abi.encode("src/const_prop.sir", "--init-only", "--constant-propagation"));
+        bytes memory sirCode = sir(abi.encode("src/const_prop.sir", "--init-only", "-O", "s"));
         address sirImpl = makeAddr("sir-const-prop");
         vm.etch(sirImpl, sirCode);
 

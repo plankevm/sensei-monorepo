@@ -50,7 +50,7 @@ impl Optimizer {
     }
 
     fn run_sccp(&mut self) {
-        let sccp = self.sccp.get_or_insert_with(|| SCCPAnalysis::new(&self.src));
+        let sccp = self.sccp.get_or_insert_with(SCCPAnalysis::new);
         let uses = self.uses.get_or_insert_with(DefUse::new);
         sccp.analysis(&self.src, uses);
         sccp.apply(&mut self.src);
