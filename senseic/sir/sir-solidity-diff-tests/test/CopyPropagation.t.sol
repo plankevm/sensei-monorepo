@@ -8,7 +8,7 @@ import {CopyPropSwitch} from "src/CopyPropSwitch.sol";
 contract CopyPropagationTest is BaseTest {
     function test_copyPropagation_noCopies_doesNotBreak() public {
         bytes memory codeWithout = sir(abi.encode("src/simple_add.sir", "--init-only"));
-        bytes memory codeWith = sir(abi.encode("src/simple_add.sir", "--init-only", "--copy-propagation"));
+        bytes memory codeWith = sir(abi.encode("src/simple_add.sir", "--init-only", "-O", "c"));
 
         address implWithout = makeAddr("without-opt");
         address implWith = makeAddr("with-opt");
@@ -24,7 +24,7 @@ contract CopyPropagationTest is BaseTest {
 
     function test_copyPropagation_branch_withChain() public {
         CopyPropBranch solRef = new CopyPropBranch();
-        bytes memory sirCode = sir(abi.encode("src/copy_prop_branch.sir", "--init-only", "--copy-propagation"));
+        bytes memory sirCode = sir(abi.encode("src/copy_prop_branch.sir", "--init-only", "-O", "c"));
         address sirImpl = makeAddr("sir-branch");
         vm.etch(sirImpl, sirCode);
 
@@ -41,7 +41,7 @@ contract CopyPropagationTest is BaseTest {
 
     function test_copyPropagation_switch_withOutput() public {
         CopyPropSwitch solRef = new CopyPropSwitch();
-        bytes memory sirCode = sir(abi.encode("src/copy_prop_switch.sir", "--init-only", "--copy-propagation"));
+        bytes memory sirCode = sir(abi.encode("src/copy_prop_switch.sir", "--init-only", "-O", "c"));
         address sirImpl = makeAddr("sir-switch");
         vm.etch(sirImpl, sirCode);
 

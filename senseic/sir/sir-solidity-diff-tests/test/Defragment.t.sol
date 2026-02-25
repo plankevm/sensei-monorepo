@@ -6,7 +6,7 @@ import {BaseTest} from "./BaseTest.sol";
 contract DefragmentTest is BaseTest {
     function test_defragment_simpleAdd() public {
         bytes memory codeWithout = sir(abi.encode("src/simple_add.sir", "--init-only"));
-        bytes memory codeWith = sir(abi.encode("src/simple_add.sir", "--init-only", "--defragment"));
+        bytes memory codeWith = sir(abi.encode("src/simple_add.sir", "--init-only", "-O", "d"));
 
         address implWithout = makeAddr("without-defrag");
         address implWith = makeAddr("with-defrag");
@@ -21,7 +21,7 @@ contract DefragmentTest is BaseTest {
 
     function test_defragment_arithmeticLogic() public {
         bytes memory initWithout = sir(abi.encode("src/arithmetic_logic.sir"));
-        bytes memory initWith = sir(abi.encode("src/arithmetic_logic.sir", "--defragment"));
+        bytes memory initWith = sir(abi.encode("src/arithmetic_logic.sir", "-O", "d"));
 
         address implWithout = makeAddr("without-defrag");
         address implWith = makeAddr("with-defrag");
@@ -37,7 +37,7 @@ contract DefragmentTest is BaseTest {
 
     function test_defragment_followTheList() public {
         bytes memory codeWithout = sir(abi.encode("src/follow_the_list.sir", "--init-only"));
-        bytes memory codeWith = sir(abi.encode("src/follow_the_list.sir", "--init-only", "--defragment"));
+        bytes memory codeWith = sir(abi.encode("src/follow_the_list.sir", "--init-only", "-O", "d"));
 
         address implWithout = makeAddr("without-defrag");
         address implWith = makeAddr("with-defrag");
@@ -55,7 +55,7 @@ contract DefragmentTest is BaseTest {
 
     function test_defragment_switchBug() public {
         bytes memory codeWithout = sir(abi.encode("src/switch_bug.sir", "--init-only"));
-        bytes memory codeWith = sir(abi.encode("src/switch_bug.sir", "--init-only", "--defragment"));
+        bytes memory codeWith = sir(abi.encode("src/switch_bug.sir", "--init-only", "-O", "d"));
 
         address implWithout = makeAddr("without-defrag");
         address implWith = makeAddr("with-defrag");
@@ -70,7 +70,7 @@ contract DefragmentTest is BaseTest {
 
     function test_defragment_simpleDataRet() public {
         bytes memory initWithout = sir(abi.encode("src/simple_data_ret.sir"));
-        bytes memory initWith = sir(abi.encode("src/simple_data_ret.sir", "--defragment"));
+        bytes memory initWith = sir(abi.encode("src/simple_data_ret.sir", "-O", "d"));
 
         address implWithout = makeAddr("without-defrag");
         address implWith = makeAddr("with-defrag");
@@ -84,7 +84,7 @@ contract DefragmentTest is BaseTest {
 
     function test_defragment_copyPropBranch() public {
         bytes memory codeWithout = sir(abi.encode("src/copy_prop_branch.sir", "--init-only"));
-        bytes memory codeWith = sir(abi.encode("src/copy_prop_branch.sir", "--init-only", "--defragment"));
+        bytes memory codeWith = sir(abi.encode("src/copy_prop_branch.sir", "--init-only", "-O", "d"));
 
         address implWithout = makeAddr("without-defrag");
         address implWith = makeAddr("with-defrag");
@@ -99,7 +99,7 @@ contract DefragmentTest is BaseTest {
 
     function test_defragment_copyPropSwitch() public {
         bytes memory codeWithout = sir(abi.encode("src/copy_prop_switch.sir", "--init-only"));
-        bytes memory codeWith = sir(abi.encode("src/copy_prop_switch.sir", "--init-only", "--defragment"));
+        bytes memory codeWith = sir(abi.encode("src/copy_prop_switch.sir", "--init-only", "-O", "d"));
 
         address implWithout = makeAddr("without-defrag");
         address implWith = makeAddr("with-defrag");
@@ -114,7 +114,7 @@ contract DefragmentTest is BaseTest {
 
     function test_defragment_constProp() public {
         bytes memory codeWithout = sir(abi.encode("src/const_prop.sir", "--init-only"));
-        bytes memory codeWith = sir(abi.encode("src/const_prop.sir", "--init-only", "--defragment"));
+        bytes memory codeWith = sir(abi.encode("src/const_prop.sir", "--init-only", "-O", "d"));
 
         address implWithout = makeAddr("without-defrag");
         address implWith = makeAddr("with-defrag");
@@ -129,7 +129,7 @@ contract DefragmentTest is BaseTest {
 
     function test_defragment_deadCodeElimination() public {
         bytes memory codeBefore = sir(abi.encode("src/defragment_dead_code.sir", "--init-only"));
-        bytes memory codeAfter = sir(abi.encode("src/defragment_dead_code.sir", "--init-only", "--defragment"));
+        bytes memory codeAfter = sir(abi.encode("src/defragment_dead_code.sir", "--init-only", "-O", "d"));
 
         assertEq(
             codeBefore.length - codeAfter.length, 64, "defragmentation should remove exactly 64 bytes of dead data"

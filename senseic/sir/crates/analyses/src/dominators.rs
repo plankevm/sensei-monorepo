@@ -29,7 +29,8 @@ fn compute_function_dominators(
         bb_to_rpo_pos[basic_block] = pos as u32;
     }
 
-    let predecessors = compute_predecessors(program);
+    let mut predecessors = IndexVec::new();
+    compute_predecessors(program, &mut predecessors);
     let mut changed = true;
     while changed {
         changed = false;
