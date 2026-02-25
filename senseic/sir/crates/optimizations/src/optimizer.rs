@@ -40,7 +40,7 @@ impl Optimizer {
                 'c' => self.run_copy_prop(),
                 'u' => self.run_unused_elim(),
                 'd' => self.run_defragment(),
-                _ => eprintln!("warning: unknown optimization pass '{}'", c),
+                _ => unreachable!("should've been validated"),
             }
         }
     }
