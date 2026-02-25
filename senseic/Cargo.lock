@@ -1567,6 +1567,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "sensei-mir"
+version = "0.1.0"
+dependencies = [
+ "alloy-primitives",
+ "sensei-core",
+ "sensei-types",
+]
+
+[[package]]
 name = "sensei-parser"
 version = "0.1.0"
 dependencies = [
