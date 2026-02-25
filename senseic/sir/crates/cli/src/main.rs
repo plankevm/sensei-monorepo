@@ -10,7 +10,10 @@ use std::{
 fn parse_optimization_passes(s: &str) -> Result<String, String> {
     for c in s.chars() {
         if !matches!(c, 's' | 'c' | 'u' | 'd') {
-            return Err(format!("invalid optimization pass '{}', valid passes: s (SCCP), c (copy propagation), u (unused elimination), d (defragment)", c));
+            return Err(format!(
+                "invalid optimization pass '{}', valid passes: s (SCCP), c (copy propagation), u (unused elimination), d (defragment)",
+                c
+            ));
         }
     }
     Ok(s.to_string())
@@ -35,10 +38,6 @@ struct Cli {
     /// Override main function name
     #[arg(long, default_value = "main")]
     main_name: String,
-
-    /// Use maximized assembly mode (default: minimized)
-    #[arg(long)]
-    maximized: bool,
 
     /// Optimization passes to run in order. Each character is a pass:
     /// s = SCCP (constant propagation),
