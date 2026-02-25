@@ -1,4 +1,3 @@
-use crate::values::ValueIdx;
 use hashbrown::{DefaultHashBuilder, HashTable, hash_table::Entry};
 use sensei_core::{Idx, IndexVec, list_of_lists::ListOfLists, newtype_index};
 use sensei_parser::{StrId, cst, interner::PlankInterner};
@@ -6,6 +5,7 @@ use std::{hash::BuildHasher, num::NonZero};
 
 newtype_index! {
     pub struct TypeId;
+    pub struct ValueIdx;
     struct StructIdx;
 }
 

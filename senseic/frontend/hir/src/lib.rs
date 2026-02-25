@@ -8,11 +8,10 @@ use sensei_parser::{
     lexer::TokenIdx,
 };
 
-use crate::types::TypeId;
+pub use sensei_types;
+use sensei_types::TypeId;
 
 pub mod display;
-pub mod types;
-mod values;
 
 newtype_index! {
     pub struct ConstId;
