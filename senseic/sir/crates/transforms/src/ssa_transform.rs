@@ -9,6 +9,7 @@ pub fn ssa_transform(program: &mut EthIRProgram) {
     let mut predecessors = IndexVec::new();
     compute_predecessors(program, &mut predecessors);
     split_critical_edges(program, &predecessors);
+    compute_predecessors(program, &mut predecessors);
     SsaTransform::new(program, predecessors).run(program);
 }
 
