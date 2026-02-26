@@ -7,5 +7,7 @@ license.workspace = true
 [dependencies]
 sensei-parser.workspace = true
 sensei-hir.workspace = true
+sensei-hir-eval.workspace = true
+sensei-mir.workspace = true
 bumpalo.workspace = true
 clap.workspace = true

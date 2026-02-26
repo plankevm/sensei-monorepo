@@ -18,6 +18,9 @@ struct Args {
 
     #[arg(short = 'c', long = "show-cst", help = "show CST")]
     show_cst: bool,
+
+    #[arg(short = 'm', long = "show-mir", help = "show MIR")]
+    show_mir: bool,
 }
 
 fn main() {
@@ -46,4 +49,10 @@ fn main() {
     let hir = lower(&cst);
 
     print!("{}", DisplayHir::new(&hir, &interner));
+
+    let mir = sensei_hir_eval::evaluate(&hir);
+
+    if args.show_mir {
+        println!("{mir:#?}");
+    }
 }
