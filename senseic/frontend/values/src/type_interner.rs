@@ -1,6 +1,6 @@
-use hashbrown::{DefaultHashBuilder, HashTable, hash_table::Entry};
-use sensei_core::{Idx, IndexVec, list_of_lists::ListOfLists, newtype_index};
-use sensei_parser::{StrId, cst, interner::PlankInterner};
+use hashbrown::{hash_table::Entry, DefaultHashBuilder, HashTable};
+use sensei_core::{list_of_lists::ListOfLists, newtype_index, Idx, IndexVec};
+use sensei_parser::{cst, interner::PlankInterner, StrId};
 use std::hash::BuildHasher;
 
 use crate::ValueId;
@@ -51,12 +51,12 @@ struct StructStorage {
 }
 
 impl TypeId {
-    const VOID: TypeId = TypeId::new(0);
-    const U256: TypeId = TypeId::new(1);
-    const BOOL: TypeId = TypeId::new(2);
-    const MEMORY_POINTER: TypeId = TypeId::new(3);
-    const TYPE: TypeId = TypeId::new(4);
-    const FUNCTION: TypeId = TypeId::new(5);
+    pub const VOID: TypeId = TypeId::new(0);
+    pub const U256: TypeId = TypeId::new(1);
+    pub const BOOL: TypeId = TypeId::new(2);
+    pub const MEMORY_POINTER: TypeId = TypeId::new(3);
+    pub const TYPE: TypeId = TypeId::new(4);
+    pub const FUNCTION: TypeId = TypeId::new(5);
 
     const LAST_FIXED_ID: TypeId = Self::FUNCTION;
     const STRUCT_IDS_OFFSET: u32 = Self::LAST_FIXED_ID.const_get() + 1;
