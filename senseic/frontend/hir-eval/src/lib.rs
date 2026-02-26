@@ -135,4 +135,35 @@ mod tests {
         let mir = evaluate(&hir);
         assert_eq!(mir.fns.len(), 1);
     }
+
+    #[test]
+    fn function_call() {
+        let hir = parse_and_lower(
+            "const add = fn (a: u256, b: u256) u256 { a };\n\
+             init { let x = add(1, 2); }",
+        );
+        let mir = evaluate(&hir);
+        assert_eq!(mir.fns.len(), 2);
+    }
+
+    #[test]
+    fn function_with_capture() {
+        let hir = parse_and_lower(
+            "const K = 10;\n\
+             const f = fn (x: u256) u256 { K };\n\
+             init { let y = f(1); }",
+        );
+        let mir = evaluate(&hir);
+        assert_eq!(mir.fns.len(), 2);
+    }
+
+    #[test]
+    fn function_call_deduplication() {
+        let hir = parse_and_lower(
+            "const id = fn (x: u256) u256 { x };\n\
+             init { let a = id(1); let b = id(2); }",
+        );
+        let mir = evaluate(&hir);
+        assert_eq!(mir.fns.len(), 2);
+    }
 }

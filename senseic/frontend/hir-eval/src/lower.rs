@@ -16,11 +16,20 @@ struct BodyLowerer<'a, 'hir> {
     locals: Vec<Local>,
     instructions: Vec<mir::Instruction>,
     local_types: Vec<Option<TypeId>>,
+    arg_buf: Vec<mir::LocalId>,
+    return_type: Option<TypeId>,
 }
 
 impl<'a, 'hir> BodyLowerer<'a, 'hir> {
     fn new(eval: &'a mut Evaluator<'hir>) -> Self {
-        Self { eval, locals: Vec::new(), instructions: Vec::new(), local_types: Vec::new() }
+        Self {
+            eval,
+            locals: Vec::new(),
+            instructions: Vec::new(),
+            local_types: Vec::new(),
+            arg_buf: Vec::new(),
+            return_type: None,
+        }
     }
 
     fn alloc_mir_local(&mut self, ty: Option<TypeId>) -> mir::LocalId {
@@ -91,6 +100,63 @@ impl<'a, 'hir> BodyLowerer<'a, 'hir> {
                 Local::Comptime(value_id)
             }
             hir::Expr::LocalRef(local_id) => self.get_local(local_id),
+            hir::Expr::FnDef(fn_def_id) => {
+                let captures = &self.eval.hir.fn_captures[fn_def_id];
+                let mut capture_values: Vec<ValueId> = Vec::new();
+                for capture in captures {
+                    match self.get_local(capture.outer_local) {
+                        Local::Comptime(vid) => capture_values.push(vid),
+                        Local::Runtime { .. } => todo!("runtime capture not supported"),
+                    }
+                }
+                let params = &self.eval.hir.fn_params[fn_def_id];
+                for param in params {
+                    if param.comptime {
+                        todo!("comptime params");
+                    }
+                }
+                let value_id = self
+                    .eval
+                    .values
+                    .intern(Value::Closure { fn_def: fn_def_id, captures: &capture_values });
+                Local::Comptime(value_id)
+            }
+            hir::Expr::Call { callee, args: call_args_id } => {
+                let callee_local = self.get_local(callee);
+                let closure_value_id = match callee_local {
+                    Local::Comptime(vid) => vid,
+                    Local::Runtime { .. } => todo!("runtime callee not supported"),
+                };
+                let closure = self.eval.values.lookup(closure_value_id);
+                let (fn_def_id, captures) = match closure {
+                    Value::Closure { fn_def, captures } => (fn_def, captures.to_vec()),
+                    _ => panic!("callee is not a function"),
+                };
+
+                let mir_fn_id = if let Some(&cached) = self.eval.fn_cache.get(&closure_value_id) {
+                    cached
+                } else {
+                    let fn_id = lower_fn_body(self.eval, fn_def_id, &captures);
+                    self.eval.fn_cache.insert(closure_value_id, fn_id);
+                    fn_id
+                };
+
+                let hir_args: Vec<hir::LocalId> = self.eval.hir.call_params[call_args_id].to_vec();
+                let buf_start = self.arg_buf.len();
+                for &arg_local in &hir_args {
+                    let arg = self.get_local(arg_local);
+                    let mir_local = self.ensure_runtime(arg);
+                    self.arg_buf.push(mir_local);
+                }
+                let args = self.eval.mir_args.push_iter(self.arg_buf.drain(buf_start..));
+
+                let mir_local = self.alloc_mir_local(None);
+                self.instructions.push(mir::Instruction::Set {
+                    local: mir_local,
+                    expr: mir::Expr::Call { callee: mir_fn_id, args },
+                });
+                Local::Runtime { mir_local, ty: None }
+            }
             _ => todo!("expr not yet supported"),
         }
     }
@@ -141,6 +207,14 @@ impl<'a, 'hir> BodyLowerer<'a, 'hir> {
                     Local::Comptime(_) => {}
                 }
             }
+            hir::Instruction::Return(expr) => {
+                let value = self.eval_expr(expr);
+                if let Local::Runtime { ty: Some(ty), .. } = value {
+                    self.return_type = Some(ty);
+                }
+                let mir_local = self.ensure_runtime(value);
+                self.instructions.push(mir::Instruction::Return(mir::Expr::LocalRef(mir_local)));
+            }
             _ => todo!("instruction not yet supported"),
         }
     }
@@ -152,6 +226,37 @@ impl<'a, 'hir> BodyLowerer<'a, 'hir> {
         debug_assert_eq!(fn_id, locals_id);
         fn_id
     }
+}
+
+fn lower_fn_body(
+    eval: &mut Evaluator<'_>,
+    fn_def_id: hir::FnDefId,
+    captures: &[ValueId],
+) -> mir::FnId {
+    let fn_def = eval.hir.fns[fn_def_id];
+    let params: Vec<hir::ParamInfo> = eval.hir.fn_params[fn_def_id].to_vec();
+    let hir_captures: Vec<hir::CaptureInfo> = eval.hir.fn_captures[fn_def_id].to_vec();
+
+    let mut lowerer = BodyLowerer::new(eval);
+
+    for (capture_info, &value_id) in hir_captures.iter().zip(captures) {
+        lowerer.set_local(capture_info.inner_local, Local::Comptime(value_id));
+    }
+
+    let param_count = params.len() as u32;
+    for param in &params {
+        let mir_local = lowerer.alloc_mir_local(None);
+        lowerer.set_local(param.local, Local::Runtime { mir_local, ty: None });
+    }
+
+    lowerer.walk_block(fn_def.body);
+
+    let return_type = match lowerer.return_type {
+        Some(ty) => ty,
+        None => lowerer.eval.types.intern(sensei_types::Type::Void),
+    };
+
+    lowerer.flush_as_fn(param_count, return_type)
 }
 
 pub(crate) fn eval_const_body(eval: &mut Evaluator<'_>, const_def: ConstDef) -> ValueId {
