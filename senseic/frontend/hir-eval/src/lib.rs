@@ -4,6 +4,7 @@ use sensei_hir::{ConstId, Hir};
 use sensei_mir::{self as mir, Mir};
 use sensei_values::{TypeId, TypeInterner, ValueId};
 
+mod comptime;
 mod lower;
 mod value;
 
@@ -125,7 +126,12 @@ mod tests {
 
     #[test]
     fn init_and_run() {
-        let hir = parse_and_lower("init {}\nrun {}");
+        let hir = parse_and_lower(
+            "
+            init {}
+            run {}
+            ",
+        );
         let mir = evaluate(&hir);
         assert_eq!(mir.fns.len(), 2);
         assert!(mir.run.is_some());
@@ -228,6 +234,13 @@ mod tests {
                 i = 1;
              }",
         );
+        let mir = evaluate(&hir);
+        assert_eq!(mir.fns.len(), 1);
+    }
+
+    #[test]
+    fn const_literal_evaluation() {
+        let hir = parse_and_lower("const X = 42; init {}");
         let mir = evaluate(&hir);
         assert_eq!(mir.fns.len(), 1);
     }

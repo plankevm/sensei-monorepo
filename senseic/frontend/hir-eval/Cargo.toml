@@ -8,10 +8,8 @@ license.workspace = true
 sensei-core.workspace = true
 sensei-hir.workspace = true
 sensei-mir.workspace = true
+sensei-parser.workspace = true
 sensei-values.workspace = true
 
 hashbrown.workspace = true
 alloy-primitives.workspace = true
-
-[dev-dependencies]
-sensei-parser.workspace = true
