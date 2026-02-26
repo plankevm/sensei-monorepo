@@ -1567,10 +1567,21 @@ dependencies = [
 ]
 
 [[package]]
-name = "sensei-mir"
+name = "sensei-hir-eval"
 version = "0.1.0"
 dependencies = [
  "alloy-primitives",
+ "hashbrown 0.16.0",
+ "sensei-core",
+ "sensei-hir",
+ "sensei-mir",
+ "sensei-types",
+]
+
+[[package]]
+name = "sensei-mir"
+version = "0.1.0"
+dependencies = [
  "sensei-core",
  "sensei-types",
 ]
