@@ -80,9 +80,9 @@ impl<'hir, 'interner> DisplayHir<'hir, 'interner> {
                 writeln!(f, "{indent_str}  else:")?;
                 self.fmt_block(f, else_block, indent + 2)
             }
-            Instruction::While { condition_block, body } => {
+            Instruction::While { condition_block, condition, body } => {
                 writeln!(f, "{indent_str}While {{")?;
-                writeln!(f, "{indent_str}  condition:")?;
+                writeln!(f, "{indent_str}  condition ({condition:?}):")?;
                 self.fmt_block(f, condition_block, indent + 2)?;
                 writeln!(f, "{indent_str}  body:")?;
                 self.fmt_block(f, body, indent + 2)?;
@@ -185,11 +185,6 @@ impl Display for DisplayHir<'_, '_> {
             for (struct_def_id, _) in self.hir.struct_defs.enumerate_idx() {
                 self.fmt_struct_def(f, struct_def_id)?;
             }
-        }
-
-        writeln!(f, "\n==== Const Deps ====")?;
-        for (const_id, deps) in self.hir.const_deps.enumerate_idx() {
-            writeln!(f, "{const_id:?} -> {deps:?}")?;
         }
 
         writeln!(f, "\n==== Init ====")?;

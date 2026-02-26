@@ -7,6 +7,10 @@ pub mod list_of_lists;
 pub mod must_use;
 pub mod span;
 
+newtype_index! {
+    pub struct BigNumId;
+}
+
 pub use crate::{
     dense_index_set::DenseIndexSet,
     index::Idx,

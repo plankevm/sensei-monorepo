@@ -1,5 +1,4 @@
-use alloy_primitives::U256;
-use sensei_core::{IndexVec, list_of_lists::ListOfLists, newtype_index};
+use sensei_core::{BigNumId, IndexVec, list_of_lists::ListOfLists, newtype_index};
 use sensei_types::{TypeId, TypeInterner};
 
 newtype_index! {
@@ -7,7 +6,6 @@ newtype_index! {
     pub struct BlockId;
     pub struct LocalId;
     pub struct ArgsId;
-    pub struct BigNumId;
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -28,7 +26,7 @@ pub enum Instruction {
     Eval(Expr),
     Return(Expr),
     If { condition: LocalId, then_block: BlockId, else_block: BlockId },
-    While { condition_block: BlockId, body: BlockId },
+    While { condition_block: BlockId, condition: LocalId, body: BlockId },
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -42,10 +40,9 @@ pub struct FnDef {
 pub struct Mir {
     pub blocks: ListOfLists<BlockId, Instruction>,
     pub args: ListOfLists<ArgsId, LocalId>,
-    pub big_nums: IndexVec<BigNumId, U256>,
     pub fns: IndexVec<FnId, FnDef>,
     pub fn_locals: ListOfLists<FnId, Option<TypeId>>,
     pub types: TypeInterner,
-    pub init: BlockId,
-    pub run: Option<BlockId>,
+    pub init: FnId,
+    pub run: Option<FnId>,
 }
