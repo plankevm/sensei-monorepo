@@ -9,16 +9,13 @@ pub fn ssa_transform(program: &mut EthIRProgram) {
     let mut predecessors = IndexVec::new();
     compute_predecessors(program, &mut predecessors);
     split_critical_edges(program, &predecessors);
-    compute_predecessors(program, &mut predecessors);
     SsaTransform::new(program, predecessors).run(program);
 }
 
 struct SsaTransform {
     def_sites: IndexVec<LocalId, DenseIndexSet<BasicBlockId>>,
-    dominators: IndexVec<BasicBlockId, Option<BasicBlockId>>,
     dominator_tree: IndexVec<BasicBlockId, Vec<BasicBlockId>>,
     phi_locations: IndexVec<BasicBlockId, Vec<LocalId>>,
-    predecessors: IndexVec<BasicBlockId, Vec<BasicBlockId>>,
     dominance_frontiers: IndexVec<BasicBlockId, DenseIndexSet<BasicBlockId>>,
 }
 
@@ -28,8 +25,6 @@ impl SsaTransform {
         predecessors: IndexVec<BasicBlockId, Vec<BasicBlockId>>,
     ) -> Self {
         let dominators = compute_dominators(program);
-        let dominance_frontiers = compute_dominance_frontiers(&dominators, &predecessors);
-
         let mut dominator_tree = index_vec![Vec::new(); dominators.len()];
         for (bb, &idom) in dominators.enumerate_idx() {
             if let Some(parent) = idom
@@ -39,16 +34,21 @@ impl SsaTransform {
             }
         }
 
+        let dominance_frontiers = compute_dominance_frontiers(&dominators, &predecessors);
+
         let def_sites = Self::collect_definition_sites(program);
 
         Self {
             def_sites,
-            dominators,
             dominator_tree,
-            predecessors,
             dominance_frontiers,
             phi_locations: index_vec![Vec::new(); program.basic_blocks.len()],
         }
+    }
+
+    fn run(&mut self, program: &mut EthIRProgram) {
+        self.compute_phi_locations();
+        self.rename(program);
     }
 
     fn collect_definition_sites(
@@ -66,12 +66,6 @@ impl SsaTransform {
             }
         }
         def_sites
-    }
-
-    fn run(&mut self, program: &mut EthIRProgram) {
-        self.compute_phi_locations();
-        self.rename(program);
-        self.cleanup_trivial_phis(program);
     }
 
     fn compute_phi_locations(&mut self) {
@@ -98,98 +92,102 @@ impl SsaTransform {
 
     fn rename(&mut self, program: &mut EthIRProgram) {
         let num_locals = program.next_free_local_id.idx();
-        let mut counters = index_vec![0; num_locals];
         let mut stacks = index_vec![Vec::new(); num_locals];
+        let mut rename_trail = Vec::new();
         for func_id in program.functions.iter_idx() {
             self.rename_block(
                 program,
                 program.functions[func_id].entry(),
-                &mut counters,
                 &mut stacks,
+                &mut rename_trail,
             );
         }
-        todo!()
     }
 
     fn rename_block(
         &mut self,
         program: &mut EthIRProgram,
         bb: BasicBlockId,
-        counters: &mut IndexVec<LocalId, u32>,
         stacks: &mut IndexVec<LocalId, Vec<LocalId>>,
+        rename_trail: &mut Vec<LocalId>,
     ) {
-        // 1. Rename existing block inputs and add phi inputs
+        let checkpoint = rename_trail.len();
+
+        self.rename_block_inputs(program, bb, stacks, rename_trail);
+
+        rename_operations(program, bb, stacks, rename_trail);
+
+        match &mut program.basic_blocks[bb].control {
+            Control::Branches(branch) => {
+                branch.condition = rename_use(stacks, branch.condition);
+            }
+            Control::Switch(switch) => {
+                switch.condition = rename_use(stacks, switch.condition);
+            }
+            _ => {}
+        }
+
+        self.rename_block_outputs(program, bb, stacks);
+
+        for i in 0..self.dominator_tree[bb].len() {
+            let child = self.dominator_tree[bb][i];
+            self.rename_block(program, child, stacks, rename_trail);
+        }
+
+        for local in &rename_trail[checkpoint..] {
+            stacks[*local].pop();
+        }
+        rename_trail.truncate(checkpoint);
+    }
+
+    fn rename_block_inputs(
+        &self,
+        program: &mut EthIRProgram,
+        bb: BasicBlockId,
+        stacks: &mut IndexVec<LocalId, Vec<LocalId>>,
+        rename_trail: &mut Vec<LocalId>,
+    ) {
         let old_inputs_span = program.basic_blocks[bb].inputs;
         let new_inputs_start = program.locals.next_idx();
         for idx in old_inputs_span.iter() {
             let local = program.locals[idx];
-            let renamed = rename_use(stacks, local);
+            let renamed = rename_def(stacks, rename_trail, &mut program.next_free_local_id, local);
             program.locals.push(renamed);
         }
-        for &local in &self.phi_locations[bb] {
-            let new_version = rename_def(stacks, &mut program.next_free_local_id, local);
+        for local in &self.phi_locations[bb] {
+            let new_version =
+                rename_def(stacks, rename_trail, &mut program.next_free_local_id, *local);
             program.locals.push(new_version);
         }
         program.basic_blocks[bb].inputs = Span::new(new_inputs_start, program.locals.next_idx());
-
-        // 2. Rename uses and defs in operations
-        let mut renamer = Renamer { program, stacks };
-        for op_idx in renamer.program.basic_blocks[bb].operations.iter() {
-            let mut op = renamer.program.operations[op_idx];
-            op.visit_data_mut(&mut renamer);
-            renamer.program.operations[op_idx] = op;
-        }
-        let program = renamer.program;
-        let stacks = renamer.stacks;
-
-        // 3. For each successor, add phi operands to this block's outputs
-        let successors: Vec<_> = program.basic_blocks[bb].control.iter_outgoing(program).collect();
-        for succ in successors {
-            if self.phi_locations[succ].is_empty() {
-                continue;
-            }
-            let old_outputs_span = program.basic_blocks[bb].outputs;
-            let new_outputs_start = program.locals.next_idx();
-            for idx in old_outputs_span.iter() {
-                program.locals.push(program.locals[idx]);
-            }
-            for &phi_local in &self.phi_locations[succ] {
-                let version = rename_use(stacks, phi_local);
-                program.locals.push(version);
-            }
-            program.basic_blocks[bb].outputs =
-                Span::new(new_outputs_start, program.locals.next_idx());
-        }
-
-        // 4. Recurse into dominator tree children
-        // TODO
-
-        // 5. Pop versions defined in this block
-        // TODO
     }
 
-    fn cleanup_trivial_phis(&mut self, _program: &mut EthIRProgram) {
-        todo!()
+    fn rename_block_outputs(
+        &self,
+        program: &mut EthIRProgram,
+        bb: BasicBlockId,
+        stacks: &IndexVec<LocalId, Vec<LocalId>>,
+    ) {
+        let old_outputs_span = program.basic_blocks[bb].outputs;
+        let new_outputs_start = program.locals.next_idx();
+        for idx in old_outputs_span.iter() {
+            program.locals.push(rename_use(stacks, program.locals[idx]));
+        }
+        // After critical edge splitting, only single-successor blocks (ContinuesTo) can
+        // target a join block with phis. This lets us avoid collecting successors into a Vec.
+        if let Control::ContinuesTo(succ) = program.basic_blocks[bb].control {
+            for phi_local in &self.phi_locations[succ] {
+                program.locals.push(rename_use(stacks, *phi_local));
+            }
+        }
+        program.basic_blocks[bb].outputs = Span::new(new_outputs_start, program.locals.next_idx());
     }
 }
 
 struct Renamer<'a> {
     program: &'a mut EthIRProgram,
     stacks: &'a mut IndexVec<LocalId, Vec<LocalId>>,
-}
-
-fn rename_use(stacks: &IndexVec<LocalId, Vec<LocalId>>, local: LocalId) -> LocalId {
-    *stacks[local].last().expect("local not in scope")
-}
-
-fn rename_def(
-    stacks: &mut IndexVec<LocalId, Vec<LocalId>>,
-    next_local: &mut LocalId,
-    local: LocalId,
-) -> LocalId {
-    let new_version = next_local.get_and_inc();
-    stacks[local].push(new_version);
-    new_version
+    rename_trail: &'a mut Vec<LocalId>,
 }
 
 impl OpVisitorMut<'_, ()> for Renamer<'_> {
@@ -201,7 +199,12 @@ impl OpVisitorMut<'_, ()> for Renamer<'_> {
             *local = rename_use(self.stacks, *local);
         }
         for local in &mut data.outs {
-            *local = rename_def(self.stacks, &mut self.program.next_free_local_id, *local);
+            *local = rename_def(
+                self.stacks,
+                self.rename_trail,
+                &mut self.program.next_free_local_id,
+                *local,
+            );
         }
     }
 
@@ -213,17 +216,32 @@ impl OpVisitorMut<'_, ()> for Renamer<'_> {
             *local = rename_use(self.stacks, *local);
         }
         for local in &mut data.outs {
-            *local = rename_def(self.stacks, &mut self.program.next_free_local_id, *local);
+            *local = rename_def(
+                self.stacks,
+                self.rename_trail,
+                &mut self.program.next_free_local_id,
+                *local,
+            );
         }
     }
 
     fn visit_static_alloc_mut(&mut self, data: &mut sir_data::operation::StaticAllocData) {
-        data.ptr_out = rename_def(self.stacks, &mut self.program.next_free_local_id, data.ptr_out);
+        data.ptr_out = rename_def(
+            self.stacks,
+            self.rename_trail,
+            &mut self.program.next_free_local_id,
+            data.ptr_out,
+        );
     }
 
     fn visit_memory_load_mut(&mut self, data: &mut sir_data::operation::MemoryLoadData) {
         data.ptr = rename_use(self.stacks, data.ptr);
-        data.out = rename_def(self.stacks, &mut self.program.next_free_local_id, data.out);
+        data.out = rename_def(
+            self.stacks,
+            self.rename_trail,
+            &mut self.program.next_free_local_id,
+            data.out,
+        );
     }
 
     fn visit_memory_store_mut(&mut self, data: &mut sir_data::operation::MemoryStoreData) {
@@ -233,15 +251,30 @@ impl OpVisitorMut<'_, ()> for Renamer<'_> {
     }
 
     fn visit_set_small_const_mut(&mut self, data: &mut sir_data::operation::SetSmallConstData) {
-        data.sets = rename_def(self.stacks, &mut self.program.next_free_local_id, data.sets);
+        data.sets = rename_def(
+            self.stacks,
+            self.rename_trail,
+            &mut self.program.next_free_local_id,
+            data.sets,
+        );
     }
 
     fn visit_set_large_const_mut(&mut self, data: &mut sir_data::operation::SetLargeConstData) {
-        data.sets = rename_def(self.stacks, &mut self.program.next_free_local_id, data.sets);
+        data.sets = rename_def(
+            self.stacks,
+            self.rename_trail,
+            &mut self.program.next_free_local_id,
+            data.sets,
+        );
     }
 
     fn visit_set_data_offset_mut(&mut self, data: &mut sir_data::operation::SetDataOffsetData) {
-        data.sets = rename_def(self.stacks, &mut self.program.next_free_local_id, data.sets);
+        data.sets = rename_def(
+            self.stacks,
+            self.rename_trail,
+            &mut self.program.next_free_local_id,
+            data.sets,
+        );
     }
 
     fn visit_icall_mut(&mut self, data: &mut sir_data::operation::InternalCallData) {
@@ -250,11 +283,46 @@ impl OpVisitorMut<'_, ()> for Renamer<'_> {
         }
         let output_count = self.program.functions[data.function].get_outputs();
         for local in &mut self.program.locals[data.outs_start..data.outs_start + output_count] {
-            *local = rename_def(self.stacks, &mut self.program.next_free_local_id, *local);
+            *local = rename_def(
+                self.stacks,
+                self.rename_trail,
+                &mut self.program.next_free_local_id,
+                *local,
+            );
         }
     }
 
     fn visit_void_mut(&mut self) {}
+}
+
+fn rename_operations(
+    program: &mut EthIRProgram,
+    bb: BasicBlockId,
+    stacks: &mut IndexVec<LocalId, Vec<LocalId>>,
+    rename_trail: &mut Vec<LocalId>,
+) {
+    let mut renamer = Renamer { program, stacks, rename_trail };
+    for op_idx in renamer.program.basic_blocks[bb].operations.iter() {
+        let mut op = renamer.program.operations[op_idx];
+        op.visit_data_mut(&mut renamer);
+        renamer.program.operations[op_idx] = op;
+    }
+}
+
+fn rename_use(stacks: &IndexVec<LocalId, Vec<LocalId>>, local: LocalId) -> LocalId {
+    *stacks[local].last().expect("local not in scope")
+}
+
+fn rename_def(
+    stacks: &mut IndexVec<LocalId, Vec<LocalId>>,
+    rename_trail: &mut Vec<LocalId>,
+    next_local: &mut LocalId,
+    local: LocalId,
+) -> LocalId {
+    let new_version = next_local.get_and_inc();
+    stacks[local].push(new_version);
+    rename_trail.push(local);
+    new_version
 }
 
 fn split_critical_edges(
