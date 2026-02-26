@@ -1,7 +1,7 @@
 use hashbrown::{DefaultHashBuilder, HashTable, hash_table::Entry};
 use sensei_core::{Idx, IndexVec, list_of_lists::ListOfLists, newtype_index};
 use sensei_parser::{StrId, cst, interner::PlankInterner};
-use std::{hash::BuildHasher, num::NonZero};
+use std::hash::BuildHasher;
 
 newtype_index! {
     pub struct TypeId;
@@ -103,10 +103,7 @@ impl TypeId {
 
 impl From<StructIdx> for TypeId {
     fn from(value: StructIdx) -> Self {
-        Self(
-            NonZero::new(value.get().wrapping_add(Self::STRUCT_IDS_OFFSET))
-                .expect("32-bit overflow"),
-        )
+        Self::new(value.get().wrapping_add(Self::STRUCT_IDS_OFFSET))
     }
 }
 

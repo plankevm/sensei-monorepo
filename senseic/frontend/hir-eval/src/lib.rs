@@ -166,4 +166,25 @@ mod tests {
         let mir = evaluate(&hir);
         assert_eq!(mir.fns.len(), 2);
     }
+
+    #[test]
+    fn struct_def_and_literal() {
+        let hir = parse_and_lower(
+            "const Point = struct {} { x: u256, y: u256 };\n\
+             init { let p = Point { x: 1, y: 2 }; let v = p.x; }",
+        );
+        let mir = evaluate(&hir);
+        assert_eq!(mir.fns.len(), 1);
+    }
+
+    #[test]
+    fn comptime_struct_propagation() {
+        let hir = parse_and_lower(
+            "const Point = struct {} { x: u256, y: u256 };\n\
+             const ORIGIN = Point { x: 0, y: 0 };\n\
+             init { let p = ORIGIN; }",
+        );
+        let mir = evaluate(&hir);
+        assert_eq!(mir.fns.len(), 1);
+    }
 }

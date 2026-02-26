@@ -43,8 +43,11 @@ impl<'a, 'hir> BodyLowerer<'a, 'hir> {
         if idx < self.locals.len() {
             self.locals[idx] = value;
         } else {
-            debug_assert_eq!(idx, self.locals.len());
-            self.locals.push(value);
+            // HIR locals may be allocated out-of-order (e.g. result local allocated before
+            // temporaries used in its initializer), so we pad with a placeholder.
+            let void = Local::Comptime(self.eval.values.intern(Value::Void));
+            self.locals.resize(idx + 1, void);
+            self.locals[idx] = value;
         }
     }
 
@@ -54,9 +57,19 @@ impl<'a, 'hir> BodyLowerer<'a, 'hir> {
 
     fn materialize(&mut self, value_id: ValueId) -> mir::LocalId {
         let value = self.eval.values.lookup(value_id);
-        let mir_expr = match value {
-            Value::Void => mir::Expr::Void,
-            Value::Bool(b) => mir::Expr::Bool(b),
+        match value {
+            Value::Void => {
+                let mir_local = self.alloc_mir_local(None);
+                self.instructions
+                    .push(mir::Instruction::Set { local: mir_local, expr: mir::Expr::Void });
+                mir_local
+            }
+            Value::Bool(b) => {
+                let mir_local = self.alloc_mir_local(None);
+                self.instructions
+                    .push(mir::Instruction::Set { local: mir_local, expr: mir::Expr::Bool(b) });
+                mir_local
+            }
             Value::BigNum(n) => {
                 let big_num_id = self
                     .eval
@@ -66,15 +79,31 @@ impl<'a, 'hir> BodyLowerer<'a, 'hir> {
                     .find(|&(_, &v)| v == n)
                     .map(|(id, _)| id)
                     .expect("BigNum value not found in HIR big_nums");
-                mir::Expr::BigNum(big_num_id)
+                let mir_local = self.alloc_mir_local(None);
+                self.instructions.push(mir::Instruction::Set {
+                    local: mir_local,
+                    expr: mir::Expr::BigNum(big_num_id),
+                });
+                mir_local
             }
-            // Types are erased at runtime
-            Value::Type(_) => return self.alloc_mir_local(None),
-            _ => todo!("cannot materialize value"),
-        };
-        let mir_local = self.alloc_mir_local(None);
-        self.instructions.push(mir::Instruction::Set { local: mir_local, expr: mir_expr });
-        mir_local
+            Value::Type(_) => self.alloc_mir_local(None),
+            Value::StructVal { ty, fields } => {
+                let field_vids: Vec<ValueId> = fields.to_vec();
+                let buf_start = self.arg_buf.len();
+                for field_vid in field_vids {
+                    let mir_local = self.materialize(field_vid);
+                    self.arg_buf.push(mir_local);
+                }
+                let args = self.eval.mir_args.push_iter(self.arg_buf.drain(buf_start..));
+                let mir_local = self.alloc_mir_local(Some(ty));
+                self.instructions.push(mir::Instruction::Set {
+                    local: mir_local,
+                    expr: mir::Expr::StructLit { ty, fields: args },
+                });
+                mir_local
+            }
+            Value::Closure { .. } => todo!("cannot materialize closure"),
+        }
     }
 
     fn ensure_runtime(&mut self, local: Local) -> mir::LocalId {
@@ -157,7 +186,127 @@ impl<'a, 'hir> BodyLowerer<'a, 'hir> {
                 });
                 Local::Runtime { mir_local, ty: None }
             }
-            _ => todo!("expr not yet supported"),
+            hir::Expr::StructDef(struct_def_id) => {
+                let struct_def = self.eval.hir.struct_defs[struct_def_id];
+                let type_index_value = match self.get_local(struct_def.type_index) {
+                    Local::Comptime(vid) => vid,
+                    Local::Runtime { .. } => panic!("struct type_index must be comptime"),
+                };
+
+                let fields_info: Vec<hir::FieldInfo> =
+                    self.eval.hir.fields[struct_def.fields].to_vec();
+                let mut field_types: Vec<TypeId> = Vec::new();
+                let mut field_names = Vec::new();
+
+                for field in &fields_info {
+                    let value = self.get_local(field.value);
+                    match value {
+                        Local::Comptime(vid) => match self.eval.values.lookup(vid) {
+                            Value::Type(tid) => {
+                                field_types.push(tid);
+                                field_names.push(field.name);
+                            }
+                            _ => panic!("struct field type must be a Type value"),
+                        },
+                        Local::Runtime { .. } => panic!("struct field types must be comptime"),
+                    }
+                }
+
+                let struct_type_id =
+                    self.eval.types.intern(sensei_types::Type::Struct(sensei_types::StructInfo {
+                        source: struct_def.source,
+                        type_index: type_index_value,
+                        fields: &field_types,
+                        field_names: &field_names,
+                    }));
+
+                Local::Comptime(self.eval.values.intern(Value::Type(struct_type_id)))
+            }
+            hir::Expr::StructLit { ty, fields: fields_id } => {
+                let struct_type_id = match self.get_local(ty) {
+                    Local::Comptime(vid) => match self.eval.values.lookup(vid) {
+                        Value::Type(tid) => tid,
+                        _ => panic!("struct lit type must be a Type value"),
+                    },
+                    Local::Runtime { .. } => panic!("struct lit type must be comptime"),
+                };
+
+                let fields_info: Vec<hir::FieldInfo> = self.eval.hir.fields[fields_id].to_vec();
+                let mut field_locals: Vec<Local> = Vec::new();
+                for field in &fields_info {
+                    field_locals.push(self.get_local(field.value));
+                }
+
+                let all_comptime = field_locals.iter().all(|l| matches!(l, Local::Comptime(_)));
+
+                if all_comptime {
+                    let value_ids: Vec<ValueId> = field_locals
+                        .iter()
+                        .map(|l| match l {
+                            Local::Comptime(vid) => *vid,
+                            _ => unreachable!(),
+                        })
+                        .collect();
+                    let value_id = self
+                        .eval
+                        .values
+                        .intern(Value::StructVal { ty: struct_type_id, fields: &value_ids });
+                    Local::Comptime(value_id)
+                } else {
+                    let buf_start = self.arg_buf.len();
+                    for local in field_locals {
+                        let mir_local = self.ensure_runtime(local);
+                        self.arg_buf.push(mir_local);
+                    }
+                    let args = self.eval.mir_args.push_iter(self.arg_buf.drain(buf_start..));
+                    let mir_local = self.alloc_mir_local(Some(struct_type_id));
+                    self.instructions.push(mir::Instruction::Set {
+                        local: mir_local,
+                        expr: mir::Expr::StructLit { ty: struct_type_id, fields: args },
+                    });
+                    Local::Runtime { mir_local, ty: Some(struct_type_id) }
+                }
+            }
+            hir::Expr::Member { object, member } => {
+                let obj_local = self.get_local(object);
+
+                match obj_local {
+                    Local::Comptime(vid) => match self.eval.values.lookup(vid) {
+                        Value::StructVal { ty, fields } => {
+                            let field_index = self
+                                .eval
+                                .types
+                                .field_index_by_name(ty, member)
+                                .expect("no such field");
+                            let field_value_id = fields[field_index as usize];
+                            Local::Comptime(field_value_id)
+                        }
+                        _ => todo!("member access on non-struct comptime value"),
+                    },
+                    Local::Runtime { mir_local, ty } => {
+                        let type_id = ty.expect("runtime member access requires known type");
+                        let field_index = self
+                            .eval
+                            .types
+                            .field_index_by_name(type_id, member)
+                            .expect("no such field");
+
+                        let field_ty = match self.eval.types.lookup(type_id) {
+                            sensei_types::Type::Struct(info) => {
+                                Some(info.fields[field_index as usize])
+                            }
+                            _ => None,
+                        };
+
+                        let result = self.alloc_mir_local(field_ty);
+                        self.instructions.push(mir::Instruction::Set {
+                            local: result,
+                            expr: mir::Expr::FieldAccess { object: mir_local, field_index },
+                        });
+                        Local::Runtime { mir_local: result, ty: field_ty }
+                    }
+                }
+            }
         }
     }
 
