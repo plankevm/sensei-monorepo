@@ -39,6 +39,22 @@ impl<I: Idx> DenseIndexSet<I> {
         self.inner.fill(0);
     }
 
+    /// Returns the number of elements in the set.
+    pub fn len(&self) -> usize {
+        self.inner.iter().map(|word| word.count_ones() as usize).sum()
+    }
+
+    /// Returns `true` if the set contains no elements.
+    pub fn is_empty(&self) -> bool {
+        self.inner.iter().all(|&word| word == 0)
+    }
+
+    /// Returns an iterator over the indices in the set.
+    pub fn iter(&self) -> DenseIndexSetIter<'_, I> {
+        let current_word = self.inner.first().copied().unwrap_or(0);
+        DenseIndexSetIter { set: self, word_idx: 0, current_word }
+    }
+
     /// Returns `true` if the set contains the given index.
     #[inline]
     pub fn contains(&self, i: I) -> bool {
@@ -90,6 +106,29 @@ impl<I: Idx> DenseIndexSet<I> {
         *word &= !(1 << bit);
         debug_assert!(!self.contains(i), "removing failed");
         removing
+    }
+}
+
+pub struct DenseIndexSetIter<'a, I: Idx> {
+    set: &'a DenseIndexSet<I>,
+    word_idx: usize,
+    current_word: usize,
+}
+
+impl<I: Idx> Iterator for DenseIndexSetIter<'_, I> {
+    type Item = I;
+
+    fn next(&mut self) -> Option<I> {
+        loop {
+            if self.current_word != 0 {
+                let bit = self.current_word.trailing_zeros();
+                self.current_word &= self.current_word - 1;
+                let index = (self.word_idx as u32) * usize::BITS + bit;
+                return Some(I::ZERO + index);
+            }
+            self.word_idx += 1;
+            self.current_word = *self.set.inner.get(self.word_idx)?;
+        }
     }
 }
 
@@ -158,6 +197,8 @@ mod tests {
         assert!(!set.contains(TestIdx::new(1)));
         assert!(!set.contains(TestIdx::new(10)));
         assert!(!set.contains(TestIdx::new(100)));
+        assert!(set.is_empty());
+        assert_eq!(set.iter().count(), 0);
     }
 
     #[test]
@@ -188,5 +229,18 @@ mod tests {
         let set: DenseIndexSet<TestIdx> = DenseIndexSet::with_capacity_in_bits(256);
         assert!(!set.contains(TestIdx::new(0)));
         assert!(!set.contains(TestIdx::new(255)));
+    }
+
+    #[test]
+    fn test_iter_and_len() {
+        let mut set: DenseIndexSet<TestIdx> = DenseIndexSet::new();
+        let indices = [0, 1, 63, 64, 65, 128, 1000];
+        for &i in &indices {
+            set.add(TestIdx::new(i));
+        }
+
+        assert_eq!(set.len(), indices.len());
+        let collected: Vec<u32> = set.iter().map(|i| i.get()).collect();
+        assert_eq!(collected, indices);
     }
 }

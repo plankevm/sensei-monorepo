@@ -1796,6 +1796,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "sir-transforms"
+version = "0.1.0"
+dependencies = [
+ "sir-analyses",
+ "sir-data",
+]
+
+[[package]]
 name = "smallvec"
 version = "1.15.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
