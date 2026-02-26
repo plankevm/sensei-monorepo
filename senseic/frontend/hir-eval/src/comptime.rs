@@ -2,7 +2,7 @@ use sensei_core::{Idx, IndexVec};
 use sensei_hir::{self as hir, ConstDef};
 use sensei_values::{TypeId, ValueId};
 
-use crate::{value::Value, Evaluator};
+use crate::{Evaluator, value::Value};
 
 struct ReturnValue(ValueId);
 
@@ -222,9 +222,58 @@ impl<'a, 'hir> ComptimeEvaluator<'a, 'hir> {
 
     fn eval_call(
         &mut self,
-        _callee: hir::LocalId,
-        _args: hir::CallArgsId,
+        callee: hir::LocalId,
+        args: hir::CallArgsId,
     ) -> Result<ValueId, ReturnValue> {
-        todo!("comptime function call interpretation")
+        let closure_vid = self.get_local(callee);
+        let (fn_def_id, captures) = match self.eval.values.lookup(closure_vid) {
+            Value::Closure { fn_def, captures } => (fn_def, captures),
+            _ => panic!("comptime call on non-function"),
+        };
+
+        let capture_start = self.value_buf.len();
+        self.value_buf.extend_from_slice(captures);
+
+        let arg_locals = &self.eval.hir.call_params[args];
+        let args_start = self.value_buf.len();
+        for &local in arg_locals {
+            self.value_buf.push(self.get_local(local));
+        }
+
+        let result = self.eval_fn_body(fn_def_id, capture_start, args_start);
+
+        self.value_buf.truncate(capture_start);
+
+        result
+    }
+
+    fn eval_fn_body(
+        &mut self,
+        fn_def_id: hir::FnDefId,
+        capture_start: usize,
+        args_start: usize,
+    ) -> Result<ValueId, ReturnValue> {
+        let fn_def = self.eval.hir.fns[fn_def_id];
+        let params = &self.eval.hir.fn_params[fn_def_id];
+        let hir_captures = &self.eval.hir.fn_captures[fn_def_id];
+
+        let saved_bindings = std::mem::take(&mut self.bindings);
+
+        for (i, capture_info) in hir_captures.iter().enumerate() {
+            self.set_local(capture_info.inner_local, self.value_buf[capture_start + i]);
+        }
+
+        for (i, param) in params.iter().enumerate() {
+            self.set_local(param.local, self.value_buf[args_start + i]);
+        }
+
+        let result = match self.walk_block(fn_def.body) {
+            Ok(()) => self.eval.values.intern(Value::Void),
+            Err(ReturnValue(vid)) => vid,
+        };
+
+        self.bindings = saved_bindings;
+
+        Ok(result)
     }
 }

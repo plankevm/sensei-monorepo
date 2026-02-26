@@ -52,7 +52,7 @@ impl<'hir> Evaluator<'hir> {
             ConstState::NotEvaluated => {
                 self.const_states[const_id] = ConstState::InProgress;
                 let const_def = self.hir.consts.const_defs[const_id];
-                let value_id = lower::eval_const_body(self, const_def);
+                let value_id = comptime::ComptimeEvaluator::eval_const(self, const_def);
                 self.const_states[const_id] = ConstState::Evaluated(value_id);
                 value_id
             }
@@ -241,6 +241,17 @@ mod tests {
     #[test]
     fn const_literal_evaluation() {
         let hir = parse_and_lower("const X = 42; init {}");
+        let mir = evaluate(&hir);
+        assert_eq!(mir.fns.len(), 1);
+    }
+
+    #[test]
+    fn const_fn_call_comptime_evaluated() {
+        let hir = parse_and_lower(
+            "const id = fn (x: u256) u256 { x };
+             const Y = id(42);
+             init {}",
+        );
         let mir = evaluate(&hir);
         assert_eq!(mir.fns.len(), 1);
     }
