@@ -165,7 +165,7 @@ impl BasicBlock {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct Branch {
     pub condition: LocalId,
     pub non_zero_target: BasicBlockId,
@@ -174,7 +174,7 @@ pub struct Branch {
 
 // Kept small to ensure that `Control` is no larger because of it. This is because I expect `Switch`
 // to not be that common so I don't want to optimize for it.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct Switch {
     pub condition: LocalId,
     pub fallback: Option<BasicBlockId>,
@@ -200,6 +200,10 @@ impl Cases {
         ir: &'ir EthIRProgram,
     ) -> RelSlice<'ir, CasesBasicBlocksIdx, BasicBlockId> {
         ir.cases_bb_ids.rel_slice(self.targets_start_id..self.targets_start_id + self.cases_count)
+    }
+
+    pub fn target_indices(&self) -> Span<CasesBasicBlocksIdx> {
+        Span::new(self.targets_start_id, self.targets_start_id + self.cases_count)
     }
 
     pub fn iter<'ir>(&self, ir: &'ir EthIRProgram) -> CasesIter<'ir> {
@@ -231,7 +235,7 @@ impl<'ir> Iterator for CasesIter<'ir> {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub enum Control {
     LastOpTerminates,
     InternalReturn,

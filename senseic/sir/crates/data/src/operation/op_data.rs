@@ -284,6 +284,11 @@ impl<const INS: usize, const OUTS: usize> AllocatedIns<INS, OUTS> {
         let ins_start = self.ins_start.idx();
         &ir.locals.as_raw_slice()[ins_start..ins_start + INS]
     }
+
+    pub fn get_inputs_mut<'ir>(&self, ir: &'ir mut EthIRProgram) -> &'ir mut [LocalId] {
+        let ins_start = self.ins_start.idx();
+        &mut ir.locals.as_raw_slice_mut()[ins_start..ins_start + INS]
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
