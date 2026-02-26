@@ -3,9 +3,10 @@ use sensei_core::{Idx, IndexVec, list_of_lists::ListOfLists, newtype_index};
 use sensei_parser::{StrId, cst, interner::PlankInterner};
 use std::hash::BuildHasher;
 
+use crate::ValueId;
+
 newtype_index! {
     pub struct TypeId;
-    pub struct ValueId;
     struct StructIdx;
 }
 

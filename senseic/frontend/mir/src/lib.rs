@@ -1,5 +1,5 @@
-use sensei_core::{BigNumId, IndexVec, list_of_lists::ListOfLists, newtype_index};
-use sensei_types::{TypeId, TypeInterner};
+use sensei_core::{IndexVec, list_of_lists::ListOfLists, newtype_index};
+use sensei_values::{BigNumId, TypeId, TypeInterner};
 
 newtype_index! {
     pub struct FnId;

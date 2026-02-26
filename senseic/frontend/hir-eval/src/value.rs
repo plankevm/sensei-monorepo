@@ -1,8 +1,7 @@
-use alloy_primitives::U256;
-use hashbrown::{DefaultHashBuilder, HashTable};
+use hashbrown::{DefaultHashBuilder, HashTable, hash_table::Entry};
 use sensei_core::{IndexVec, list_of_lists::ListOfLists, newtype_index};
 use sensei_hir::FnDefId;
-use sensei_types::{TypeId, ValueId};
+use sensei_values::{BigNumId, TypeId, ValueId};
 use std::hash::BuildHasher;
 
 newtype_index! {
@@ -13,7 +12,7 @@ newtype_index! {
 enum StoredValue {
     Void,
     Bool(bool),
-    BigNum(U256),
+    BigNum(BigNumId),
     Type(TypeId),
     Closure { fn_def: FnDefId, children: CompoundIdx },
     StructVal { ty: TypeId, children: CompoundIdx },
@@ -23,7 +22,7 @@ enum StoredValue {
 pub(crate) enum Value<'a> {
     Void,
     Bool(bool),
-    BigNum(U256),
+    BigNum(BigNumId),
     Type(TypeId),
     Closure { fn_def: FnDefId, captures: &'a [ValueId] },
     StructVal { ty: TypeId, fields: &'a [ValueId] },
@@ -70,28 +69,33 @@ impl ValueInterner {
 
     pub fn intern(&mut self, value: Value<'_>) -> ValueId {
         let hash = self.hash_value(value);
-        if let Some(&existing) =
-            self.dedup.find(hash, |&id| stored_to_value(self.values[id], &self.children) == value)
-        {
-            return existing;
+        let entry = self.dedup.entry(
+            hash,
+            |&id| stored_to_value(self.values[id], &self.children) == value,
+            |&id| self.hasher.hash_one(stored_to_value(self.values[id], &self.children)),
+        );
+        match entry {
+            Entry::Occupied(occupied) => *occupied.get(),
+            Entry::Vacant(vacant) => {
+                let stored = match value {
+                    Value::Void => StoredValue::Void,
+                    Value::Bool(b) => StoredValue::Bool(b),
+                    Value::BigNum(n) => StoredValue::BigNum(n),
+                    Value::Type(t) => StoredValue::Type(t),
+                    Value::Closure { fn_def, captures } => StoredValue::Closure {
+                        fn_def,
+                        children: self.children.push_copy_slice(captures),
+                    },
+                    Value::StructVal { ty, fields } => StoredValue::StructVal {
+                        ty,
+                        children: self.children.push_copy_slice(fields),
+                    },
+                };
+                let id = self.values.push(stored);
+                vacant.insert(id);
+                id
+            }
         }
-        let stored = match value {
-            Value::Void => StoredValue::Void,
-            Value::Bool(b) => StoredValue::Bool(b),
-            Value::BigNum(n) => StoredValue::BigNum(n),
-            Value::Type(t) => StoredValue::Type(t),
-            Value::Closure { fn_def, captures } => {
-                StoredValue::Closure { fn_def, children: self.children.push_copy_slice(captures) }
-            }
-            Value::StructVal { ty, fields } => {
-                StoredValue::StructVal { ty, children: self.children.push_copy_slice(fields) }
-            }
-        };
-        let id = self.values.push(stored);
-        self.dedup.insert_unique(hash, id, |&id| {
-            self.hasher.hash_one(stored_to_value(self.values[id], &self.children))
-        });
-        id
     }
 
     pub fn lookup(&self, id: ValueId) -> Value<'_> {
@@ -134,7 +138,7 @@ mod tests {
     #[test]
     fn lookup_roundtrip() {
         let mut interner = ValueInterner::new();
-        let v = interner.intern(Value::BigNum(U256::from(42)));
-        assert_eq!(interner.lookup(v), Value::BigNum(U256::from(42)));
+        let v = interner.intern(Value::BigNum(BigNumId::new(0)));
+        assert_eq!(interner.lookup(v), Value::BigNum(BigNumId::new(0)));
     }
 }

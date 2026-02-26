@@ -1,7 +1,7 @@
-use sensei_core::Idx;
+use sensei_core::{Idx, IndexVec};
 use sensei_hir::{self as hir, ConstDef};
 use sensei_mir::{self as mir};
-use sensei_types::{TypeId, ValueId};
+use sensei_values::{TypeId, ValueId};
 
 use crate::{Evaluator, value::Value};
 
@@ -15,7 +15,7 @@ struct BodyLowerer<'a, 'hir> {
     eval: &'a mut Evaluator<'hir>,
     locals: Vec<Local>,
     instructions: Vec<mir::Instruction>,
-    local_types: Vec<Option<TypeId>>,
+    local_types: IndexVec<mir::LocalId, Option<TypeId>>,
     arg_buf: Vec<mir::LocalId>,
     return_type: Option<TypeId>,
 }
@@ -26,16 +26,14 @@ impl<'a, 'hir> BodyLowerer<'a, 'hir> {
             eval,
             locals: Vec::new(),
             instructions: Vec::new(),
-            local_types: Vec::new(),
+            local_types: IndexVec::new(),
             arg_buf: Vec::new(),
             return_type: None,
         }
     }
 
     fn alloc_mir_local(&mut self, ty: Option<TypeId>) -> mir::LocalId {
-        let id = mir::LocalId::new(self.local_types.len() as u32);
-        self.local_types.push(ty);
-        id
+        self.local_types.push(ty)
     }
 
     fn set_local(&mut self, local: hir::LocalId, value: Local) {
@@ -70,20 +68,10 @@ impl<'a, 'hir> BodyLowerer<'a, 'hir> {
                     .push(mir::Instruction::Set { local: mir_local, expr: mir::Expr::Bool(b) });
                 mir_local
             }
-            Value::BigNum(n) => {
-                let big_num_id = self
-                    .eval
-                    .hir
-                    .big_nums
-                    .enumerate_idx()
-                    .find(|&(_, &v)| v == n)
-                    .map(|(id, _)| id)
-                    .expect("BigNum value not found in HIR big_nums");
+            Value::BigNum(id) => {
                 let mir_local = self.alloc_mir_local(None);
-                self.instructions.push(mir::Instruction::Set {
-                    local: mir_local,
-                    expr: mir::Expr::BigNum(big_num_id),
-                });
+                self.instructions
+                    .push(mir::Instruction::Set { local: mir_local, expr: mir::Expr::BigNum(id) });
                 mir_local
             }
             Value::Type(_) => self.alloc_mir_local(None),
@@ -117,10 +105,7 @@ impl<'a, 'hir> BodyLowerer<'a, 'hir> {
         match expr {
             hir::Expr::Void => Local::Comptime(self.eval.values.intern(Value::Void)),
             hir::Expr::Bool(b) => Local::Comptime(self.eval.values.intern(Value::Bool(b))),
-            hir::Expr::BigNum(id) => {
-                let value = self.eval.hir.big_nums[id];
-                Local::Comptime(self.eval.values.intern(Value::BigNum(value)))
-            }
+            hir::Expr::BigNum(id) => Local::Comptime(self.eval.values.intern(Value::BigNum(id))),
             hir::Expr::Type(type_id) => {
                 Local::Comptime(self.eval.values.intern(Value::Type(type_id)))
             }
@@ -212,13 +197,14 @@ impl<'a, 'hir> BodyLowerer<'a, 'hir> {
                     }
                 }
 
-                let struct_type_id =
-                    self.eval.types.intern(sensei_types::Type::Struct(sensei_types::StructInfo {
+                let struct_type_id = self.eval.types.intern(sensei_values::Type::Struct(
+                    sensei_values::StructInfo {
                         source: struct_def.source,
                         type_index: type_index_value,
                         fields: &field_types,
                         field_names: &field_names,
-                    }));
+                    },
+                ));
 
                 Local::Comptime(self.eval.values.intern(Value::Type(struct_type_id)))
             }
@@ -292,7 +278,7 @@ impl<'a, 'hir> BodyLowerer<'a, 'hir> {
                             .expect("no such field");
 
                         let field_ty = match self.eval.types.lookup(type_id) {
-                            sensei_types::Type::Struct(info) => {
+                            sensei_values::Type::Struct(info) => {
                                 Some(info.fields[field_index as usize])
                             }
                             _ => None,
@@ -420,7 +406,7 @@ impl<'a, 'hir> BodyLowerer<'a, 'hir> {
     fn flush_as_fn(self, param_count: u32, return_type: TypeId) -> mir::FnId {
         let body = self.eval.mir_blocks.push_iter(self.instructions.into_iter());
         let fn_id = self.eval.mir_fns.push(mir::FnDef { body, param_count, return_type });
-        let locals_id = self.eval.mir_fn_locals.push_iter(self.local_types.into_iter());
+        let locals_id = self.eval.mir_fn_locals.push_iter(self.local_types.raw.into_iter());
         debug_assert_eq!(fn_id, locals_id);
         fn_id
     }
@@ -451,7 +437,7 @@ fn lower_fn_body(
 
     let return_type = match lowerer.return_type {
         Some(ty) => ty,
-        None => lowerer.eval.types.intern(sensei_types::Type::Void),
+        None => lowerer.eval.types.intern(sensei_values::Type::Void),
     };
 
     lowerer.flush_as_fn(param_count, return_type)
@@ -467,7 +453,7 @@ pub(crate) fn eval_const_body(eval: &mut Evaluator<'_>, const_def: ConstDef) -> 
 }
 
 pub(crate) fn lower_block_as_fn(eval: &mut Evaluator<'_>, hir_block: hir::BlockId) -> mir::FnId {
-    let return_type = eval.types.intern(sensei_types::Type::Void);
+    let return_type = eval.types.intern(sensei_values::Type::Void);
     let mut lowerer = BodyLowerer::new(eval);
     lowerer.walk_block(hir_block);
     lowerer.flush_as_fn(0, return_type)

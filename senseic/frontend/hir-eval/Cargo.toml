@@ -8,7 +8,7 @@ license.workspace = true
 sensei-core.workspace = true
 sensei-hir.workspace = true
 sensei-mir.workspace = true
-sensei-types.workspace = true
+sensei-values.workspace = true
 
 hashbrown.workspace = true
 alloy-primitives.workspace = true

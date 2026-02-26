@@ -1,15 +1,16 @@
-use crate::{BlockId, ConstId, Expr, FnDefId, Hir, Instruction, StructDefId};
+use crate::{BigNumInterner, BlockId, ConstId, Expr, FnDefId, Hir, Instruction, StructDefId};
 use sensei_parser::PlankInterner;
 use std::fmt::{self, Display, Formatter};
 
-pub struct DisplayHir<'hir, 'interner> {
-    hir: &'hir Hir,
-    interner: &'interner PlankInterner,
+pub struct DisplayHir<'a> {
+    hir: &'a Hir,
+    big_nums: &'a BigNumInterner,
+    interner: &'a PlankInterner,
 }
 
-impl<'hir, 'interner> DisplayHir<'hir, 'interner> {
-    pub fn new(hir: &'hir Hir, interner: &'interner PlankInterner) -> Self {
-        Self { hir, interner }
+impl<'a> DisplayHir<'a> {
+    pub fn new(hir: &'a Hir, big_nums: &'a BigNumInterner, interner: &'a PlankInterner) -> Self {
+        Self { hir, big_nums, interner }
     }
 
     fn fmt_expr(&self, f: &mut Formatter<'_>, expr: Expr) -> fmt::Result {
@@ -20,7 +21,7 @@ impl<'hir, 'interner> DisplayHir<'hir, 'interner> {
             Expr::Bool(b) => write!(f, "Bool({b})"),
             Expr::Void => write!(f, "Void"),
             Expr::BigNum(id) => {
-                let value = &self.hir.big_nums[id];
+                let value = &self.big_nums[id];
                 write!(f, "BigNum({value})")
             }
             Expr::Type(id) => write!(f, "Type({id:?})"),
@@ -166,7 +167,7 @@ impl<'hir, 'interner> DisplayHir<'hir, 'interner> {
     }
 }
 
-impl Display for DisplayHir<'_, '_> {
+impl Display for DisplayHir<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         writeln!(f, "==== Constants ====")?;
         for (&_, &const_id) in self.hir.consts.const_name_to_id.iter() {

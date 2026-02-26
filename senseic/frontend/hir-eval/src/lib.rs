@@ -1,14 +1,15 @@
 use hashbrown::HashMap;
-use sensei_core::{IndexVec, list_of_lists::ListOfLists};
+use sensei_core::{IndexVec, index_vec, list_of_lists::ListOfLists};
 use sensei_hir::{ConstId, Hir};
 use sensei_mir::{self as mir, Mir};
-use sensei_types::{TypeId, TypeInterner, ValueId};
+use sensei_values::{TypeId, TypeInterner, ValueId};
 
 mod lower;
 mod value;
 
 use value::ValueInterner;
 
+#[derive(Clone)]
 enum ConstState {
     NotEvaluated,
     InProgress,
@@ -34,7 +35,7 @@ impl<'hir> Evaluator<'hir> {
             hir,
             values: ValueInterner::new(),
             types: TypeInterner::new(),
-            const_states: (0..const_count).map(|_| ConstState::NotEvaluated).collect(),
+            const_states: index_vec![ConstState::NotEvaluated; const_count],
             mir_blocks: ListOfLists::new(),
             mir_fns: IndexVec::new(),
             mir_fn_locals: ListOfLists::new(),
@@ -61,7 +62,7 @@ impl<'hir> Evaluator<'hir> {
 pub fn evaluate(hir: &Hir) -> Mir {
     let mut eval = Evaluator::new(hir);
 
-    for (const_id, _) in hir.consts.const_defs.enumerate_idx() {
+    for const_id in hir.consts.const_defs.iter_idx() {
         eval.ensure_const_evaluated(const_id);
     }
 
@@ -89,7 +90,8 @@ mod tests {
         let mut interner = sensei_parser::interner::PlankInterner::default();
         let cst = sensei_parser::parser::parse(&lexed, &mut interner, &mut collector);
         assert!(collector.errors.is_empty(), "parse errors: {:?}", collector.errors);
-        sensei_hir::lower(&cst)
+        let mut big_nums = sensei_values::BigNumInterner::new();
+        sensei_hir::lower(&cst, &mut big_nums)
     }
 
     #[test]
@@ -102,14 +104,21 @@ mod tests {
 
     #[test]
     fn simple_const_and_init() {
-        let hir = parse_and_lower("const X = 42;\ninit { let a = X; }");
+        let hir = parse_and_lower(
+            "const X = 42;
+             init { let a = X; }",
+        );
         let mir = evaluate(&hir);
         assert_eq!(mir.fns.len(), 1);
     }
 
     #[test]
     fn const_referencing_const() {
-        let hir = parse_and_lower("const A = true;\nconst B = A;\ninit {}");
+        let hir = parse_and_lower(
+            "const A = true;
+             const B = A;
+             init {}",
+        );
         let mir = evaluate(&hir);
         assert_eq!(mir.fns.len(), 1);
     }
@@ -139,7 +148,7 @@ mod tests {
     #[test]
     fn function_call() {
         let hir = parse_and_lower(
-            "const add = fn (a: u256, b: u256) u256 { a };\n\
+            "const add = fn (a: u256, b: u256) u256 { a };
              init { let x = add(1, 2); }",
         );
         let mir = evaluate(&hir);
@@ -149,8 +158,8 @@ mod tests {
     #[test]
     fn function_with_capture() {
         let hir = parse_and_lower(
-            "const K = 10;\n\
-             const f = fn (x: u256) u256 { K };\n\
+            "const K = 10;
+             const f = fn (x: u256) u256 { K };
              init { let y = f(1); }",
         );
         let mir = evaluate(&hir);
@@ -160,7 +169,7 @@ mod tests {
     #[test]
     fn function_call_deduplication() {
         let hir = parse_and_lower(
-            "const id = fn (x: u256) u256 { x };\n\
+            "const id = fn (x: u256) u256 { x };
              init { let a = id(1); let b = id(2); }",
         );
         let mir = evaluate(&hir);
@@ -170,7 +179,7 @@ mod tests {
     #[test]
     fn struct_def_and_literal() {
         let hir = parse_and_lower(
-            "const Point = struct {} { x: u256, y: u256 };\n\
+            "const Point = struct {} { x: u256, y: u256 };
              init { let p = Point { x: 1, y: 2 }; let v = p.x; }",
         );
         let mir = evaluate(&hir);
@@ -180,8 +189,8 @@ mod tests {
     #[test]
     fn comptime_struct_propagation() {
         let hir = parse_and_lower(
-            "const Point = struct {} { x: u256, y: u256 };\n\
-             const ORIGIN = Point { x: 0, y: 0 };\n\
+            "const Point = struct {} { x: u256, y: u256 };
+             const ORIGIN = Point { x: 0, y: 0 };
              init { let p = ORIGIN; }",
         );
         let mir = evaluate(&hir);
@@ -191,7 +200,7 @@ mod tests {
     #[test]
     fn if_else() {
         let hir = parse_and_lower(
-            "const FLAG = true;\n\
+            "const FLAG = true;
              init { let x = if FLAG { 1 } else { 2 }; }",
         );
         let mir = evaluate(&hir);
@@ -201,10 +210,10 @@ mod tests {
     #[test]
     fn while_loop() {
         let hir = parse_and_lower(
-            "const check = fn (x: u256) bool { true };\n\
-             init {\n\
-                let i: u256 = 0;\n\
-                while check(i) { i = 1; }\n\
+            "const check = fn (x: u256) bool { true };
+             init {
+                let i: u256 = 0;
+                while check(i) { i = 1; }
              }",
         );
         let mir = evaluate(&hir);
@@ -214,9 +223,9 @@ mod tests {
     #[test]
     fn assign() {
         let hir = parse_and_lower(
-            "init {\n\
-                let i: u256 = 0;\n\
-                i = 1;\n\
+            "init {
+                let i: u256 = 0;
+                i = 1;
              }",
         );
         let mir = evaluate(&hir);
