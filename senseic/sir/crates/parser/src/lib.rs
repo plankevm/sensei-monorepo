@@ -37,6 +37,12 @@ pub fn highlight_span(out: &mut impl std::fmt::Write, source: &str, span: Span, 
 }
 
 pub fn parse_or_panic<'a>(source: &str, config: EmitConfig<'a>) -> EthIRProgram {
+    let program = parse_without_legalization(source, config);
+    sir_analyses::legalize(&program).unwrap_or_else(|e| panic!("{e}"));
+    program
+}
+
+pub fn parse_without_legalization<'a>(source: &str, config: EmitConfig<'a>) -> EthIRProgram {
     use bumpalo::{Bump, collections::String as BString};
 
     let arena = Bump::with_capacity(8_192);
@@ -47,16 +53,13 @@ pub fn parse_or_panic<'a>(source: &str, config: EmitConfig<'a>) -> EthIRProgram 
         panic!("{}\n{:?}", out, err);
     });
 
-    let program = emit::emit_ir(&arena, &ast, config).unwrap_or_else(|err| {
+    emit::emit_ir(&arena, &ast, config).unwrap_or_else(|err| {
         let mut out = BString::with_capacity_in(400, &arena);
         for span in err.spans.iter() {
             highlight_span(&mut out, source, span.clone(), 0);
         }
         panic!("{}{}", out, err.reason);
-    });
-
-    sir_analyses::legalize(&program).unwrap_or_else(|e| panic!("{e}"));
-    program
+    })
 }
 
 #[cfg(test)]

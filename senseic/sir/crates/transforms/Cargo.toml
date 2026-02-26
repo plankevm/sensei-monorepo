@@ -7,3 +7,6 @@ edition = "2024"
 sensei-core.workspace = true
 sir-data = { path = "../data" }
 sir-analyses = { path = "../analyses" }
+
+[dev-dependencies]
+sir-parser.workspace = true

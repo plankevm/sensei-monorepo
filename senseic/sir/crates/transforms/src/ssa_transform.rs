@@ -401,3 +401,196 @@ fn copy_span(program: &mut EthIRProgram, span: Span<LocalIdx>) -> Span<LocalIdx>
     }
     Span::new(start, program.locals.next_idx())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use sir_data::display_program;
+    use sir_parser::EmitConfig;
+
+    fn parse_non_ssa(source: &str) -> EthIRProgram {
+        let mut config = EmitConfig::init_only();
+        config.allow_duplicate_locals = true;
+        sir_parser::parse_without_legalization(source, config)
+    }
+
+    #[test]
+    fn test_diamond_phi_placement() {
+        //       A
+        //      / \
+        //     B   C
+        //      \ /
+        //       D
+        //
+        // v defined in B and C.
+        let mut program = parse_non_ssa(
+            r#"
+            fn init:
+                a {
+                    cond = const 1
+                    => cond ? @b : @c
+                }
+                b -> v {
+                    v = const 2
+                    => @d
+                }
+                c -> v {
+                    v = const 3
+                    => @d
+                }
+                d v {
+                    stop
+                }
+            "#,
+        );
+
+        let d = BasicBlockId::new(3);
+        let original_v = program.block(d).inputs()[0];
+
+        ssa_transform(&mut program);
+        let post = display_program(&program);
+
+        let d_inputs = program.block(d).inputs();
+        assert_eq!(d_inputs.len(), 2, "D should have original input + phi\n{post}");
+        for &input in d_inputs {
+            assert_ne!(input, original_v, "phi input should be renamed\n{post}");
+        }
+        assert_ne!(d_inputs[0], d_inputs[1], "phi inputs should be distinct\n{post}");
+    }
+
+    #[test]
+    fn test_partial_redef_phi() {
+        //     A
+        //    / \
+        //   B   C
+        //    \ /
+        //     D
+        //
+        // v defined in A and B, but not C.
+        let mut program = parse_non_ssa(
+            r#"
+            fn init:
+                a -> v {
+                    v = const 1
+                    cond = const 0
+                    => cond ? @b : @c
+                }
+                b -> v {
+                    v = const 2
+                    => @d
+                }
+                c -> v {
+                    => @d
+                }
+                d v {
+                    stop
+                }
+            "#,
+        );
+
+        let d = BasicBlockId::new(3);
+        let original_v = program.block(d).inputs()[0];
+
+        ssa_transform(&mut program);
+        let post = display_program(&program);
+
+        let d_inputs = program.block(d).inputs();
+        assert_eq!(d_inputs.len(), 2, "D should have original input + phi\n{post}");
+        for &input in d_inputs {
+            assert_ne!(input, original_v, "phi input should be renamed\n{post}");
+        }
+        assert_ne!(d_inputs[0], d_inputs[1], "phi inputs should be distinct\n{post}");
+    }
+
+    #[test]
+    fn test_loop_phi() {
+        //   A
+        //   |
+        //   B <--+
+        //  / \   |
+        // D   C--+
+        //
+        // v defined in A and C.
+        let mut program = parse_non_ssa(
+            r#"
+            fn init:
+                a -> v {
+                    v = const 0
+                    => @b
+                }
+                b v -> v {
+                    cond = const 1
+                    => cond ? @c : @d
+                }
+                c -> v {
+                    one = const 1
+                    v = add v one
+                    => @b
+                }
+                d v {
+                    stop
+                }
+            "#,
+        );
+
+        let b = BasicBlockId::new(1);
+        let original_v = program.block(b).inputs()[0];
+
+        ssa_transform(&mut program);
+        let post = display_program(&program);
+
+        let b_inputs = program.block(b).inputs();
+        assert_eq!(b_inputs.len(), 2, "B should have original input + phi\n{post}");
+        for &input in b_inputs {
+            assert_ne!(input, original_v, "phi input should be renamed\n{post}");
+        }
+        assert_ne!(b_inputs[0], b_inputs[1], "phi inputs should be distinct\n{post}");
+    }
+
+    #[test]
+    fn test_multiple_phis_at_join() {
+        //     A
+        //    / \
+        //   B   C
+        //    \ /
+        //     D
+        //
+        // x defined in A and B, y defined in A and C.
+        let mut program = parse_non_ssa(
+            r#"
+            fn init:
+                a -> x y {
+                    x = const 1
+                    y = const 2
+                    cond = const 0
+                    => cond ? @b : @c
+                }
+                b -> x y {
+                    x = const 3
+                    => @d
+                }
+                c -> x y {
+                    y = const 4
+                    => @d
+                }
+                d x y {
+                    stop
+                }
+            "#,
+        );
+
+        let d = BasicBlockId::new(3);
+        let original_x = program.block(d).inputs()[0];
+        let original_y = program.block(d).inputs()[1];
+
+        ssa_transform(&mut program);
+        let post = display_program(&program);
+
+        let d_inputs = program.block(d).inputs();
+        assert_eq!(d_inputs.len(), 4, "D should have 2 original inputs + 2 phis\n{post}");
+        for &input in d_inputs {
+            assert_ne!(input, original_x, "x should be renamed\n{post}");
+            assert_ne!(input, original_y, "y should be renamed\n{post}");
+        }
+    }
+}
