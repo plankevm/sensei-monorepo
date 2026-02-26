@@ -1,5 +1,5 @@
 use hashbrown::HashMap;
-use sensei_core::{IndexVec, index_vec, list_of_lists::ListOfLists};
+use sensei_core::{index_vec, list_of_lists::ListOfLists, IndexVec};
 use sensei_hir::{ConstId, Hir};
 use sensei_mir::{self as mir, Mir};
 use sensei_values::{TypeId, TypeInterner, ValueId};
@@ -250,6 +250,76 @@ mod tests {
         let hir = parse_and_lower(
             "const id = fn (x: u256) u256 { x };
              const Y = id(42);
+             init {}",
+        );
+        let mir = evaluate(&hir);
+        assert_eq!(mir.fns.len(), 1);
+    }
+
+    #[test]
+    fn const_nested_fn_calls() {
+        let hir = parse_and_lower(
+            "const double = fn (x: u256) u256 { x };
+             const apply = fn (f: function, v: u256) u256 { f(v) };
+             const R = apply(double, 21);
+             init {}",
+        );
+        let mir = evaluate(&hir);
+        assert_eq!(mir.fns.len(), 1);
+    }
+
+    #[test]
+    fn const_if_true_branch() {
+        let hir = parse_and_lower(
+            "const X = if true { 1 } else { 2 };
+             init {}",
+        );
+        let mir = evaluate(&hir);
+        assert_eq!(mir.fns.len(), 1);
+    }
+
+    #[test]
+    fn const_if_false_branch() {
+        let hir = parse_and_lower(
+            "const X = if false { 1 } else { 2 };
+             init {}",
+        );
+        let mir = evaluate(&hir);
+        assert_eq!(mir.fns.len(), 1);
+    }
+
+    #[test]
+    fn const_struct_member_access() {
+        let hir = parse_and_lower(
+            "const Point = struct {} { x: u256, y: u256 };
+             const P = Point { x: 10, y: 20 };
+             const X = P.x;
+             init {}",
+        );
+        let mir = evaluate(&hir);
+        assert_eq!(mir.fns.len(), 1);
+    }
+
+    #[test]
+    fn const_fn_with_capture() {
+        let hir = parse_and_lower(
+            "const K = 10;
+             const add_k = fn (x: u256) u256 { K };
+             const R = add_k(5);
+             init {}",
+        );
+        let mir = evaluate(&hir);
+        assert_eq!(mir.fns.len(), 1);
+    }
+
+    #[test]
+    fn const_assign() {
+        let hir = parse_and_lower(
+            "const X = {
+                 let a = 1;
+                 a = 2;
+                 a
+             };
              init {}",
         );
         let mir = evaluate(&hir);
