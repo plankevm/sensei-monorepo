@@ -1,6 +1,6 @@
-use hashbrown::{hash_table::Entry, DefaultHashBuilder, HashTable};
-use sensei_core::{list_of_lists::ListOfLists, newtype_index, Idx, IndexVec};
-use sensei_parser::{cst, interner::PlankInterner, StrId};
+use hashbrown::{DefaultHashBuilder, HashTable, hash_table::Entry};
+use sensei_core::{Idx, IndexVec, list_of_lists::ListOfLists, newtype_index};
+use sensei_parser::{StrId, cst, interner::PlankInterner};
 use std::hash::BuildHasher;
 
 use crate::ValueId;

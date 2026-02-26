@@ -1,5 +1,5 @@
 use hashbrown::HashMap;
-use sensei_core::{index_vec, list_of_lists::ListOfLists, IndexVec};
+use sensei_core::{IndexVec, index_vec, list_of_lists::ListOfLists};
 use sensei_hir::{ConstId, Hir};
 use sensei_mir::{self as mir, Mir};
 use sensei_values::{TypeId, TypeInterner, ValueId};
