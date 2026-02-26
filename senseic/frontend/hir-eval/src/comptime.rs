@@ -62,8 +62,51 @@ impl<'a, 'hir> ComptimeEvaluator<'a, 'hir> {
         Ok(())
     }
 
-    fn walk_instruction(&mut self, _instr: hir::Instruction) -> Result<(), ReturnValue> {
-        todo!("instruction handling")
+    fn walk_instruction(&mut self, instr: hir::Instruction) -> Result<(), ReturnValue> {
+        match instr {
+            hir::Instruction::Set { local, expr } => {
+                let value = self.eval_expr(expr)?;
+                self.set_local(local, value);
+                Ok(())
+            }
+            hir::Instruction::Eval(expr) => {
+                self.eval_expr(expr)?;
+                Ok(())
+            }
+            hir::Instruction::Return(expr) => {
+                let value = self.eval_expr(expr)?;
+                Err(ReturnValue(value))
+            }
+            hir::Instruction::AssertType { value, of_type } => {
+                let type_vid = self.get_local(of_type);
+                let expected_type = match self.eval.values.lookup(type_vid) {
+                    Value::Type(tid) => tid,
+                    _ => panic!("AssertType of_type must be a Type value"),
+                };
+                let value_vid = self.get_local(value);
+                let actual_type = self.type_of_value(value_vid);
+                if actual_type != expected_type {
+                    panic!("type mismatch: expected {expected_type:?}, got {actual_type:?}");
+                }
+                Ok(())
+            }
+            hir::Instruction::Assign { target, value } => {
+                let new_value = self.eval_expr(value)?;
+                self.set_local(target, new_value);
+                Ok(())
+            }
+            hir::Instruction::If { condition, then_block, else_block } => {
+                let cond_vid = self.get_local(condition);
+                match self.eval.values.lookup(cond_vid) {
+                    Value::Bool(true) => self.walk_block(then_block),
+                    Value::Bool(false) => self.walk_block(else_block),
+                    _ => panic!("comptime if condition must be bool"),
+                }
+            }
+            hir::Instruction::While { .. } => {
+                panic!("comptime while loops not yet implemented")
+            }
+        }
     }
 
     fn eval_expr(&mut self, expr: hir::Expr) -> Result<ValueId, ReturnValue> {
