@@ -187,4 +187,39 @@ mod tests {
         let mir = evaluate(&hir);
         assert_eq!(mir.fns.len(), 1);
     }
+
+    #[test]
+    fn if_else() {
+        let hir = parse_and_lower(
+            "const FLAG = true;\n\
+             init { let x = if FLAG { 1 } else { 2 }; }",
+        );
+        let mir = evaluate(&hir);
+        assert_eq!(mir.fns.len(), 1);
+    }
+
+    #[test]
+    fn while_loop() {
+        let hir = parse_and_lower(
+            "const check = fn (x: u256) bool { true };\n\
+             init {\n\
+                let i: u256 = 0;\n\
+                while check(i) { i = 1; }\n\
+             }",
+        );
+        let mir = evaluate(&hir);
+        assert_eq!(mir.fns.len(), 2);
+    }
+
+    #[test]
+    fn assign() {
+        let hir = parse_and_lower(
+            "init {\n\
+                let i: u256 = 0;\n\
+                i = 1;\n\
+             }",
+        );
+        let mir = evaluate(&hir);
+        assert_eq!(mir.fns.len(), 1);
+    }
 }

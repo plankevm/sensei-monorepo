@@ -310,6 +310,14 @@ impl<'a, 'hir> BodyLowerer<'a, 'hir> {
         }
     }
 
+    fn walk_sub_block(&mut self, block_id: hir::BlockId) -> mir::BlockId {
+        let saved = std::mem::take(&mut self.instructions);
+        self.walk_block(block_id);
+        let mir_block = self.eval.mir_blocks.push_iter(self.instructions.drain(..));
+        self.instructions = saved;
+        mir_block
+    }
+
     fn walk_block(&mut self, block_id: hir::BlockId) {
         let block = &self.eval.hir.blocks[block_id];
         let len = block.len();
@@ -364,7 +372,48 @@ impl<'a, 'hir> BodyLowerer<'a, 'hir> {
                 let mir_local = self.ensure_runtime(value);
                 self.instructions.push(mir::Instruction::Return(mir::Expr::LocalRef(mir_local)));
             }
-            _ => todo!("instruction not yet supported"),
+            hir::Instruction::If { condition, then_block, else_block } => {
+                let cond_local = self.get_local(condition);
+                let mir_condition = self.ensure_runtime(cond_local);
+                let mir_then = self.walk_sub_block(then_block);
+                let mir_else = self.walk_sub_block(else_block);
+                self.instructions.push(mir::Instruction::If {
+                    condition: mir_condition,
+                    then_block: mir_then,
+                    else_block: mir_else,
+                });
+            }
+            hir::Instruction::While { condition_block, condition, body } => {
+                let mir_condition_block = self.walk_sub_block(condition_block);
+                let mir_condition = match self.get_local(condition) {
+                    Local::Runtime { mir_local, .. } => mir_local,
+                    Local::Comptime(_) => todo!("comptime while condition"),
+                };
+                let mir_body = self.walk_sub_block(body);
+                self.instructions.push(mir::Instruction::While {
+                    condition_block: mir_condition_block,
+                    condition: mir_condition,
+                    body: mir_body,
+                });
+            }
+            hir::Instruction::Assign { target, value } => {
+                let target_local = match self.get_local(target) {
+                    Local::Runtime { mir_local, .. } => mir_local,
+                    Local::Comptime(vid) => {
+                        // Local was comptime but is now being assigned to, promote to
+                        // runtime so further references see a MIR local.
+                        let mir_local = self.materialize(vid);
+                        self.set_local(target, Local::Runtime { mir_local, ty: None });
+                        mir_local
+                    }
+                };
+                let rhs = self.eval_expr(value);
+                let rhs_mir = self.ensure_runtime(rhs);
+                self.instructions.push(mir::Instruction::Assign {
+                    target: target_local,
+                    value: mir::Expr::LocalRef(rhs_mir),
+                });
+            }
         }
     }
 
