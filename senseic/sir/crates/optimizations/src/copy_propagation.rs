@@ -1,12 +1,6 @@
 use std::collections::HashMap;
 
-use sir_data::{
-    Control, EthIRProgram, LocalId, LocalIdx, Operation, RelSliceMut, Span,
-    operation::{
-        AllocatedIns, InlineOperands, InternalCallData, MemoryLoadData, MemoryStoreData,
-        OpVisitorMut, SetDataOffsetData, SetLargeConstData, SetSmallConstData, StaticAllocData,
-    },
-};
+use sir_data::{Control, EthIRProgram, LocalId, Operation, operation::InlineOperands};
 
 pub struct CopyPropagation {
     copy_map: HashMap<LocalId, LocalId>,
@@ -22,7 +16,7 @@ impl CopyPropagation {
             self.copy_map.clear();
 
             let ops_span = bb.operations;
-            for op in &mut program.operations[ops_span] {
+            for op in &program.operations[ops_span] {
                 if let Operation::SetCopy(InlineOperands { ins: [src], outs: [dst] }) = op {
                     let resolved_src = self.copy_map.get(src).unwrap_or(src);
                     let prev = self.copy_map.insert(*dst, *resolved_src);
@@ -30,10 +24,12 @@ impl CopyPropagation {
                 }
             }
 
-            let locals = program.locals.as_rel_slice_mut();
-            let mut replacer = CopyReplacer { copy_map: &self.copy_map, locals };
-            for op in &mut program.operations[ops_span] {
-                op.visit_data_mut(&mut replacer);
+            for op_idx in ops_span.iter() {
+                let mut op = program.operations[op_idx];
+                for input in op.inputs_mut(&mut program.locals) {
+                    replace_if_copied(input, &self.copy_map);
+                }
+                program.operations[op_idx] = op;
             }
 
             for local in &mut program.locals[bb.outputs] {
@@ -53,61 +49,10 @@ impl CopyPropagation {
     }
 }
 
-struct CopyReplacer<'a> {
-    copy_map: &'a HashMap<LocalId, LocalId>,
-    locals: RelSliceMut<'a, LocalIdx, LocalId>,
-}
-
 fn replace_if_copied(input: &mut LocalId, copy_map: &HashMap<LocalId, LocalId>) {
     if let Some(replacement) = copy_map.get(input) {
         *input = *replacement;
     }
-}
-
-impl<'d> OpVisitorMut<'d, ()> for CopyReplacer<'_> {
-    fn visit_inline_operands_mut<const INS: usize, const OUTS: usize>(
-        &mut self,
-        data: &'d mut InlineOperands<INS, OUTS>,
-    ) {
-        for input in &mut data.ins {
-            replace_if_copied(input, self.copy_map);
-        }
-    }
-
-    fn visit_allocated_ins_mut<const INS: usize, const OUTS: usize>(
-        &mut self,
-        data: &'d mut AllocatedIns<INS, OUTS>,
-    ) {
-        for idx in Span::new(data.ins_start, data.ins_start + INS as u32).iter() {
-            replace_if_copied(&mut self.locals[idx], self.copy_map);
-        }
-    }
-
-    fn visit_static_alloc_mut(&mut self, _data: &'d mut StaticAllocData) {}
-
-    fn visit_memory_load_mut(&mut self, data: &'d mut MemoryLoadData) {
-        replace_if_copied(&mut data.ptr, self.copy_map);
-    }
-
-    fn visit_memory_store_mut(&mut self, data: &'d mut MemoryStoreData) {
-        for input in &mut data.ins {
-            replace_if_copied(input, self.copy_map);
-        }
-    }
-
-    fn visit_set_small_const_mut(&mut self, _data: &'d mut SetSmallConstData) {}
-
-    fn visit_set_large_const_mut(&mut self, _data: &'d mut SetLargeConstData) {}
-
-    fn visit_set_data_offset_mut(&mut self, _data: &'d mut SetDataOffsetData) {}
-
-    fn visit_icall_mut(&mut self, data: &'d mut InternalCallData) {
-        for idx in Span::new(data.ins_start, data.outs_start).iter() {
-            replace_if_copied(&mut self.locals[idx], self.copy_map);
-        }
-    }
-
-    fn visit_void_mut(&mut self) {}
 }
 
 #[cfg(test)]

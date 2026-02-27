@@ -322,7 +322,14 @@ impl OperationKind {
     }
 }
 
-use op_data::{AllocatedSpansGetter, InputsGetter, OutputsGetter};
+use crate::{
+    Function,
+    index::{FunctionId, LocalIdx},
+};
+use op_data::{
+    AllocatedSpansGetter, InputsGetter, InputsMutGetter, OutputsGetter, OutputsMutGetter,
+};
+use sensei_core::IndexVec;
 
 impl Operation {
     pub fn inputs<'a>(&'a self, ir: &'a EthIRProgram) -> &'a [LocalId] {
@@ -331,6 +338,21 @@ impl Operation {
 
     pub fn outputs<'a>(&'a self, ir: &'a EthIRProgram) -> &'a [LocalId] {
         self.visit_data(&mut OutputsGetter { ir })
+    }
+
+    pub fn inputs_mut<'a>(
+        &'a mut self,
+        locals: &'a mut IndexVec<LocalIdx, LocalId>,
+    ) -> &'a mut [LocalId] {
+        self.visit_data_mut(&mut InputsMutGetter { locals: Some(locals) })
+    }
+
+    pub fn outputs_mut<'a>(
+        &'a mut self,
+        locals: &'a mut IndexVec<LocalIdx, LocalId>,
+        functions: &'a IndexVec<FunctionId, Function>,
+    ) -> &'a mut [LocalId] {
+        self.visit_data_mut(&mut OutputsMutGetter { locals: Some(locals), functions })
     }
 
     pub fn allocated_spans(&self, ir: &EthIRProgram) -> AllocatedSpans {
