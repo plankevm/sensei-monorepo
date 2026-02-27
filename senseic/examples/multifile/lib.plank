@@ -1,0 +1,5 @@
+const MAGIC = 42;
+
+const double = fn (x: u256) u256 {
+    x
+};
