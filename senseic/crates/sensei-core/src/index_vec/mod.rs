@@ -1,4 +1,7 @@
 use std::marker::PhantomData;
+mod idx_slice;
+
+pub use idx_slice::IndexSlice;
 
 use crate::{
     Idx, Span,

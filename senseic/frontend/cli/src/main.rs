@@ -1,5 +1,5 @@
 use clap::Parser;
-use sensei_hir::{display::DisplayHir, lower};
+use sensei_hir::{BigNumInterner, display::DisplayHir, lower};
 use sensei_parser::{
     cst::display::DisplayCST,
     error_report::{ErrorCollector, LineIndex, format_error},
@@ -18,6 +18,12 @@ struct Args {
 
     #[arg(short = 'c', long = "show-cst", help = "show CST")]
     show_cst: bool,
+
+    #[arg(long = "show-hir", help = "show HIR")]
+    show_hir: bool,
+
+    #[arg(short = 'm', long = "show-mir", help = "show MIR")]
+    show_mir: bool,
 }
 
 fn main() {
@@ -43,7 +49,16 @@ fn main() {
         std::process::exit(1);
     }
 
-    let hir = lower(&cst);
+    let mut big_nums = BigNumInterner::new();
+    let hir = lower(&cst, &mut big_nums);
 
-    print!("{}", DisplayHir::new(&hir, &interner));
+    if args.show_hir {
+        print!("{}", DisplayHir::new(&hir, &big_nums, &interner));
+    }
+
+    let mir = sensei_hir_eval::evaluate(&hir);
+
+    if args.show_mir {
+        println!("{mir:#?}");
+    }
 }

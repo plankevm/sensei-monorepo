@@ -1,4 +1,3 @@
-use alloy_primitives::U256;
 use hashbrown::{HashMap, hash_map::Entry};
 use sensei_core::{Idx, IncIterable, IndexVec, Span, list_of_lists::ListOfLists, newtype_index};
 use sensei_parser::{
@@ -8,10 +7,12 @@ use sensei_parser::{
     lexer::TokenIdx,
 };
 
-pub use sensei_types;
-use sensei_types::TypeId;
+pub use sensei_values;
+use sensei_values::TypeId;
 
 pub mod display;
+
+pub use sensei_values::{BigNumId, BigNumInterner};
 
 newtype_index! {
     pub struct ConstId;
@@ -21,8 +22,6 @@ newtype_index! {
     pub struct StructDefId;
     pub struct CallArgsId;
     pub struct FieldsId;
-
-    pub struct BigNumId;
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -62,7 +61,7 @@ pub enum Instruction {
     Eval(Expr),
     Return(Expr),
     If { condition: LocalId, then_block: BlockId, else_block: BlockId },
-    While { condition_block: BlockId, body: BlockId },
+    While { condition_block: BlockId, condition: LocalId, body: BlockId },
 }
 
 const _INSTR_SIZE: () = const { assert!(std::mem::size_of::<Instruction>() == 20) };
@@ -117,10 +116,8 @@ pub struct Hir {
     pub blocks: ListOfLists<BlockId, Instruction>,
     pub call_params: ListOfLists<CallArgsId, LocalId>,
     pub fields: ListOfLists<FieldsId, FieldInfo>,
-    pub big_nums: IndexVec<BigNumId, U256>,
     // Top-level definitions
     pub consts: ConstMap,
-    pub const_deps: ListOfLists<ConstId, ConstId>,
     pub fns: IndexVec<FnDefId, FnDef>,
     pub fn_params: ListOfLists<FnDefId, ParamInfo>,
     pub fn_captures: ListOfLists<FnDefId, CaptureInfo>,
@@ -134,7 +131,6 @@ struct HirBuilder {
     blocks: ListOfLists<BlockId, Instruction>,
     call_args: ListOfLists<CallArgsId, LocalId>,
     fields: ListOfLists<FieldsId, FieldInfo>,
-    big_nums: IndexVec<BigNumId, U256>,
     fns: IndexVec<FnDefId, FnDef>,
     fn_params: ListOfLists<FnDefId, ParamInfo>,
     fn_captures: ListOfLists<FnDefId, CaptureInfo>,
@@ -147,7 +143,6 @@ impl HirBuilder {
             blocks: ListOfLists::new(),
             call_args: ListOfLists::new(),
             fields: ListOfLists::new(),
-            big_nums: IndexVec::new(),
             fns: IndexVec::new(),
             fn_params: ListOfLists::new(),
             fn_captures: ListOfLists::new(),
@@ -159,8 +154,7 @@ impl HirBuilder {
 struct BlockLowerer<'a> {
     consts: &'a HashMap<StrId, ConstId>,
     num_lit_limbs: &'a ListOfLists<NumLitId, u32>,
-    track_deps: bool,
-    deps: Vec<ConstId>,
+    big_nums: &'a mut BigNumInterner,
     builder: &'a mut HirBuilder,
     instructions: Vec<Instruction>,
     locals: Vec<(StrId, LocalId)>,
@@ -172,9 +166,7 @@ struct BlockLowerer<'a> {
 }
 
 impl<'a> BlockLowerer<'a> {
-    fn reset(&mut self, track_deps: bool) {
-        self.track_deps = track_deps;
-        self.deps.clear();
+    fn reset(&mut self) {
         self.instructions.clear();
         self.locals.clear();
         self.fn_scope_start = 0;
@@ -207,11 +199,15 @@ impl<'a> BlockLowerer<'a> {
     }
 
     fn create_sub_block(&mut self, f: impl FnOnce(&mut Self)) -> BlockId {
+        self.create_sub_block_with(f).0
+    }
+
+    fn create_sub_block_with<R>(&mut self, f: impl FnOnce(&mut Self) -> R) -> (BlockId, R) {
         let locals_start = self.locals.len();
         let block_start = self.instructions.len();
-        f(self);
+        let result = f(self);
         self.locals.truncate(locals_start);
-        self.flush_instructions_from(block_start)
+        (self.flush_instructions_from(block_start), result)
     }
 
     fn create_fn_body_block(&mut self, f: impl FnOnce(&mut Self)) -> BlockId {
@@ -295,9 +291,6 @@ impl<'a> BlockLowerer<'a> {
         }
 
         if let Some(&const_id) = self.consts.get(&name) {
-            if self.track_deps && !self.deps.contains(&const_id) {
-                self.deps.push(const_id);
-            }
             return Expr::ConstRef(const_id);
         }
 
@@ -314,7 +307,7 @@ impl<'a> BlockLowerer<'a> {
                 let limbs = &self.num_lit_limbs[id];
                 let value = sensei_core::bigint::limbs_to_u256(limbs, negative)
                     .expect("number literal out of range");
-                let big_num_id = self.builder.big_nums.push(value);
+                let big_num_id = self.big_nums.intern(value);
                 Expr::BigNum(big_num_id)
             }
             ast::Expr::Member(member_expr) => {
@@ -496,17 +489,17 @@ impl<'a> BlockLowerer<'a> {
                 if while_stmt.inline {
                     panic!("inline while not yet supported");
                 }
-                let condition_block = self.create_sub_block(|lowerer| {
-                    lowerer.lower_expr_to_local(while_stmt.condition());
+                let (condition_block, condition) = self.create_sub_block_with(|lowerer| {
+                    lowerer.lower_expr_to_local(while_stmt.condition())
                 });
                 let body = self.lower_body_to_block(while_stmt.body());
-                self.emit(Instruction::While { condition_block, body });
+                self.emit(Instruction::While { condition_block, condition, body });
             }
         }
     }
 }
 
-pub fn lower(cst: &ConcreteSyntaxTree) -> Hir {
+pub fn lower(cst: &ConcreteSyntaxTree, big_nums: &mut BigNumInterner) -> Hir {
     let mut consts = ConstMap::default();
     let file = ast::File::new(cst.file_view()).expect("failed to init file from CST");
 
@@ -545,15 +538,13 @@ pub fn lower(cst: &ConcreteSyntaxTree) -> Hir {
     }
 
     let mut builder = HirBuilder::new();
-    let mut const_deps: ListOfLists<ConstId, ConstId> = ListOfLists::new();
     let mut init = None;
     let mut run = None;
 
     let mut lowerer = BlockLowerer {
         consts: &consts.const_name_to_id,
         num_lit_limbs: &cst.num_lit_limbs,
-        track_deps: false,
-        deps: Vec::new(),
+        big_nums,
         builder: &mut builder,
         instructions: Vec::new(),
         locals: Vec::new(),
@@ -567,7 +558,7 @@ pub fn lower(cst: &ConcreteSyntaxTree) -> Hir {
     for def in file.iter_defs() {
         match def {
             TopLevelDef::Const(const_def) => {
-                lowerer.reset(true);
+                lowerer.reset();
                 let id = consts.const_name_to_id[&const_def.name];
                 let def = &mut consts.const_defs[id];
                 def.result = lowerer.alloc_local(const_def.name);
@@ -582,15 +573,13 @@ pub fn lower(cst: &ConcreteSyntaxTree) -> Hir {
                         l.emit(Instruction::Set { local: def.result, expr: assign });
                     }
                 });
-                let const_id_by_dep = const_deps.push_iter(lowerer.deps.drain(..));
-                assert_eq!(id, const_id_by_dep, "ID in-syncness invariant violated");
             }
             TopLevelDef::Init(init_def) => {
-                lowerer.reset(false);
+                lowerer.reset();
                 init = Some(lowerer.lower_body_to_block(init_def.body()));
             }
             TopLevelDef::Run(run_def) => {
-                lowerer.reset(false);
+                lowerer.reset();
                 let block = lowerer.lower_body_to_block(run_def.body());
                 run = Some(block);
             }
@@ -605,9 +594,7 @@ pub fn lower(cst: &ConcreteSyntaxTree) -> Hir {
         blocks: builder.blocks,
         call_params: builder.call_args,
         fields: builder.fields,
-        big_nums: builder.big_nums,
         consts,
-        const_deps,
         fns: builder.fns,
         fn_params: builder.fn_params,
         fn_captures: builder.fn_captures,

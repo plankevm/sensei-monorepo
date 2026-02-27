@@ -1,15 +1,16 @@
-use crate::{BlockId, ConstId, Expr, FnDefId, Hir, Instruction, StructDefId};
+use crate::{BigNumInterner, BlockId, ConstId, Expr, FnDefId, Hir, Instruction, StructDefId};
 use sensei_parser::PlankInterner;
 use std::fmt::{self, Display, Formatter};
 
-pub struct DisplayHir<'hir, 'interner> {
-    hir: &'hir Hir,
-    interner: &'interner PlankInterner,
+pub struct DisplayHir<'a> {
+    hir: &'a Hir,
+    big_nums: &'a BigNumInterner,
+    interner: &'a PlankInterner,
 }
 
-impl<'hir, 'interner> DisplayHir<'hir, 'interner> {
-    pub fn new(hir: &'hir Hir, interner: &'interner PlankInterner) -> Self {
-        Self { hir, interner }
+impl<'a> DisplayHir<'a> {
+    pub fn new(hir: &'a Hir, big_nums: &'a BigNumInterner, interner: &'a PlankInterner) -> Self {
+        Self { hir, big_nums, interner }
     }
 
     fn fmt_expr(&self, f: &mut Formatter<'_>, expr: Expr) -> fmt::Result {
@@ -20,7 +21,7 @@ impl<'hir, 'interner> DisplayHir<'hir, 'interner> {
             Expr::Bool(b) => write!(f, "Bool({b})"),
             Expr::Void => write!(f, "Void"),
             Expr::BigNum(id) => {
-                let value = &self.hir.big_nums[id];
+                let value = &self.big_nums[id];
                 write!(f, "BigNum({value})")
             }
             Expr::Type(id) => write!(f, "Type({id:?})"),
@@ -80,9 +81,9 @@ impl<'hir, 'interner> DisplayHir<'hir, 'interner> {
                 writeln!(f, "{indent_str}  else:")?;
                 self.fmt_block(f, else_block, indent + 2)
             }
-            Instruction::While { condition_block, body } => {
+            Instruction::While { condition_block, condition, body } => {
                 writeln!(f, "{indent_str}While {{")?;
-                writeln!(f, "{indent_str}  condition:")?;
+                writeln!(f, "{indent_str}  condition ({condition:?}):")?;
                 self.fmt_block(f, condition_block, indent + 2)?;
                 writeln!(f, "{indent_str}  body:")?;
                 self.fmt_block(f, body, indent + 2)?;
@@ -166,7 +167,7 @@ impl<'hir, 'interner> DisplayHir<'hir, 'interner> {
     }
 }
 
-impl Display for DisplayHir<'_, '_> {
+impl Display for DisplayHir<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         writeln!(f, "==== Constants ====")?;
         for (&_, &const_id) in self.hir.consts.const_name_to_id.iter() {
@@ -185,11 +186,6 @@ impl Display for DisplayHir<'_, '_> {
             for (struct_def_id, _) in self.hir.struct_defs.enumerate_idx() {
                 self.fmt_struct_def(f, struct_def_id)?;
             }
-        }
-
-        writeln!(f, "\n==== Const Deps ====")?;
-        for (const_id, deps) in self.hir.const_deps.enumerate_idx() {
-            writeln!(f, "{const_id:?} -> {deps:?}")?;
         }
 
         writeln!(f, "\n==== Init ====")?;

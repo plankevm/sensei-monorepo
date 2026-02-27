@@ -7,7 +7,7 @@ license.workspace = true
 [dependencies]
 sensei-core.workspace = true
 sensei-parser.workspace = true
-sensei-types.workspace = true
+sensei-values.workspace = true
 plank-diagnostics.workspace = true
 
 hashbrown.workspace = true

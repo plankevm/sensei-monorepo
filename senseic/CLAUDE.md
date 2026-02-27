@@ -7,7 +7,7 @@ Senseic is a compiler frontend for the Sensei programming language.
 ```bash
 cargo test -p <crate name> # Run during work on a specific crate for validation
 
-# Run formatter & linter at the end of a task
+# Run formatter & linter (clippy) at the end of tasks
 just check
 
 # Run all rust tests
