@@ -18,7 +18,7 @@ pub fn ssa_transform(program: &mut EthIRProgram) {
 
 struct SsaTransform {
     def_sites: IndexVec<LocalId, HashSet<BasicBlockId>>,
-    dominatees: IndexVec<BasicBlockId, Vec<BasicBlockId>>,
+    dominators: IndexVec<BasicBlockId, Vec<BasicBlockId>>,
     phi_locations: IndexVec<BasicBlockId, Vec<LocalId>>,
     dominance_frontiers: IndexVec<BasicBlockId, HashSet<BasicBlockId>>,
 }
@@ -28,23 +28,26 @@ impl SsaTransform {
         program: &EthIRProgram,
         predecessors: IndexVec<BasicBlockId, Vec<BasicBlockId>>,
     ) -> Self {
-        let dominators = compute_dominators_from_predecessors(program, &predecessors);
-        let mut dominatees = index_vec![Vec::new(); dominators.len()];
-        for (bb, &idom) in dominators.enumerate_idx() {
+        let dominators_child_to_parent =
+            compute_dominators_from_predecessors(program, &predecessors);
+        let mut dominators_parent_to_child =
+            index_vec![Vec::new(); dominators_child_to_parent.len()];
+        for (bb, &idom) in dominators_child_to_parent.enumerate_idx() {
             if let Some(parent) = idom
                 && parent != bb
             {
-                dominatees[parent].push(bb);
+                dominators_parent_to_child[parent].push(bb);
             }
         }
 
-        let dominance_frontiers = compute_dominance_frontiers(&dominators, &predecessors);
+        let dominance_frontiers =
+            compute_dominance_frontiers(&dominators_child_to_parent, &predecessors);
 
         let def_sites = Self::collect_definition_sites(program);
 
         Self {
             def_sites,
-            dominatees,
+            dominators: dominators_parent_to_child,
             dominance_frontiers,
             phi_locations: index_vec![Vec::new(); program.basic_blocks.len()],
         }
@@ -131,8 +134,8 @@ impl SsaTransform {
 
         self.rename_block_outputs(program, bb, local_versions);
 
-        for i in 0..self.dominatees[bb].len() {
-            let child = self.dominatees[bb][i];
+        for i in 0..self.dominators[bb].len() {
+            let child = self.dominators[bb][i];
             self.rename_block(program, child, local_versions, rename_trail);
         }
 
