@@ -55,16 +55,28 @@ fn stored_to_value<'a>(
 
 impl ValueInterner {
     pub fn new() -> Self {
-        Self {
+        let mut new_interner = Self {
             values: IndexVec::new(),
             dedup: HashTable::new(),
             hasher: DefaultHashBuilder::default(),
             children: ListOfLists::new(),
-        }
+        };
+        assert_eq!(new_interner.intern(Value::Void), ValueId::VOID);
+        assert_eq!(new_interner.intern(Value::Bool(false)), ValueId::FALSE);
+        assert_eq!(new_interner.intern(Value::Bool(true)), ValueId::TRUE);
+        new_interner
     }
 
     fn hash_value(&self, value: Value<'_>) -> u64 {
         self.hasher.hash_one(value)
+    }
+
+    pub fn intern_num(&mut self, num: BigNumId) -> ValueId {
+        self.intern(Value::BigNum(num))
+    }
+
+    pub fn intern_type(&mut self, ty: TypeId) -> ValueId {
+        self.intern(Value::Type(ty))
     }
 
     pub fn intern(&mut self, value: Value<'_>) -> ValueId {
@@ -140,5 +152,23 @@ mod tests {
         let mut interner = ValueInterner::new();
         let v = interner.intern(Value::BigNum(BigNumId::new(0)));
         assert_eq!(interner.lookup(v), Value::BigNum(BigNumId::new(0)));
+    }
+
+    #[test]
+    fn intern_num_identical_to_intern() {
+        let mut interner = ValueInterner::new();
+        let num_id = BigNumId::new(42);
+        let via_intern = interner.intern(Value::BigNum(num_id));
+        let via_intern_num = interner.intern_num(num_id);
+        assert_eq!(via_intern, via_intern_num);
+    }
+
+    #[test]
+    fn intern_type_identical_to_intern() {
+        let mut interner = ValueInterner::new();
+        let type_id = TypeId::new(7);
+        let via_intern = interner.intern(Value::Type(type_id));
+        let via_intern_type = interner.intern_type(type_id);
+        assert_eq!(via_intern, via_intern_type);
     }
 }

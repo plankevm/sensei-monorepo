@@ -4,6 +4,8 @@ use sensei_hir::{ConstId, Hir};
 use sensei_mir::{self as mir, Mir};
 use sensei_values::{TypeId, TypeInterner, ValueId};
 
+use comptime::ComptimeInterpreter;
+
 mod comptime;
 mod lower;
 mod value;
@@ -48,11 +50,11 @@ impl<'hir> Evaluator<'hir> {
     pub fn ensure_const_evaluated(&mut self, const_id: ConstId) -> ValueId {
         match self.const_states[const_id] {
             ConstState::Evaluated(value_id) => value_id,
-            ConstState::InProgress => panic!("cyclical const dependency detected"),
+            ConstState::InProgress => todo!("diagnostic: cyclical const dependency"),
             ConstState::NotEvaluated => {
                 self.const_states[const_id] = ConstState::InProgress;
                 let const_def = self.hir.consts.const_defs[const_id];
-                let value_id = comptime::ComptimeEvaluator::eval_const(self, const_def);
+                let value_id = ComptimeInterpreter::eval_const(self, const_def);
                 self.const_states[const_id] = ConstState::Evaluated(value_id);
                 value_id
             }

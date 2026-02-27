@@ -43,7 +43,7 @@ impl<'a, 'hir> BodyLowerer<'a, 'hir> {
         } else {
             // HIR locals may be allocated out-of-order (e.g. result local allocated before
             // temporaries used in its initializer), so we pad with a placeholder.
-            let void = LocalValue::Comptime(self.eval.values.intern(Value::Void));
+            let void = LocalValue::Comptime(ValueId::VOID);
             self.bindings.resize(idx + 1, void);
             self.bindings[idx] = value;
         }
@@ -103,14 +103,12 @@ impl<'a, 'hir> BodyLowerer<'a, 'hir> {
 
     fn eval_expr(&mut self, expr: hir::Expr) -> LocalValue {
         match expr {
-            hir::Expr::Void => LocalValue::Comptime(self.eval.values.intern(Value::Void)),
-            hir::Expr::Bool(b) => LocalValue::Comptime(self.eval.values.intern(Value::Bool(b))),
-            hir::Expr::BigNum(id) => {
-                LocalValue::Comptime(self.eval.values.intern(Value::BigNum(id)))
+            hir::Expr::Void => LocalValue::Comptime(ValueId::VOID),
+            hir::Expr::Bool(b) => {
+                LocalValue::Comptime(if b { ValueId::TRUE } else { ValueId::FALSE })
             }
-            hir::Expr::Type(type_id) => {
-                LocalValue::Comptime(self.eval.values.intern(Value::Type(type_id)))
-            }
+            hir::Expr::BigNum(id) => LocalValue::Comptime(self.eval.values.intern_num(id)),
+            hir::Expr::Type(type_id) => LocalValue::Comptime(self.eval.values.intern_type(type_id)),
             hir::Expr::ConstRef(const_id) => {
                 let value_id = self.eval.ensure_const_evaluated(const_id);
                 LocalValue::Comptime(value_id)
@@ -146,7 +144,7 @@ impl<'a, 'hir> BodyLowerer<'a, 'hir> {
                 let closure = self.eval.values.lookup(closure_value_id);
                 let (fn_def_id, captures) = match closure {
                     Value::Closure { fn_def, captures } => (fn_def, captures.to_vec()),
-                    _ => panic!("callee is not a function"),
+                    _ => todo!("diagnostic: callee is not a function"),
                 };
 
                 let mir_fn_id = if let Some(&cached) = self.eval.fn_cache.get(&closure_value_id) {
@@ -177,7 +175,9 @@ impl<'a, 'hir> BodyLowerer<'a, 'hir> {
                 let struct_def = self.eval.hir.struct_defs[struct_def_id];
                 let type_index_value = match self.get_local(struct_def.type_index) {
                     LocalValue::Comptime(vid) => vid,
-                    LocalValue::Runtime { .. } => panic!("struct type_index must be comptime"),
+                    LocalValue::Runtime { .. } => {
+                        unreachable!("hir invariant: struct type_index must be comptime")
+                    }
                 };
 
                 let fields_info: Vec<hir::FieldInfo> =
@@ -193,10 +193,10 @@ impl<'a, 'hir> BodyLowerer<'a, 'hir> {
                                 field_types.push(tid);
                                 field_names.push(field.name);
                             }
-                            _ => panic!("struct field type must be a Type value"),
+                            _ => todo!("diagnostic: struct field type must be Type"),
                         },
                         LocalValue::Runtime { .. } => {
-                            panic!("struct field types must be comptime")
+                            unreachable!("hir invariant: struct field types must be comptime")
                         }
                     }
                 }
@@ -210,15 +210,17 @@ impl<'a, 'hir> BodyLowerer<'a, 'hir> {
                     },
                 ));
 
-                LocalValue::Comptime(self.eval.values.intern(Value::Type(struct_type_id)))
+                LocalValue::Comptime(self.eval.values.intern_type(struct_type_id))
             }
             hir::Expr::StructLit { ty, fields: fields_id } => {
                 let struct_type_id = match self.get_local(ty) {
                     LocalValue::Comptime(vid) => match self.eval.values.lookup(vid) {
                         Value::Type(tid) => tid,
-                        _ => panic!("struct lit type must be a Type value"),
+                        _ => todo!("diagnostic: struct lit type must be Type"),
                     },
-                    LocalValue::Runtime { .. } => panic!("struct lit type must be comptime"),
+                    LocalValue::Runtime { .. } => {
+                        unreachable!("hir invariant: struct lit type must be comptime")
+                    }
                 };
 
                 let fields_info: Vec<hir::FieldInfo> = self.eval.hir.fields[fields_id].to_vec();
@@ -235,7 +237,7 @@ impl<'a, 'hir> BodyLowerer<'a, 'hir> {
                         .iter()
                         .map(|l| match l {
                             LocalValue::Comptime(vid) => *vid,
-                            _ => unreachable!(),
+                            _ => unreachable!("already verified all_comptime is true"),
                         })
                         .collect();
                     let value_id = self
@@ -264,37 +266,36 @@ impl<'a, 'hir> BodyLowerer<'a, 'hir> {
                 match obj_local {
                     LocalValue::Comptime(vid) => match self.eval.values.lookup(vid) {
                         Value::StructVal { ty, fields } => {
-                            let field_index = self
-                                .eval
-                                .types
-                                .field_index_by_name(ty, member)
-                                .expect("no such field");
+                            let Some(field_index) = self.eval.types.field_index_by_name(ty, member)
+                            else {
+                                todo!("diagnostic: unknown struct field");
+                            };
                             let field_value_id = fields[field_index as usize];
                             LocalValue::Comptime(field_value_id)
                         }
-                        _ => todo!("member access on non-struct comptime value"),
+                        _ => todo!("diagnostic: member access on non-struct comptime value"),
                     },
                     LocalValue::Runtime { mir_local, ty } => {
-                        let type_id = ty.expect("runtime member access requires known type");
-                        let field_index = self
-                            .eval
-                            .types
-                            .field_index_by_name(type_id, member)
-                            .expect("no such field");
-
-                        let field_ty = match self.eval.types.lookup(type_id) {
-                            sensei_values::Type::Struct(info) => {
-                                Some(info.fields[field_index as usize])
-                            }
-                            _ => None,
+                        let type_id = ty.expect(
+                            "hir invariant: runtime struct member requires type from AssertType",
+                        );
+                        let Some(field_index) =
+                            self.eval.types.field_index_by_name(type_id, member)
+                        else {
+                            todo!("diagnostic: unknown struct field");
                         };
 
-                        let result = self.alloc_mir_local(field_ty);
+                        let field_ty = match self.eval.types.lookup(type_id) {
+                            sensei_values::Type::Struct(info) => info.fields[field_index as usize],
+                            _ => unreachable!("hir invariant: member access type must be struct"),
+                        };
+
+                        let result = self.alloc_mir_local(Some(field_ty));
                         self.instructions.push(mir::Instruction::Set {
                             local: result,
                             expr: mir::Expr::FieldAccess { object: mir_local, field_index },
                         });
-                        LocalValue::Runtime { mir_local: result, ty: field_ty }
+                        LocalValue::Runtime { mir_local: result, ty: Some(field_ty) }
                     }
                 }
             }
@@ -339,9 +340,9 @@ impl<'a, 'hir> BodyLowerer<'a, 'hir> {
                 let type_id = match type_local {
                     LocalValue::Comptime(vid) => match self.eval.values.lookup(vid) {
                         Value::Type(tid) => tid,
-                        _ => panic!("AssertType of_type must be a Type value"),
+                        _ => todo!("diagnostic: AssertType of_type must be Type"),
                     },
-                    _ => panic!("AssertType of_type must be comptime"),
+                    _ => unreachable!("hir invariant: AssertType of_type must be comptime"),
                 };
 
                 let val = &mut self.bindings[value.get() as usize];
@@ -437,17 +438,12 @@ fn lower_fn_body(
 
     lowerer.walk_block(fn_def.body);
 
-    let return_type = match lowerer.return_type {
-        Some(ty) => ty,
-        None => lowerer.eval.types.intern(sensei_values::Type::Void),
-    };
-
+    let return_type = lowerer.return_type.unwrap_or(TypeId::VOID);
     lowerer.flush_as_fn(param_count, return_type)
 }
 
 pub(crate) fn lower_block_as_fn(eval: &mut Evaluator<'_>, hir_block: hir::BlockId) -> mir::FnId {
-    let return_type = eval.types.intern(sensei_values::Type::Void);
     let mut lowerer = BodyLowerer::new(eval);
     lowerer.walk_block(hir_block);
-    lowerer.flush_as_fn(0, return_type)
+    lowerer.flush_as_fn(0, TypeId::VOID)
 }
