@@ -132,6 +132,15 @@ impl<I: Idx> Iterator for DenseIndexSetIter<'_, I> {
     }
 }
 
+impl<'a, I: Idx> IntoIterator for &'a DenseIndexSet<I> {
+    type Item = I;
+    type IntoIter = DenseIndexSetIter<'a, I>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter()
+    }
+}
+
 impl<I: Idx> Default for DenseIndexSet<I> {
     fn default() -> Self {
         Self::new()

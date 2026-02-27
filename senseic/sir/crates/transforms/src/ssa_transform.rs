@@ -1,10 +1,11 @@
+use hashbrown::HashSet;
 use sensei_core::IncIterable;
 use sir_analyses::{
     compute_dominance_frontiers, compute_dominators_from_predecessors, compute_predecessors,
 };
 use sir_data::{
-    BasicBlock, BasicBlockId, Branch, Control, DenseIndexSet, EthIRProgram, Idx, IndexVec, LocalId,
-    LocalIdx, Span, Switch, index_vec, operation::OpVisitorMut,
+    BasicBlock, BasicBlockId, Branch, Control, EthIRProgram, Idx, IndexVec, LocalId, LocalIdx,
+    Span, Switch, index_vec, operation::OpVisitorMut,
 };
 
 pub fn ssa_transform(program: &mut EthIRProgram) {
@@ -16,10 +17,10 @@ pub fn ssa_transform(program: &mut EthIRProgram) {
 }
 
 struct SsaTransform {
-    def_sites: IndexVec<LocalId, DenseIndexSet<BasicBlockId>>,
-    dominator_tree: IndexVec<BasicBlockId, Vec<BasicBlockId>>,
+    def_sites: IndexVec<LocalId, HashSet<BasicBlockId>>,
+    dominatees: IndexVec<BasicBlockId, Vec<BasicBlockId>>,
     phi_locations: IndexVec<BasicBlockId, Vec<LocalId>>,
-    dominance_frontiers: IndexVec<BasicBlockId, DenseIndexSet<BasicBlockId>>,
+    dominance_frontiers: IndexVec<BasicBlockId, HashSet<BasicBlockId>>,
 }
 
 impl SsaTransform {
@@ -28,12 +29,12 @@ impl SsaTransform {
         predecessors: IndexVec<BasicBlockId, Vec<BasicBlockId>>,
     ) -> Self {
         let dominators = compute_dominators_from_predecessors(program, &predecessors);
-        let mut dominator_tree = index_vec![Vec::new(); dominators.len()];
+        let mut dominatees = index_vec![Vec::new(); dominators.len()];
         for (bb, &idom) in dominators.enumerate_idx() {
             if let Some(parent) = idom
                 && parent != bb
             {
-                dominator_tree[parent].push(bb);
+                dominatees[parent].push(bb);
             }
         }
 
@@ -43,7 +44,7 @@ impl SsaTransform {
 
         Self {
             def_sites,
-            dominator_tree,
+            dominatees,
             dominance_frontiers,
             phi_locations: index_vec![Vec::new(); program.basic_blocks.len()],
         }
@@ -56,15 +57,15 @@ impl SsaTransform {
 
     fn collect_definition_sites(
         program: &EthIRProgram,
-    ) -> IndexVec<LocalId, DenseIndexSet<BasicBlockId>> {
-        let mut def_sites = index_vec![DenseIndexSet::new(); program.next_free_local_id.idx()];
+    ) -> IndexVec<LocalId, HashSet<BasicBlockId>> {
+        let mut def_sites = index_vec![HashSet::new(); program.next_free_local_id.idx()];
         for block in program.blocks() {
             for &local in block.inputs() {
-                def_sites[local].add(block.id());
+                def_sites[local].insert(block.id());
             }
             for op in block.operations() {
                 for &local in op.outputs() {
-                    def_sites[local].add(block.id());
+                    def_sites[local].insert(block.id());
                 }
             }
         }
@@ -73,18 +74,16 @@ impl SsaTransform {
 
     fn compute_phi_locations(&mut self) {
         let mut worklist = Vec::new();
-        let mut visited = DenseIndexSet::new();
         for (local, def_blocks) in self.def_sites.enumerate_idx() {
             if def_blocks.len() <= 1 {
                 continue;
             }
-            visited.clear();
-            for bb in def_blocks.iter() {
-                worklist.push(bb);
+            for bb in def_blocks {
+                worklist.push(*bb);
             }
             while let Some(bb) = worklist.pop() {
-                for frontier_block in self.dominance_frontiers[bb].iter() {
-                    if visited.add(frontier_block) {
+                for &frontier_block in &self.dominance_frontiers[bb] {
+                    if !self.phi_locations[frontier_block].contains(&local) {
                         self.phi_locations[frontier_block].push(local);
                         worklist.push(frontier_block);
                     }
@@ -132,8 +131,8 @@ impl SsaTransform {
 
         self.rename_block_outputs(program, bb, local_versions);
 
-        for i in 0..self.dominator_tree[bb].len() {
-            let child = self.dominator_tree[bb][i];
+        for i in 0..self.dominatees[bb].len() {
+            let child = self.dominatees[bb][i];
             self.rename_block(program, child, local_versions, rename_trail);
         }
 
@@ -333,10 +332,7 @@ fn split_critical_edges(
     program: &mut EthIRProgram,
     predecessors: &IndexVec<BasicBlockId, Vec<BasicBlockId>>,
 ) {
-    let original_block_count = program.basic_blocks.len();
-    for bb_idx in 0..original_block_count {
-        let bb = BasicBlockId::new(bb_idx as u32);
-
+    for bb in program.basic_blocks.iter_idx() {
         match program.basic_blocks[bb].control {
             Control::Branches(Branch { condition, non_zero_target, zero_target }) => {
                 program.basic_blocks[bb].control = Control::Branches(Branch {
@@ -386,8 +382,12 @@ fn insert_forwarding_block(
     let source_outputs = program.basic_blocks[source].outputs;
     let empty_ops = Span::new(program.operations.next_idx(), program.operations.next_idx());
 
-    let inputs = copy_span(program, source_outputs);
-    let outputs = copy_span(program, source_outputs);
+    let inputs_start = program.locals.next_idx();
+    for _ in source_outputs.iter() {
+        program.locals.push(program.next_free_local_id.get_and_inc());
+    }
+    let inputs = Span::new(inputs_start, program.locals.next_idx());
+    let outputs = copy_span(program, inputs);
 
     program.basic_blocks.push(BasicBlock {
         inputs,

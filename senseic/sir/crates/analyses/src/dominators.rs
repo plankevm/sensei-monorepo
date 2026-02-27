@@ -1,3 +1,4 @@
+use hashbrown::HashSet;
 use sir_data::{BasicBlockId, DenseIndexSet, EthIRProgram, IndexVec, index_vec};
 
 use crate::compute_predecessors;
@@ -5,8 +6,8 @@ use crate::compute_predecessors;
 pub fn compute_dominance_frontiers(
     dominators: &IndexVec<BasicBlockId, Option<BasicBlockId>>,
     predecessors: &IndexVec<BasicBlockId, Vec<BasicBlockId>>,
-) -> IndexVec<BasicBlockId, DenseIndexSet<BasicBlockId>> {
-    let mut frontiers = index_vec![DenseIndexSet::new(); dominators.len()];
+) -> IndexVec<BasicBlockId, HashSet<BasicBlockId>> {
+    let mut frontiers = index_vec![HashSet::new(); dominators.len()];
 
     for (b, preds) in predecessors.enumerate_idx() {
         if preds.len() < 2 {
@@ -21,7 +22,7 @@ pub fn compute_dominance_frontiers(
             }
             let mut runner = p;
             while runner != idom {
-                frontiers[runner].add(b);
+                frontiers[runner].insert(b);
                 runner = dominators[runner].expect("reachable path");
             }
         }
@@ -135,14 +136,16 @@ mod tests {
         BasicBlockId::new(n)
     }
 
-    fn frontier_to_vec(df: &DenseIndexSet<BasicBlockId>) -> Vec<BasicBlockId> {
-        df.iter().collect()
+    fn frontier_to_vec(df: &HashSet<BasicBlockId>) -> Vec<BasicBlockId> {
+        let mut v: Vec<_> = df.iter().copied().collect();
+        v.sort();
+        v
     }
 
     fn frontiers(
         program: &EthIRProgram,
         dominators: &IndexVec<BasicBlockId, Option<BasicBlockId>>,
-    ) -> IndexVec<BasicBlockId, DenseIndexSet<BasicBlockId>> {
+    ) -> IndexVec<BasicBlockId, HashSet<BasicBlockId>> {
         let mut predecessors = IndexVec::new();
         compute_predecessors(program, &mut predecessors);
         compute_dominance_frontiers(dominators, &predecessors)
