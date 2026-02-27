@@ -93,13 +93,13 @@ impl SsaTransform {
 
     fn rename(&mut self, program: &mut EthIRProgram) {
         let num_locals = program.next_free_local_id.idx();
-        let mut stacks = index_vec![Vec::new(); num_locals];
+        let mut local_versions = index_vec![Vec::new(); num_locals];
         let mut rename_trail = Vec::new();
         for func_id in program.functions.iter_idx() {
             self.rename_block(
                 program,
                 program.functions[func_id].entry(),
-                &mut stacks,
+                &mut local_versions,
                 &mut rename_trail,
             );
         }
@@ -109,34 +109,34 @@ impl SsaTransform {
         &mut self,
         program: &mut EthIRProgram,
         bb: BasicBlockId,
-        stacks: &mut IndexVec<LocalId, Vec<LocalId>>,
+        local_versions: &mut IndexVec<LocalId, Vec<LocalId>>,
         rename_trail: &mut Vec<LocalId>,
     ) {
         let checkpoint = rename_trail.len();
 
-        self.rename_block_inputs(program, bb, stacks, rename_trail);
+        self.rename_block_inputs(program, bb, local_versions, rename_trail);
 
-        rename_operations(program, bb, stacks, rename_trail);
+        rename_operations(program, bb, local_versions, rename_trail);
 
         match &mut program.basic_blocks[bb].control {
             Control::Branches(branch) => {
-                branch.condition = rename_use(stacks, branch.condition);
+                branch.condition = rename_use(local_versions, branch.condition);
             }
             Control::Switch(switch) => {
-                switch.condition = rename_use(stacks, switch.condition);
+                switch.condition = rename_use(local_versions, switch.condition);
             }
             _ => {}
         }
 
-        self.rename_block_outputs(program, bb, stacks);
+        self.rename_block_outputs(program, bb, local_versions);
 
         for i in 0..self.dominator_tree[bb].len() {
             let child = self.dominator_tree[bb][i];
-            self.rename_block(program, child, stacks, rename_trail);
+            self.rename_block(program, child, local_versions, rename_trail);
         }
 
         for local in &rename_trail[checkpoint..] {
-            stacks[*local].pop();
+            local_versions[*local].pop();
         }
         rename_trail.truncate(checkpoint);
     }
@@ -145,20 +145,20 @@ impl SsaTransform {
         &self,
         program: &mut EthIRProgram,
         bb: BasicBlockId,
-        stacks: &mut IndexVec<LocalId, Vec<LocalId>>,
+        local_versions: &mut IndexVec<LocalId, Vec<LocalId>>,
         rename_trail: &mut Vec<LocalId>,
     ) {
         let old_inputs_span = program.basic_blocks[bb].inputs;
         let new_inputs_start = program.locals.next_idx();
         for idx in old_inputs_span.iter() {
             let local = program.locals[idx];
-            let renamed = rename_def(stacks, rename_trail, &mut program.next_free_local_id, local);
+            let renamed = rename_def(local_versions, rename_trail, &mut program.next_free_local_id, local);
             program.locals.push(renamed);
         }
         for local in &self.phi_locations[bb] {
-            let new_version =
-                rename_def(stacks, rename_trail, &mut program.next_free_local_id, *local);
-            program.locals.push(new_version);
+            let renamed =
+                rename_def(local_versions, rename_trail, &mut program.next_free_local_id, *local);
+            program.locals.push(renamed);
         }
         program.basic_blocks[bb].inputs = Span::new(new_inputs_start, program.locals.next_idx());
     }
@@ -167,18 +167,18 @@ impl SsaTransform {
         &self,
         program: &mut EthIRProgram,
         bb: BasicBlockId,
-        stacks: &IndexVec<LocalId, Vec<LocalId>>,
+        local_versions: &IndexVec<LocalId, Vec<LocalId>>,
     ) {
         let old_outputs_span = program.basic_blocks[bb].outputs;
         let new_outputs_start = program.locals.next_idx();
         for idx in old_outputs_span.iter() {
-            program.locals.push(rename_use(stacks, program.locals[idx]));
+            program.locals.push(rename_use(local_versions, program.locals[idx]));
         }
         // After critical edge splitting, only single-successor blocks (ContinuesTo) can
         // target a join block with phis. This lets us avoid collecting successors into a Vec.
         if let Control::ContinuesTo(succ) = program.basic_blocks[bb].control {
-            for phi_local in &self.phi_locations[succ] {
-                program.locals.push(rename_use(stacks, *phi_local));
+            for local in &self.phi_locations[succ] {
+                program.locals.push(rename_use(local_versions, *local));
             }
         }
         program.basic_blocks[bb].outputs = Span::new(new_outputs_start, program.locals.next_idx());
@@ -187,7 +187,7 @@ impl SsaTransform {
 
 struct Renamer<'a> {
     program: &'a mut EthIRProgram,
-    stacks: &'a mut IndexVec<LocalId, Vec<LocalId>>,
+    local_versions: &'a mut IndexVec<LocalId, Vec<LocalId>>,
     rename_trail: &'a mut Vec<LocalId>,
 }
 
@@ -197,11 +197,11 @@ impl OpVisitorMut<'_, ()> for Renamer<'_> {
         data: &mut sir_data::operation::InlineOperands<INS, OUTS>,
     ) {
         for local in &mut data.ins {
-            *local = rename_use(self.stacks, *local);
+            *local = rename_use(self.local_versions, *local);
         }
         for local in &mut data.outs {
             *local = rename_def(
-                self.stacks,
+                self.local_versions,
                 self.rename_trail,
                 &mut self.program.next_free_local_id,
                 *local,
@@ -214,11 +214,11 @@ impl OpVisitorMut<'_, ()> for Renamer<'_> {
         data: &mut sir_data::operation::AllocatedIns<INS, OUTS>,
     ) {
         for local in data.get_inputs_mut(self.program) {
-            *local = rename_use(self.stacks, *local);
+            *local = rename_use(self.local_versions, *local);
         }
         for local in &mut data.outs {
             *local = rename_def(
-                self.stacks,
+                self.local_versions,
                 self.rename_trail,
                 &mut self.program.next_free_local_id,
                 *local,
@@ -228,7 +228,7 @@ impl OpVisitorMut<'_, ()> for Renamer<'_> {
 
     fn visit_static_alloc_mut(&mut self, data: &mut sir_data::operation::StaticAllocData) {
         data.ptr_out = rename_def(
-            self.stacks,
+            self.local_versions,
             self.rename_trail,
             &mut self.program.next_free_local_id,
             data.ptr_out,
@@ -236,9 +236,9 @@ impl OpVisitorMut<'_, ()> for Renamer<'_> {
     }
 
     fn visit_memory_load_mut(&mut self, data: &mut sir_data::operation::MemoryLoadData) {
-        data.ptr = rename_use(self.stacks, data.ptr);
+        data.ptr = rename_use(self.local_versions, data.ptr);
         data.out = rename_def(
-            self.stacks,
+            self.local_versions,
             self.rename_trail,
             &mut self.program.next_free_local_id,
             data.out,
@@ -247,13 +247,13 @@ impl OpVisitorMut<'_, ()> for Renamer<'_> {
 
     fn visit_memory_store_mut(&mut self, data: &mut sir_data::operation::MemoryStoreData) {
         for local in &mut data.ins {
-            *local = rename_use(self.stacks, *local);
+            *local = rename_use(self.local_versions, *local);
         }
     }
 
     fn visit_set_small_const_mut(&mut self, data: &mut sir_data::operation::SetSmallConstData) {
         data.sets = rename_def(
-            self.stacks,
+            self.local_versions,
             self.rename_trail,
             &mut self.program.next_free_local_id,
             data.sets,
@@ -262,7 +262,7 @@ impl OpVisitorMut<'_, ()> for Renamer<'_> {
 
     fn visit_set_large_const_mut(&mut self, data: &mut sir_data::operation::SetLargeConstData) {
         data.sets = rename_def(
-            self.stacks,
+            self.local_versions,
             self.rename_trail,
             &mut self.program.next_free_local_id,
             data.sets,
@@ -271,7 +271,7 @@ impl OpVisitorMut<'_, ()> for Renamer<'_> {
 
     fn visit_set_data_offset_mut(&mut self, data: &mut sir_data::operation::SetDataOffsetData) {
         data.sets = rename_def(
-            self.stacks,
+            self.local_versions,
             self.rename_trail,
             &mut self.program.next_free_local_id,
             data.sets,
@@ -280,12 +280,12 @@ impl OpVisitorMut<'_, ()> for Renamer<'_> {
 
     fn visit_icall_mut(&mut self, data: &mut sir_data::operation::InternalCallData) {
         for local in &mut self.program.locals[data.ins_start..data.outs_start] {
-            *local = rename_use(self.stacks, *local);
+            *local = rename_use(self.local_versions, *local);
         }
         let output_count = self.program.functions[data.function].get_outputs();
         for local in &mut self.program.locals[data.outs_start..data.outs_start + output_count] {
             *local = rename_def(
-                self.stacks,
+                self.local_versions,
                 self.rename_trail,
                 &mut self.program.next_free_local_id,
                 *local,
@@ -299,10 +299,10 @@ impl OpVisitorMut<'_, ()> for Renamer<'_> {
 fn rename_operations(
     program: &mut EthIRProgram,
     bb: BasicBlockId,
-    stacks: &mut IndexVec<LocalId, Vec<LocalId>>,
+    local_versions: &mut IndexVec<LocalId, Vec<LocalId>>,
     rename_trail: &mut Vec<LocalId>,
 ) {
-    let mut renamer = Renamer { program, stacks, rename_trail };
+    let mut renamer = Renamer { program, local_versions, rename_trail };
     for op_idx in renamer.program.basic_blocks[bb].operations.iter() {
         let mut op = renamer.program.operations[op_idx];
         op.visit_data_mut(&mut renamer);
@@ -310,18 +310,18 @@ fn rename_operations(
     }
 }
 
-fn rename_use(stacks: &IndexVec<LocalId, Vec<LocalId>>, local: LocalId) -> LocalId {
-    *stacks[local].last().expect("local not in scope")
+fn rename_use(local_versions: &IndexVec<LocalId, Vec<LocalId>>, local: LocalId) -> LocalId {
+    *local_versions[local].last().expect("local not in scope")
 }
 
 fn rename_def(
-    stacks: &mut IndexVec<LocalId, Vec<LocalId>>,
+    local_versions: &mut IndexVec<LocalId, Vec<LocalId>>,
     rename_trail: &mut Vec<LocalId>,
     next_local: &mut LocalId,
     local: LocalId,
 ) -> LocalId {
     let new_version = next_local.get_and_inc();
-    stacks[local].push(new_version);
+    local_versions[local].push(new_version);
     rename_trail.push(local);
     new_version
 }
@@ -408,10 +408,16 @@ mod tests {
     use sir_data::display_program;
     use sir_parser::EmitConfig;
 
-    fn parse_non_ssa(source: &str) -> EthIRProgram {
+    fn parse_without_ssa(source: &str) -> EthIRProgram {
         let mut config = EmitConfig::init_only();
         config.allow_duplicate_locals = true;
         sir_parser::parse_without_legalization(source, config)
+    }
+
+    fn transform_and_legalize(program: &mut EthIRProgram) {
+        ssa_transform(program);
+        let ir = display_program(program);
+        sir_analyses::legalize(program).unwrap_or_else(|e| panic!("{e}\n{ir}"));
     }
 
     #[test]
@@ -423,7 +429,7 @@ mod tests {
         //       D
         //
         // v defined in B and C.
-        let mut program = parse_non_ssa(
+        let mut program = parse_without_ssa(
             r#"
             fn init:
                 a {
@@ -447,15 +453,15 @@ mod tests {
         let d = BasicBlockId::new(3);
         let original_v = program.block(d).inputs()[0];
 
-        ssa_transform(&mut program);
-        let post = display_program(&program);
+        transform_and_legalize(&mut program);
+        let post_ir = display_program(&program);
 
         let d_inputs = program.block(d).inputs();
-        assert_eq!(d_inputs.len(), 2, "D should have original input + phi\n{post}");
+        assert_eq!(d_inputs.len(), 2, "D should have original input + phi\n{post_ir}");
         for &input in d_inputs {
-            assert_ne!(input, original_v, "phi input should be renamed\n{post}");
+            assert_ne!(input, original_v, "phi input should be renamed\n{post_ir}");
         }
-        assert_ne!(d_inputs[0], d_inputs[1], "phi inputs should be distinct\n{post}");
+        assert_ne!(d_inputs[0], d_inputs[1], "phi inputs should be distinct\n{post_ir}");
     }
 
     #[test]
@@ -467,7 +473,7 @@ mod tests {
         //     D
         //
         // v defined in A and B, but not C.
-        let mut program = parse_non_ssa(
+        let mut program = parse_without_ssa(
             r#"
             fn init:
                 a -> v {
@@ -475,11 +481,11 @@ mod tests {
                     cond = const 0
                     => cond ? @b : @c
                 }
-                b -> v {
+                b v -> v {
                     v = const 2
                     => @d
                 }
-                c -> v {
+                c v -> v {
                     => @d
                 }
                 d v {
@@ -491,15 +497,15 @@ mod tests {
         let d = BasicBlockId::new(3);
         let original_v = program.block(d).inputs()[0];
 
-        ssa_transform(&mut program);
-        let post = display_program(&program);
+        transform_and_legalize(&mut program);
+        let post_ir = display_program(&program);
 
         let d_inputs = program.block(d).inputs();
-        assert_eq!(d_inputs.len(), 2, "D should have original input + phi\n{post}");
+        assert_eq!(d_inputs.len(), 2, "D should have original input + phi\n{post_ir}");
         for &input in d_inputs {
-            assert_ne!(input, original_v, "phi input should be renamed\n{post}");
+            assert_ne!(input, original_v, "phi input should be renamed\n{post_ir}");
         }
-        assert_ne!(d_inputs[0], d_inputs[1], "phi inputs should be distinct\n{post}");
+        assert_ne!(d_inputs[0], d_inputs[1], "phi inputs should be distinct\n{post_ir}");
     }
 
     #[test]
@@ -511,7 +517,7 @@ mod tests {
         // D   C--+
         //
         // v defined in A and C.
-        let mut program = parse_non_ssa(
+        let mut program = parse_without_ssa(
             r#"
             fn init:
                 a -> v {
@@ -522,7 +528,7 @@ mod tests {
                     cond = const 1
                     => cond ? @c : @d
                 }
-                c -> v {
+                c v -> v {
                     one = const 1
                     v = add v one
                     => @b
@@ -536,15 +542,15 @@ mod tests {
         let b = BasicBlockId::new(1);
         let original_v = program.block(b).inputs()[0];
 
-        ssa_transform(&mut program);
-        let post = display_program(&program);
+        transform_and_legalize(&mut program);
+        let post_ir = display_program(&program);
 
         let b_inputs = program.block(b).inputs();
-        assert_eq!(b_inputs.len(), 2, "B should have original input + phi\n{post}");
+        assert_eq!(b_inputs.len(), 2, "B should have original input + phi\n{post_ir}");
         for &input in b_inputs {
-            assert_ne!(input, original_v, "phi input should be renamed\n{post}");
+            assert_ne!(input, original_v, "phi input should be renamed\n{post_ir}");
         }
-        assert_ne!(b_inputs[0], b_inputs[1], "phi inputs should be distinct\n{post}");
+        assert_ne!(b_inputs[0], b_inputs[1], "phi inputs should be distinct\n{post_ir}");
     }
 
     #[test]
@@ -556,7 +562,7 @@ mod tests {
         //     D
         //
         // x defined in A and B, y defined in A and C.
-        let mut program = parse_non_ssa(
+        let mut program = parse_without_ssa(
             r#"
             fn init:
                 a -> x y {
@@ -565,11 +571,11 @@ mod tests {
                     cond = const 0
                     => cond ? @b : @c
                 }
-                b -> x y {
+                b x y -> x y {
                     x = const 3
                     => @d
                 }
-                c -> x y {
+                c x y -> x y {
                     y = const 4
                     => @d
                 }
@@ -583,14 +589,130 @@ mod tests {
         let original_x = program.block(d).inputs()[0];
         let original_y = program.block(d).inputs()[1];
 
-        ssa_transform(&mut program);
-        let post = display_program(&program);
+        transform_and_legalize(&mut program);
+        let post_ir = display_program(&program);
 
         let d_inputs = program.block(d).inputs();
-        assert_eq!(d_inputs.len(), 4, "D should have 2 original inputs + 2 phis\n{post}");
+        assert_eq!(d_inputs.len(), 4, "D should have 2 original inputs + 2 phis\n{post_ir}");
         for &input in d_inputs {
-            assert_ne!(input, original_x, "x should be renamed\n{post}");
-            assert_ne!(input, original_y, "y should be renamed\n{post}");
+            assert_ne!(input, original_x, "x should be renamed\n{post_ir}");
+            assert_ne!(input, original_y, "y should be renamed\n{post_ir}");
+        }
+    }
+
+    #[test]
+    fn test_critical_edge_and_switch_phi() {
+        //     A
+        //    / \
+        //   B   C
+        //  / \  |
+        // E   D-+
+        //
+        // v defined in A and B. B uses a switch, so B→D is a critical edge.
+        let mut program = parse_without_ssa(
+            r#"
+            fn init:
+                a -> v {
+                    v = const 1
+                    cond = const 0
+                    => cond ? @b : @c
+                }
+                b v -> v {
+                    v = const 2
+                    sel = const 0
+                    switch sel {
+                        0 => @d
+                        default => @e
+                    }
+                }
+                c v -> v {
+                    => @d
+                }
+                d v {
+                    stop
+                }
+                e v {
+                    stop
+                }
+            "#,
+        );
+
+        let d = BasicBlockId::new(3);
+        let original_block_count = program.basic_blocks.len();
+        let original_v = program.block(d).inputs()[0];
+
+        transform_and_legalize(&mut program);
+        let post_ir = display_program(&program);
+
+        assert!(
+            program.basic_blocks.len() > original_block_count,
+            "critical edge splitting should insert forwarding blocks\n{post_ir}"
+        );
+
+        let d_inputs = program.block(d).inputs();
+        assert_eq!(d_inputs.len(), 2, "D should have original input + phi\n{post_ir}");
+        for &input in d_inputs {
+            assert_ne!(input, original_v, "phi input should be renamed\n{post_ir}");
+        }
+        assert_ne!(d_inputs[0], d_inputs[1], "phi inputs should be distinct\n{post_ir}");
+    }
+
+    #[test]
+    fn test_icall_and_multi_function() {
+        //  init:        helper:
+        //     A           E
+        //    / \          |
+        //   B   C         F
+        //    \ /
+        //     D (calls helper with v)
+        //
+        // v defined in A and B. D calls helper passing v.
+        let mut program = parse_without_ssa(
+            r#"
+            fn init:
+                a -> v {
+                    v = const 1
+                    cond = const 0
+                    => cond ? @b : @c
+                }
+                b v -> v {
+                    v = const 2
+                    => @d
+                }
+                c v -> v {
+                    => @d
+                }
+                d v {
+                    result = icall @helper v
+                    stop
+                }
+            fn helper:
+                e x -> x {
+                    => @f
+                }
+                f x -> x {
+                    iret
+                }
+            "#,
+        );
+
+        let init_entry = program.functions[program.init_entry].entry();
+        let helper_id = program.functions.iter_idx().find(|&id| id != program.init_entry).unwrap();
+        let helper_entry = program.functions[helper_id].entry();
+
+        transform_and_legalize(&mut program);
+        let post_ir = display_program(&program);
+
+        let init_inputs = program.block(init_entry).inputs();
+        let helper_inputs = program.block(helper_entry).inputs();
+        assert_eq!(helper_inputs.len(), 1, "helper entry should still have 1 input\n{post_ir}");
+        for &init_local in init_inputs {
+            for &helper_local in helper_inputs {
+                assert_ne!(
+                    init_local, helper_local,
+                    "locals across functions should be renamed independently\n{post_ir}"
+                );
+            }
         }
     }
 }
