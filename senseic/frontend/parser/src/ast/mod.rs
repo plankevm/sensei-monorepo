@@ -5,7 +5,7 @@ use sensei_core::Span;
 
 use crate::{
     StrId,
-    cst::{NodeIdx, NodeKind, NodeView},
+    cst::{NodeKind, NodeView},
     lexer::TokenIdx,
 };
 
