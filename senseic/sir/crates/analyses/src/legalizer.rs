@@ -237,25 +237,25 @@ impl<'a> Legalizer<'a> {
             let op = &self.program.operations[op_id];
 
             match op {
-                Operation::SetLargeConst(data) => {
-                    if self.program.large_consts.get(data.value).is_none() {
-                        return Err(LegalizerError::InvalidLargeConstId(data.value));
-                    }
+                Operation::SetLargeConst(data)
+                    if self.program.large_consts.get(data.value).is_none() =>
+                {
+                    return Err(LegalizerError::InvalidLargeConstId(data.value));
                 }
-                Operation::SetDataOffset(data) => {
-                    if self.program.data_segments.get(data.segment_id).is_none() {
-                        return Err(LegalizerError::InvalidSegmentId(data.segment_id));
-                    }
+                Operation::SetDataOffset(data)
+                    if self.program.data_segments.get(data.segment_id).is_none() =>
+                {
+                    return Err(LegalizerError::InvalidSegmentId(data.segment_id));
                 }
-                Operation::StaticAllocZeroed(data) | Operation::StaticAllocAnyBytes(data) => {
-                    if data.alloc_id >= self.program.next_static_alloc_id {
-                        return Err(LegalizerError::InvalidStaticAllocId(data.alloc_id));
-                    }
+                Operation::StaticAllocZeroed(data) | Operation::StaticAllocAnyBytes(data)
+                    if data.alloc_id >= self.program.next_static_alloc_id =>
+                {
+                    return Err(LegalizerError::InvalidStaticAllocId(data.alloc_id));
                 }
-                Operation::InternalCall(data) => {
-                    if self.program.functions.get(data.function).is_none() {
-                        return Err(LegalizerError::InvalidFunctionId(data.function));
-                    }
+                Operation::InternalCall(data)
+                    if self.program.functions.get(data.function).is_none() =>
+                {
+                    return Err(LegalizerError::InvalidFunctionId(data.function));
                 }
                 _ => {}
             }
@@ -479,23 +479,19 @@ impl<'a> Legalizer<'a> {
         }
 
         match &bb.control {
-            Control::Branches(branch) => {
-                if !in_scope.contains(branch.condition) {
-                    return Err(LegalizerError::LocalNotInScope {
-                        block: bb_id,
-                        local: branch.condition,
-                        use_kind: UseKind::Control,
-                    });
-                }
+            Control::Branches(branch) if !in_scope.contains(branch.condition) => {
+                return Err(LegalizerError::LocalNotInScope {
+                    block: bb_id,
+                    local: branch.condition,
+                    use_kind: UseKind::Control,
+                });
             }
-            Control::Switch(switch) => {
-                if !in_scope.contains(switch.condition) {
-                    return Err(LegalizerError::LocalNotInScope {
-                        block: bb_id,
-                        local: switch.condition,
-                        use_kind: UseKind::Control,
-                    });
-                }
+            Control::Switch(switch) if !in_scope.contains(switch.condition) => {
+                return Err(LegalizerError::LocalNotInScope {
+                    block: bb_id,
+                    local: switch.condition,
+                    use_kind: UseKind::Control,
+                });
             }
             _ => {}
         }

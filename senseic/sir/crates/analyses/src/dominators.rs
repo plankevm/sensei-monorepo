@@ -32,10 +32,19 @@ pub fn compute_dominance_frontiers(
 
 // iterative dominator algorithm using RPO
 pub fn compute_dominators(program: &EthIRProgram) -> IndexVec<BasicBlockId, Option<BasicBlockId>> {
+    let mut predecessors = IndexVec::new();
+    compute_predecessors(program, &mut predecessors);
+    compute_dominators_from_predecessors(program, &predecessors)
+}
+
+pub fn compute_dominators_from_predecessors(
+    program: &EthIRProgram,
+    predecessors: &IndexVec<BasicBlockId, Vec<BasicBlockId>>,
+) -> IndexVec<BasicBlockId, Option<BasicBlockId>> {
     let mut dominators = index_vec![None; program.basic_blocks.len()];
 
     for func in program.functions_iter() {
-        compute_function_dominators(program, func.entry().id(), &mut dominators);
+        compute_function_dominators(program, func.entry().id(), predecessors, &mut dominators);
     }
 
     dominators
@@ -44,6 +53,7 @@ pub fn compute_dominators(program: &EthIRProgram) -> IndexVec<BasicBlockId, Opti
 fn compute_function_dominators(
     program: &EthIRProgram,
     entry: BasicBlockId,
+    predecessors: &IndexVec<BasicBlockId, Vec<BasicBlockId>>,
     dominators: &mut IndexVec<BasicBlockId, Option<BasicBlockId>>,
 ) {
     dominators[entry] = Some(entry);
@@ -57,8 +67,6 @@ fn compute_function_dominators(
         bb_to_rpo_pos[basic_block] = pos as u32;
     }
 
-    let mut predecessors = IndexVec::new();
-    compute_predecessors(program, &mut predecessors);
     let mut changed = true;
     while changed {
         changed = false;

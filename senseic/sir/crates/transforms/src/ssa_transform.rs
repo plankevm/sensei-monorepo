@@ -1,5 +1,7 @@
 use sensei_core::IncIterable;
-use sir_analyses::{compute_dominance_frontiers, compute_dominators, compute_predecessors};
+use sir_analyses::{
+    compute_dominance_frontiers, compute_dominators_from_predecessors, compute_predecessors,
+};
 use sir_data::{
     BasicBlock, BasicBlockId, Branch, Control, DenseIndexSet, EthIRProgram, Idx, IndexVec, LocalId,
     LocalIdx, Span, Switch, index_vec, operation::OpVisitorMut,
@@ -25,7 +27,7 @@ impl SsaTransform {
         program: &EthIRProgram,
         predecessors: IndexVec<BasicBlockId, Vec<BasicBlockId>>,
     ) -> Self {
-        let dominators = compute_dominators(program);
+        let dominators = compute_dominators_from_predecessors(program, &predecessors);
         let mut dominator_tree = index_vec![Vec::new(); dominators.len()];
         for (bb, &idom) in dominators.enumerate_idx() {
             if let Some(parent) = idom
@@ -152,7 +154,8 @@ impl SsaTransform {
         let new_inputs_start = program.locals.next_idx();
         for idx in old_inputs_span.iter() {
             let local = program.locals[idx];
-            let renamed = rename_def(local_versions, rename_trail, &mut program.next_free_local_id, local);
+            let renamed =
+                rename_def(local_versions, rename_trail, &mut program.next_free_local_id, local);
             program.locals.push(renamed);
         }
         for local in &self.phi_locations[bb] {
