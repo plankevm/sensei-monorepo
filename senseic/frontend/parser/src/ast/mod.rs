@@ -114,6 +114,10 @@ impl<'cst> Import<'cst> {
         self.view
     }
 
+    pub fn is_glob(&self) -> bool {
+        matches!(self.kind, Some(ImportKind::All))
+    }
+
     pub fn collect_path_segments(&self, buf: &mut Vec<StrId>) {
         buf.clear();
         for child in self.path_node.children() {

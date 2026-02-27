@@ -42,7 +42,7 @@ fn main() {
     let source = std::fs::read_to_string(&args.file_path).expect("Failed to read file");
 
     let mut interner = PlankInterner::default();
-    let mut module_manager = ModuleManager::new();
+    let mut module_manager = ModuleManager::default();
     if let Some(name) = &args.module_name {
         let name_id = interner.intern(name);
         let root = match &args.module_root {

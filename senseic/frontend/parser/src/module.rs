@@ -11,16 +11,19 @@ pub struct ResolvedImport {
     pub const_name: Option<StrId>,
 }
 
+#[derive(Debug)]
 pub enum ModuleResolveError {
     UnknownModule(StrId),
     NotEnoughSegments,
 }
 
-impl ModuleManager {
-    pub fn new() -> Self {
+impl Default for ModuleManager {
+    fn default() -> Self {
         Self { modules: HashMap::new() }
     }
+}
 
+impl ModuleManager {
     pub fn register(&mut self, name: StrId, root: PathBuf) {
         self.modules.insert(name, root);
     }

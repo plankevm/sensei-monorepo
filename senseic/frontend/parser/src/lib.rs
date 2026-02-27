@@ -6,6 +6,7 @@ pub mod interner;
 pub mod lexer;
 pub mod module;
 pub mod parser;
+pub mod project;
 pub mod source;
 
 pub use interner::{PlankInterner, StrId};
