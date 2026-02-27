@@ -1,0 +1,13 @@
+[package]
+name = "sir-transforms"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+sensei-core.workspace = true
+hashbrown.workspace = true
+sir-data = { path = "../data" }
+sir-analyses = { path = "../analyses" }
+
+[dev-dependencies]
+sir-parser.workspace = true

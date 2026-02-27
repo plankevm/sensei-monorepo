@@ -237,25 +237,25 @@ impl<'a> Legalizer<'a> {
             let op = &self.program.operations[op_id];
 
             match op {
-                Operation::SetLargeConst(data) => {
-                    if self.program.large_consts.get(data.value).is_none() {
-                        return Err(LegalizerError::InvalidLargeConstId(data.value));
-                    }
+                Operation::SetLargeConst(data)
+                    if self.program.large_consts.get(data.value).is_none() =>
+                {
+                    return Err(LegalizerError::InvalidLargeConstId(data.value));
                 }
-                Operation::SetDataOffset(data) => {
-                    if self.program.data_segments.get(data.segment_id).is_none() {
-                        return Err(LegalizerError::InvalidSegmentId(data.segment_id));
-                    }
+                Operation::SetDataOffset(data)
+                    if self.program.data_segments.get(data.segment_id).is_none() =>
+                {
+                    return Err(LegalizerError::InvalidSegmentId(data.segment_id));
                 }
-                Operation::StaticAllocZeroed(data) | Operation::StaticAllocAnyBytes(data) => {
-                    if data.alloc_id >= self.program.next_static_alloc_id {
-                        return Err(LegalizerError::InvalidStaticAllocId(data.alloc_id));
-                    }
+                Operation::StaticAllocZeroed(data) | Operation::StaticAllocAnyBytes(data)
+                    if data.alloc_id >= self.program.next_static_alloc_id =>
+                {
+                    return Err(LegalizerError::InvalidStaticAllocId(data.alloc_id));
                 }
-                Operation::InternalCall(data) => {
-                    if self.program.functions.get(data.function).is_none() {
-                        return Err(LegalizerError::InvalidFunctionId(data.function));
-                    }
+                Operation::InternalCall(data)
+                    if self.program.functions.get(data.function).is_none() =>
+                {
+                    return Err(LegalizerError::InvalidFunctionId(data.function));
                 }
                 _ => {}
             }
@@ -479,23 +479,19 @@ impl<'a> Legalizer<'a> {
         }
 
         match &bb.control {
-            Control::Branches(branch) => {
-                if !in_scope.contains(branch.condition) {
-                    return Err(LegalizerError::LocalNotInScope {
-                        block: bb_id,
-                        local: branch.condition,
-                        use_kind: UseKind::Control,
-                    });
-                }
+            Control::Branches(branch) if !in_scope.contains(branch.condition) => {
+                return Err(LegalizerError::LocalNotInScope {
+                    block: bb_id,
+                    local: branch.condition,
+                    use_kind: UseKind::Control,
+                });
             }
-            Control::Switch(switch) => {
-                if !in_scope.contains(switch.condition) {
-                    return Err(LegalizerError::LocalNotInScope {
-                        block: bb_id,
-                        local: switch.condition,
-                        use_kind: UseKind::Control,
-                    });
-                }
+            Control::Switch(switch) if !in_scope.contains(switch.condition) => {
+                return Err(LegalizerError::LocalNotInScope {
+                    block: bb_id,
+                    local: switch.condition,
+                    use_kind: UseKind::Control,
+                });
             }
             _ => {}
         }
@@ -549,18 +545,7 @@ mod tests {
             SetSmallConstData, StaticAllocData,
         },
     };
-    use sir_parser::EmitConfig;
-
-    fn parse_without_legalize<'a>(source: &str, config: EmitConfig<'a>) -> EthIRProgram {
-        use bumpalo::Bump;
-        let arena = Bump::with_capacity(8_192);
-        let ast = sir_parser::parse(source, &arena).unwrap_or_else(|err| {
-            panic!("{:?}", err[0]);
-        });
-        sir_parser::emit_ir(&arena, &ast, config).unwrap_or_else(|err| {
-            panic!("{}", err.reason);
-        })
-    }
+    use sir_parser::{EmitConfig, parse_without_legalization};
 
     // Note: WrongOutputCount cannot be triggered via the builder because the builder
     // catches conflicting function outputs (ConflictingFunctionOutputs error).
@@ -568,7 +553,7 @@ mod tests {
 
     #[test]
     fn test_valid_ir_passes() {
-        let program = parse_without_legalize(
+        let program = parse_without_legalization(
             r#"
             fn init:
                 entry {
@@ -586,7 +571,7 @@ mod tests {
 
     #[test]
     fn test_valid_ir_with_branches() {
-        let program = parse_without_legalize(
+        let program = parse_without_legalization(
             r#"
             fn init:
                 entry {
@@ -609,7 +594,7 @@ mod tests {
 
     #[test]
     fn test_valid_ir_with_internal_call() {
-        let program = parse_without_legalize(
+        let program = parse_without_legalization(
             r#"
             fn init:
                 entry {
@@ -630,7 +615,7 @@ mod tests {
 
     #[test]
     fn test_valid_ir_with_block_io() {
-        let program = parse_without_legalize(
+        let program = parse_without_legalization(
             r#"
             fn init:
                 entry -> a b c {
@@ -652,7 +637,7 @@ mod tests {
 
     #[test]
     fn test_rejects_missing_terminator() {
-        let program = parse_without_legalize(
+        let program = parse_without_legalization(
             r#"
             fn init:
                 entry {
@@ -669,7 +654,7 @@ mod tests {
 
     #[test]
     fn test_rejects_incompatible_edge() {
-        let program = parse_without_legalize(
+        let program = parse_without_legalization(
             r#"
             fn init:
                 entry -> x {
@@ -693,7 +678,7 @@ mod tests {
 
     #[test]
     fn test_valid_loop() {
-        let program = parse_without_legalize(
+        let program = parse_without_legalization(
             r#"
             fn init:
                 entry {
@@ -715,7 +700,7 @@ mod tests {
 
     #[test]
     fn test_valid_diamond() {
-        let program = parse_without_legalize(
+        let program = parse_without_legalization(
             r#"
             fn init:
                 entry {
@@ -745,7 +730,7 @@ mod tests {
 
     #[test]
     fn test_valid_local_from_dominator_ancestor() {
-        let program = parse_without_legalize(
+        let program = parse_without_legalization(
             r#"
             fn init:
                 entry {
@@ -770,7 +755,7 @@ mod tests {
 
     #[test]
     fn test_rejects_local_not_in_scope_control() {
-        let program = parse_without_legalize(
+        let program = parse_without_legalization(
             r#"
             fn init:
                 entry {
@@ -888,7 +873,7 @@ mod tests {
 
     #[test]
     fn test_rejects_wrong_call_input_count() {
-        let mut program = parse_without_legalize(
+        let mut program = parse_without_legalization(
             r#"
             fn init:
                 entry {
@@ -1003,7 +988,7 @@ mod tests {
 
     #[test]
     fn test_rejects_local_not_in_scope_operation() {
-        let program = parse_without_legalize(
+        let program = parse_without_legalization(
             r#"
             fn init:
                 entry {
@@ -1040,7 +1025,7 @@ mod tests {
 
     #[test]
     fn test_rejects_local_not_in_scope_block_output() {
-        let program = parse_without_legalize(
+        let program = parse_without_legalization(
             r#"
             fn init:
                 entry {

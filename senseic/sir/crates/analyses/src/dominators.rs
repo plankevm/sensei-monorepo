@@ -1,13 +1,51 @@
+use hashbrown::HashSet;
 use sir_data::{BasicBlockId, DenseIndexSet, EthIRProgram, IndexVec, index_vec};
 
 use crate::compute_predecessors;
 
+pub fn compute_dominance_frontiers(
+    dominators: &IndexVec<BasicBlockId, Option<BasicBlockId>>,
+    predecessors: &IndexVec<BasicBlockId, Vec<BasicBlockId>>,
+) -> IndexVec<BasicBlockId, HashSet<BasicBlockId>> {
+    let mut frontiers = index_vec![HashSet::new(); dominators.len()];
+
+    for (b, preds) in predecessors.enumerate_idx() {
+        if preds.len() < 2 {
+            continue;
+        }
+        let Some(idom) = dominators[b] else {
+            continue;
+        };
+        for &p in preds {
+            if dominators[p].is_none() {
+                continue;
+            }
+            let mut runner = p;
+            while runner != idom {
+                frontiers[runner].insert(b);
+                runner = dominators[runner].expect("reachable path");
+            }
+        }
+    }
+
+    frontiers
+}
+
 // iterative dominator algorithm using RPO
 pub fn compute_dominators(program: &EthIRProgram) -> IndexVec<BasicBlockId, Option<BasicBlockId>> {
+    let mut predecessors = IndexVec::new();
+    compute_predecessors(program, &mut predecessors);
+    compute_dominators_from_predecessors(program, &predecessors)
+}
+
+pub fn compute_dominators_from_predecessors(
+    program: &EthIRProgram,
+    predecessors: &IndexVec<BasicBlockId, Vec<BasicBlockId>>,
+) -> IndexVec<BasicBlockId, Option<BasicBlockId>> {
     let mut dominators = index_vec![None; program.basic_blocks.len()];
 
     for func in program.functions_iter() {
-        compute_function_dominators(program, func.entry().id(), &mut dominators);
+        compute_function_dominators(program, func.entry().id(), predecessors, &mut dominators);
     }
 
     dominators
@@ -16,6 +54,7 @@ pub fn compute_dominators(program: &EthIRProgram) -> IndexVec<BasicBlockId, Opti
 fn compute_function_dominators(
     program: &EthIRProgram,
     entry: BasicBlockId,
+    predecessors: &IndexVec<BasicBlockId, Vec<BasicBlockId>>,
     dominators: &mut IndexVec<BasicBlockId, Option<BasicBlockId>>,
 ) {
     dominators[entry] = Some(entry);
@@ -29,8 +68,6 @@ fn compute_function_dominators(
         bb_to_rpo_pos[basic_block] = pos as u32;
     }
 
-    let mut predecessors = IndexVec::new();
-    compute_predecessors(program, &mut predecessors);
     let mut changed = true;
     while changed {
         changed = false;
@@ -99,22 +136,58 @@ mod tests {
         BasicBlockId::new(n)
     }
 
+    fn frontier_to_vec(df: &HashSet<BasicBlockId>) -> Vec<BasicBlockId> {
+        let mut v: Vec<_> = df.iter().copied().collect();
+        v.sort();
+        v
+    }
+
+    fn frontiers(
+        program: &EthIRProgram,
+        dominators: &IndexVec<BasicBlockId, Option<BasicBlockId>>,
+    ) -> IndexVec<BasicBlockId, HashSet<BasicBlockId>> {
+        let mut predecessors = IndexVec::new();
+        compute_predecessors(program, &mut predecessors);
+        compute_dominance_frontiers(dominators, &predecessors)
+    }
+
     #[test]
-    fn test_self_loop() {
-        // A → A (self-loop)
+    fn test_loop_back_edge() {
+        // A → B → C → B (back-edge)
+        //     |
+        //     D
         let program = parse_or_panic(
             r#"
             fn init:
                 a {
-                    => @a
+                    => @b
+                }
+                b {
+                    x = const 1
+                    => x ? @c : @d
+                }
+                c {
+                    => @b
+                }
+                d {
+                    stop
                 }
             "#,
             EmitConfig::init_only(),
         );
 
         let dominators = compute_dominators(&program);
+        let df = frontiers(&program, &dominators);
 
         assert_eq!(dominators[bb(0)], Some(bb(0))); // idom(A) = A
+        assert_eq!(dominators[bb(1)], Some(bb(0))); // idom(B) = A
+        assert_eq!(dominators[bb(2)], Some(bb(1))); // idom(C) = B
+        assert_eq!(dominators[bb(3)], Some(bb(1))); // idom(D) = B
+
+        assert_eq!(frontier_to_vec(&df[bb(0)]), vec![]); // DF(A) = {}
+        assert_eq!(frontier_to_vec(&df[bb(1)]), vec![bb(1)]); // DF(B) = {B}
+        assert_eq!(frontier_to_vec(&df[bb(2)]), vec![bb(1)]); // DF(C) = {B}
+        assert_eq!(frontier_to_vec(&df[bb(3)]), vec![]); // DF(D) = {}
     }
 
     #[test]
@@ -137,10 +210,15 @@ mod tests {
         );
 
         let dominators = compute_dominators(&program);
+        let df = frontiers(&program, &dominators);
 
         assert_eq!(dominators[bb(0)], Some(bb(0))); // idom(A) = A
         assert_eq!(dominators[bb(1)], Some(bb(0))); // idom(B) = A
         assert_eq!(dominators[bb(2)], Some(bb(1))); // idom(C) = B
+
+        assert_eq!(frontier_to_vec(&df[bb(0)]), vec![]); // DF(A) = {}
+        assert_eq!(frontier_to_vec(&df[bb(1)]), vec![]); // DF(B) = {}
+        assert_eq!(frontier_to_vec(&df[bb(2)]), vec![]); // DF(C) = {}
     }
 
     #[test]
@@ -171,11 +249,17 @@ mod tests {
         );
 
         let dominators = compute_dominators(&program);
+        let df = frontiers(&program, &dominators);
 
         assert_eq!(dominators[bb(0)], Some(bb(0))); // idom(A) = A
         assert_eq!(dominators[bb(1)], Some(bb(0))); // idom(B) = A
         assert_eq!(dominators[bb(2)], Some(bb(0))); // idom(C) = A
         assert_eq!(dominators[bb(3)], Some(bb(0))); // idom(D) = A (not B or C)
+
+        assert_eq!(frontier_to_vec(&df[bb(0)]), vec![]); // DF(A) = {}
+        assert_eq!(frontier_to_vec(&df[bb(1)]), vec![bb(3)]); // DF(B) = {D}
+        assert_eq!(frontier_to_vec(&df[bb(2)]), vec![bb(3)]); // DF(C) = {D}
+        assert_eq!(frontier_to_vec(&df[bb(3)]), vec![]); // DF(D) = {}
     }
 
     #[test]
@@ -214,6 +298,7 @@ mod tests {
         );
 
         let dominators = compute_dominators(&program);
+        let df = frontiers(&program, &dominators);
 
         assert_eq!(dominators[bb(0)], Some(bb(0))); // idom(A) = A
         assert_eq!(dominators[bb(1)], Some(bb(0))); // idom(B) = A
@@ -221,6 +306,13 @@ mod tests {
         assert_eq!(dominators[bb(3)], Some(bb(1))); // idom(D) = B
         assert_eq!(dominators[bb(4)], Some(bb(0))); // idom(E) = A (common dominator of C and D)
         assert_eq!(dominators[bb(5)], Some(bb(4))); // idom(F) = E
+
+        assert_eq!(frontier_to_vec(&df[bb(0)]), vec![]); // DF(A) = {}
+        assert_eq!(frontier_to_vec(&df[bb(1)]), vec![bb(4)]); // DF(B) = {E}
+        assert_eq!(frontier_to_vec(&df[bb(2)]), vec![bb(4)]); // DF(C) = {E}
+        assert_eq!(frontier_to_vec(&df[bb(3)]), vec![bb(4)]); // DF(D) = {E}
+        assert_eq!(frontier_to_vec(&df[bb(4)]), vec![]); // DF(E) = {}
+        assert_eq!(frontier_to_vec(&df[bb(5)]), vec![]); // DF(F) = {}
     }
 
     #[test]
@@ -257,6 +349,7 @@ mod tests {
         );
 
         let dominators = compute_dominators(&program);
+        let df = frontiers(&program, &dominators);
 
         assert_eq!(dominators[bb(0)], Some(bb(0))); // idom(A) = A
         assert_eq!(dominators[bb(1)], Some(bb(0))); // idom(B) = A
@@ -264,6 +357,13 @@ mod tests {
         assert_eq!(dominators[bb(3)], Some(bb(2))); // idom(D) = C
         assert_eq!(dominators[bb(4)], Some(bb(3))); // idom(E) = D
         assert_eq!(dominators[bb(5)], Some(bb(4))); // idom(F) = E
+
+        assert_eq!(frontier_to_vec(&df[bb(0)]), vec![]); // DF(A) = {}
+        assert_eq!(frontier_to_vec(&df[bb(1)]), vec![bb(1)]); // DF(B) = {B}
+        assert_eq!(frontier_to_vec(&df[bb(2)]), vec![bb(1), bb(2)]); // DF(C) = {B, C}
+        assert_eq!(frontier_to_vec(&df[bb(3)]), vec![bb(1), bb(2)]); // DF(D) = {B, C}
+        assert_eq!(frontier_to_vec(&df[bb(4)]), vec![bb(1)]); // DF(E) = {B}
+        assert_eq!(frontier_to_vec(&df[bb(5)]), vec![]); // DF(F) = {}
     }
 
     #[test]
@@ -286,10 +386,15 @@ mod tests {
         );
 
         let dominators = compute_dominators(&program);
+        let df = frontiers(&program, &dominators);
 
         assert_eq!(dominators[bb(0)], Some(bb(0))); // idom(A) = A
         assert_eq!(dominators[bb(1)], Some(bb(0))); // idom(B) = A
         assert_eq!(dominators[bb(2)], None); // C is unreachable
+
+        assert_eq!(frontier_to_vec(&df[bb(0)]), vec![]); // DF(A) = {}
+        assert_eq!(frontier_to_vec(&df[bb(1)]), vec![]); // DF(B) = {}
+        assert_eq!(frontier_to_vec(&df[bb(2)]), vec![]); // DF(C) = {}
     }
 
     #[test]
@@ -316,11 +421,78 @@ mod tests {
         );
 
         let dominators = compute_dominators(&program);
+        let df = frontiers(&program, &dominators);
 
         assert_eq!(dominators[bb(0)], Some(bb(0))); // idom(A) = A
         assert_eq!(dominators[bb(1)], Some(bb(0))); // idom(B) = A
         assert_eq!(dominators[bb(2)], Some(bb(2))); // idom(C) = C (entry of other)
         assert_eq!(dominators[bb(3)], Some(bb(2))); // idom(D) = C
+
+        assert_eq!(frontier_to_vec(&df[bb(0)]), vec![]); // DF(A) = {}
+        assert_eq!(frontier_to_vec(&df[bb(1)]), vec![]); // DF(B) = {}
+        assert_eq!(frontier_to_vec(&df[bb(2)]), vec![]); // DF(C) = {}
+        assert_eq!(frontier_to_vec(&df[bb(3)]), vec![]); // DF(D) = {}
+    }
+
+    #[test]
+    fn test_stacked_diamonds() {
+        //     A
+        //    / \
+        //   B   C
+        //    \ /
+        //     D
+        //    / \
+        //   E   F
+        //    \ /
+        //     G
+        let program = parse_or_panic(
+            r#"
+            fn init:
+                a {
+                    x = const 1
+                    => x ? @b : @c
+                }
+                b {
+                    => @d
+                }
+                c {
+                    => @d
+                }
+                d {
+                    y = const 1
+                    => y ? @e : @f
+                }
+                e {
+                    => @g
+                }
+                f {
+                    => @g
+                }
+                g {
+                    stop
+                }
+            "#,
+            EmitConfig::init_only(),
+        );
+
+        let dominators = compute_dominators(&program);
+        let df = frontiers(&program, &dominators);
+
+        assert_eq!(dominators[bb(0)], Some(bb(0))); // idom(A) = A
+        assert_eq!(dominators[bb(1)], Some(bb(0))); // idom(B) = A
+        assert_eq!(dominators[bb(2)], Some(bb(0))); // idom(C) = A
+        assert_eq!(dominators[bb(3)], Some(bb(0))); // idom(D) = A
+        assert_eq!(dominators[bb(4)], Some(bb(3))); // idom(E) = D
+        assert_eq!(dominators[bb(5)], Some(bb(3))); // idom(F) = D
+        assert_eq!(dominators[bb(6)], Some(bb(3))); // idom(G) = D
+
+        assert_eq!(frontier_to_vec(&df[bb(0)]), vec![]); // DF(A) = {}
+        assert_eq!(frontier_to_vec(&df[bb(1)]), vec![bb(3)]); // DF(B) = {D}
+        assert_eq!(frontier_to_vec(&df[bb(2)]), vec![bb(3)]); // DF(C) = {D}
+        assert_eq!(frontier_to_vec(&df[bb(3)]), vec![]); // DF(D) = {}
+        assert_eq!(frontier_to_vec(&df[bb(4)]), vec![bb(6)]); // DF(E) = {G}
+        assert_eq!(frontier_to_vec(&df[bb(5)]), vec![bb(6)]); // DF(F) = {G}
+        assert_eq!(frontier_to_vec(&df[bb(6)]), vec![]); // DF(G) = {}
     }
 
     #[test]
@@ -354,10 +526,16 @@ mod tests {
         );
 
         let dominators = compute_dominators(&program);
+        let df = frontiers(&program, &dominators);
 
         assert_eq!(dominators[bb(0)], Some(bb(0))); // idom(A) = A
         assert_eq!(dominators[bb(1)], Some(bb(0))); // idom(B) = A
         assert_eq!(dominators[bb(2)], Some(bb(0))); // idom(C) = A
         assert_eq!(dominators[bb(3)], Some(bb(0))); // idom(D) = A (common dominator of B and C paths)
+
+        assert_eq!(frontier_to_vec(&df[bb(0)]), vec![]); // DF(A) = {}
+        assert_eq!(frontier_to_vec(&df[bb(1)]), vec![bb(2), bb(3)]); // DF(B) = {C, D}
+        assert_eq!(frontier_to_vec(&df[bb(2)]), vec![bb(1), bb(3)]); // DF(C) = {B, D}
+        assert_eq!(frontier_to_vec(&df[bb(3)]), vec![]); // DF(D) = {}
     }
 }

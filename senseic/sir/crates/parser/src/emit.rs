@@ -10,7 +10,7 @@ use sir_data::{
     operation::{OpBuildError, OpExtraData},
 };
 use smallvec::SmallVec;
-use std::collections::HashMap;
+use std::collections::{HashMap, hash_map::Entry};
 
 const DEFAULT_INIT_ENTRYPOINT_NAME: &str = "init";
 const DEFAULT_RUNTIME_ENTRYPOINT_NAME: &str = "main";
@@ -27,19 +27,24 @@ pub struct SirAstSemaError<'arena> {
 pub struct EmitConfig<'a> {
     init_name: &'a str,
     run_name: Option<&'a str>,
+    pub allow_duplicate_locals: bool,
 }
 
 impl<'a> EmitConfig<'a> {
     pub fn init_only() -> Self {
-        Self { init_name: DEFAULT_INIT_ENTRYPOINT_NAME, run_name: None }
+        Self {
+            init_name: DEFAULT_INIT_ENTRYPOINT_NAME,
+            run_name: None,
+            allow_duplicate_locals: false,
+        }
     }
 
     pub fn init_only_with_name(init_name: &'a str) -> Self {
-        Self { init_name, run_name: None }
+        Self { init_name, run_name: None, allow_duplicate_locals: false }
     }
 
     pub fn new(init_name: &'a str, main_name: &'a str) -> Self {
-        Self { init_name, run_name: Some(main_name) }
+        Self { init_name, run_name: Some(main_name), allow_duplicate_locals: false }
     }
 }
 
@@ -48,6 +53,7 @@ impl<'a> Default for EmitConfig<'a> {
         Self {
             init_name: DEFAULT_INIT_ENTRYPOINT_NAME,
             run_name: Some(DEFAULT_RUNTIME_ENTRYPOINT_NAME),
+            allow_duplicate_locals: false,
         }
     }
 }
@@ -177,18 +183,22 @@ pub fn emit_ir<'ast, 'arena: 'ast, 'src: 'arena>(
             let bb_inputs = bb.inputs.iter();
             let bb_stmt_assigns = bb.stmts.iter().map(|stmt| stmt.assigns.iter());
             for input in bb_inputs.chain(bb_stmt_assigns.flatten()) {
-                let new_local_id = ir_builder.new_local();
-                if let Some(existing) =
-                    local_name_to_id.insert(input.inner, Spanned::new(new_local_id, input.span()))
-                {
-                    return Err(SirAstSemaError {
-                        spans: arena.alloc([existing.span(), input.span()]),
-                        reason: format_in!(
-                            arena,
-                            "Locals are required to be unique within a function, {:?} not unique",
-                            input.inner
-                        ),
-                    });
+                match local_name_to_id.entry(input.inner) {
+                    Entry::Occupied(_) if config.allow_duplicate_locals => {}
+                    Entry::Occupied(e) => {
+                        return Err(SirAstSemaError {
+                            spans: arena.alloc([e.get().span(), input.span()]),
+                            reason: format_in!(
+                                arena,
+                                "Locals are required to be unique within a function, {:?} not unique",
+                                input.inner
+                            ),
+                        });
+                    }
+                    Entry::Vacant(e) => {
+                        let new_local_id = ir_builder.new_local();
+                        e.insert(Spanned::new(new_local_id, input.span()));
+                    }
                 }
             }
         }

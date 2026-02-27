@@ -25,6 +25,7 @@ sir-parser = { path = "sir/crates/parser" }
 sir-assembler = { path = "sir/crates/assembler" }
 sir-debug-backend = { path = "sir/crates/debug-backend" }
 sir-optimizations = { path = "sir/crates/optimizations" }
+sir-transforms = { path = "sir/crates/transforms" }
 
 # Shared Dependencies
 bumpalo = { version = "3.19.0", features = ["allocator-api2", "collections"] }

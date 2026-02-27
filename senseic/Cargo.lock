@@ -1705,6 +1705,7 @@ version = "0.1.0"
 dependencies = [
  "alloy-primitives",
  "bumpalo",
+ "hashbrown 0.16.0",
  "sensei-core",
  "sir-data",
  "sir-parser",
@@ -1793,6 +1794,17 @@ dependencies = [
  "sir-analyses",
  "sir-data",
  "smallvec",
+]
+
+[[package]]
+name = "sir-transforms"
+version = "0.1.0"
+dependencies = [
+ "hashbrown 0.16.0",
+ "sensei-core",
+ "sir-analyses",
+ "sir-data",
+ "sir-parser",
 ]
 
 [[package]]
