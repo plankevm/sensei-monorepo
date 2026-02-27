@@ -5,7 +5,7 @@ use sir_analyses::{
 };
 use sir_data::{
     BasicBlock, BasicBlockId, Branch, Control, EthIRProgram, Idx, IndexVec, LocalId, LocalIdx,
-    Span, Switch, index_vec, operation::OpVisitorMut,
+    Span, Switch, index_vec,
 };
 
 pub fn ssa_transform(program: &mut EthIRProgram) {
@@ -190,128 +190,25 @@ impl SsaTransform {
     }
 }
 
-struct Renamer<'a> {
-    program: &'a mut EthIRProgram,
-    local_versions: &'a mut IndexVec<LocalId, Vec<LocalId>>,
-    rename_trail: &'a mut Vec<LocalId>,
-}
-
-impl OpVisitorMut<'_, ()> for Renamer<'_> {
-    fn visit_inline_operands_mut<const INS: usize, const OUTS: usize>(
-        &mut self,
-        data: &mut sir_data::operation::InlineOperands<INS, OUTS>,
-    ) {
-        for local in &mut data.ins {
-            *local = rename_use(self.local_versions, *local);
-        }
-        for local in &mut data.outs {
-            *local = rename_def(
-                self.local_versions,
-                self.rename_trail,
-                &mut self.program.next_free_local_id,
-                *local,
-            );
-        }
-    }
-
-    fn visit_allocated_ins_mut<const INS: usize, const OUTS: usize>(
-        &mut self,
-        data: &mut sir_data::operation::AllocatedIns<INS, OUTS>,
-    ) {
-        for local in data.get_inputs_mut(self.program) {
-            *local = rename_use(self.local_versions, *local);
-        }
-        for local in &mut data.outs {
-            *local = rename_def(
-                self.local_versions,
-                self.rename_trail,
-                &mut self.program.next_free_local_id,
-                *local,
-            );
-        }
-    }
-
-    fn visit_static_alloc_mut(&mut self, data: &mut sir_data::operation::StaticAllocData) {
-        data.ptr_out = rename_def(
-            self.local_versions,
-            self.rename_trail,
-            &mut self.program.next_free_local_id,
-            data.ptr_out,
-        );
-    }
-
-    fn visit_memory_load_mut(&mut self, data: &mut sir_data::operation::MemoryLoadData) {
-        data.ptr = rename_use(self.local_versions, data.ptr);
-        data.out = rename_def(
-            self.local_versions,
-            self.rename_trail,
-            &mut self.program.next_free_local_id,
-            data.out,
-        );
-    }
-
-    fn visit_memory_store_mut(&mut self, data: &mut sir_data::operation::MemoryStoreData) {
-        for local in &mut data.ins {
-            *local = rename_use(self.local_versions, *local);
-        }
-    }
-
-    fn visit_set_small_const_mut(&mut self, data: &mut sir_data::operation::SetSmallConstData) {
-        data.sets = rename_def(
-            self.local_versions,
-            self.rename_trail,
-            &mut self.program.next_free_local_id,
-            data.sets,
-        );
-    }
-
-    fn visit_set_large_const_mut(&mut self, data: &mut sir_data::operation::SetLargeConstData) {
-        data.sets = rename_def(
-            self.local_versions,
-            self.rename_trail,
-            &mut self.program.next_free_local_id,
-            data.sets,
-        );
-    }
-
-    fn visit_set_data_offset_mut(&mut self, data: &mut sir_data::operation::SetDataOffsetData) {
-        data.sets = rename_def(
-            self.local_versions,
-            self.rename_trail,
-            &mut self.program.next_free_local_id,
-            data.sets,
-        );
-    }
-
-    fn visit_icall_mut(&mut self, data: &mut sir_data::operation::InternalCallData) {
-        for local in &mut self.program.locals[data.ins_start..data.outs_start] {
-            *local = rename_use(self.local_versions, *local);
-        }
-        let output_count = self.program.functions[data.function].get_outputs();
-        for local in &mut self.program.locals[data.outs_start..data.outs_start + output_count] {
-            *local = rename_def(
-                self.local_versions,
-                self.rename_trail,
-                &mut self.program.next_free_local_id,
-                *local,
-            );
-        }
-    }
-
-    fn visit_void_mut(&mut self) {}
-}
-
 fn rename_operations(
     program: &mut EthIRProgram,
     bb: BasicBlockId,
     local_versions: &mut IndexVec<LocalId, Vec<LocalId>>,
     rename_trail: &mut Vec<LocalId>,
 ) {
-    let mut renamer = Renamer { program, local_versions, rename_trail };
-    for op_idx in renamer.program.basic_blocks[bb].operations.iter() {
-        let mut op = renamer.program.operations[op_idx];
-        op.visit_data_mut(&mut renamer);
-        renamer.program.operations[op_idx] = op;
+    for op_idx in program.basic_blocks[bb].operations.iter() {
+        let mut op = program.operations[op_idx];
+
+        for input in op.inputs_mut(&mut program.locals) {
+            *input = rename_use(local_versions, *input);
+        }
+
+        for output in op.outputs_mut(&mut program.locals, &program.functions) {
+            *output =
+                rename_def(local_versions, rename_trail, &mut program.next_free_local_id, *output);
+        }
+
+        program.operations[op_idx] = op;
     }
 }
 
