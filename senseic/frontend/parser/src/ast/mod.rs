@@ -90,8 +90,7 @@ pub enum ImportKind {
 
 #[derive(Debug, Clone, Copy)]
 pub struct Import<'cst> {
-    pub root: StrId,
-    pub next_path_node: Option<NodeIdx>,
+    path_node: NodeView<'cst>,
     pub kind: Option<ImportKind>,
     view: NodeView<'cst>,
 }
@@ -108,14 +107,20 @@ impl<'cst> Import<'cst> {
             NodeKind::ImportDecl { glob } => (view, glob.then_some(ImportKind::All)),
             _ => return None,
         };
-        let mut path_elements = path_node.children();
-        let root = path_elements.next()?.kind().as_ident()?;
-        let next_path_node = path_elements.next().map(NodeView::idx);
-        Some(Self { root, next_path_node, kind, view })
+        Some(Self { path_node, kind, view })
     }
 
     pub fn node(&self) -> NodeView<'cst> {
         self.view
+    }
+
+    pub fn collect_path_segments(&self, buf: &mut Vec<StrId>) {
+        buf.clear();
+        for child in self.path_node.children() {
+            if let Some(ident) = child.ident() {
+                buf.push(ident);
+            }
+        }
     }
 }
 
