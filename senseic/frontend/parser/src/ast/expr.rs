@@ -155,7 +155,7 @@ pub struct StructDef<'cst> {
 
 impl<'cst> StructDef<'cst> {
     pub fn index_expr(&self) -> Option<Expr<'cst>> {
-        self.view.children().find_map(|child| match child.kind() {
+        self.view.children().next().and_then(|child| match child.kind() {
             NodeKind::FieldDef => None,
             _ => Expr::new(child),
         })
