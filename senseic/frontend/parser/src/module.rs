@@ -58,7 +58,7 @@ impl ModuleManager {
         for &seg in dirs {
             path.push(&interner[seg]);
         }
-        path.push(format!("{}.plank", &interner[last_seg]));
+        path.push(format!("{}.plk", &interner[last_seg]));
 
         Ok(ResolvedImport { file_path: path, const_name })
     }
