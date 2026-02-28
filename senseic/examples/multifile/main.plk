@@ -1,0 +1,8 @@
+import mymod::lib::MAGIC;
+import mymod::lib::double;
+
+const local_val = MAGIC;
+
+init {
+    let x = double(MAGIC);
+}

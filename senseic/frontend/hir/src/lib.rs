@@ -1,11 +1,13 @@
 use alloy_primitives::U256;
-use hashbrown::{HashMap, hash_map::Entry};
+use hashbrown::HashMap;
 use sensei_core::{Idx, IncIterable, IndexVec, Span, list_of_lists::ListOfLists, newtype_index};
 use sensei_parser::{
     StrId,
     ast::{self, Statement, TopLevelDef},
     cst::{ConcreteSyntaxTree, NodeIdx, NumLitId},
     lexer::TokenIdx,
+    project::{FileImport, ParsedProject},
+    source::SourceId,
 };
 
 pub use sensei_types;
@@ -98,14 +100,9 @@ pub struct StructDef {
     pub fields: FieldsId,
 }
 
-#[derive(Debug, Clone, Default)]
-pub struct ConstMap {
-    pub const_name_to_id: HashMap<StrId, ConstId>,
-    pub const_defs: IndexVec<ConstId, ConstDef>,
-}
-
 #[derive(Debug, Clone, Copy)]
 pub struct ConstDef {
+    pub name: StrId,
     pub source: Span<TokenIdx>,
     pub body: BlockId,
     pub result: LocalId,
@@ -119,7 +116,7 @@ pub struct Hir {
     pub fields: ListOfLists<FieldsId, FieldInfo>,
     pub big_nums: IndexVec<BigNumId, U256>,
     // Top-level definitions
-    pub consts: ConstMap,
+    pub consts: IndexVec<ConstId, ConstDef>,
     pub const_deps: ListOfLists<ConstId, ConstId>,
     pub fns: IndexVec<FnDefId, FnDef>,
     pub fn_params: ListOfLists<FnDefId, ParamInfo>,
@@ -157,7 +154,7 @@ impl HirBuilder {
 }
 
 struct BlockLowerer<'a> {
-    consts: &'a HashMap<StrId, ConstId>,
+    consts: HashMap<StrId, ConstId>,
     num_lit_limbs: &'a ListOfLists<NumLitId, u32>,
     track_deps: bool,
     deps: Vec<ConstId>,
@@ -506,43 +503,8 @@ impl<'a> BlockLowerer<'a> {
     }
 }
 
-pub fn lower(cst: &ConcreteSyntaxTree) -> Hir {
-    let mut consts = ConstMap::default();
-    let file = ast::File::new(cst.file_view()).expect("failed to init file from CST");
-
-    let mut found_init = false;
-    let mut found_run = false;
-
-    for def in file.iter_defs() {
-        match def {
-            TopLevelDef::Const(const_def) => {
-                match consts.const_name_to_id.entry(const_def.name) {
-                    Entry::Occupied(_) => {
-                        // TODO: error diagnostic
-                        panic!("duplicate const def")
-                    }
-                    Entry::Vacant(entry) => {
-                        let new_const_id = consts.const_defs.push(ConstDef {
-                            source: const_def.span(),
-                            body: BlockId::ZERO,
-                            result: LocalId::ZERO,
-                        });
-
-                        entry.insert(new_const_id);
-                    }
-                }
-            }
-            TopLevelDef::Init(_) => {
-                assert!(!found_init, "more than one init"); // TODO: Error diagnostic
-                found_init = true;
-            }
-            TopLevelDef::Run(_) => {
-                assert!(!found_run, "more than one run"); // TODO: Error diagnostic
-                found_run = true;
-            }
-            TopLevelDef::Import(_) => todo!("imports"),
-        }
-    }
+pub fn lower(project: &ParsedProject) -> Hir {
+    let (mut consts, source_consts) = register_consts(&project.csts);
 
     let mut builder = HirBuilder::new();
     let mut const_deps: ListOfLists<ConstId, ConstId> = ListOfLists::new();
@@ -550,8 +512,8 @@ pub fn lower(cst: &ConcreteSyntaxTree) -> Hir {
     let mut run = None;
 
     let mut lowerer = BlockLowerer {
-        consts: &consts.const_name_to_id,
-        num_lit_limbs: &cst.num_lit_limbs,
+        consts: HashMap::new(),
+        num_lit_limbs: &project.csts[SourceId::ZERO].num_lit_limbs,
         track_deps: false,
         deps: Vec::new(),
         builder: &mut builder,
@@ -564,37 +526,51 @@ pub fn lower(cst: &ConcreteSyntaxTree) -> Hir {
         capture_buf: Vec::new(),
     };
 
-    for def in file.iter_defs() {
-        match def {
-            TopLevelDef::Const(const_def) => {
-                lowerer.reset(true);
-                let id = consts.const_name_to_id[&const_def.name];
-                let def = &mut consts.const_defs[id];
-                def.result = lowerer.alloc_local(const_def.name);
-                def.body = lowerer.create_sub_block(|l| {
-                    if let Some(type_expr) = const_def.r#type {
-                        let type_local = l.lower_expr_to_local(type_expr);
-                        let assign = l.lower_expr(const_def.assign);
-                        l.emit(Instruction::Set { local: def.result, expr: assign });
-                        l.emit(Instruction::AssertType { value: def.result, of_type: type_local });
-                    } else {
-                        let assign = l.lower_expr(const_def.assign);
-                        l.emit(Instruction::Set { local: def.result, expr: assign });
+    for (source_id, cst) in project.csts.enumerate_idx() {
+        build_file_scope(source_id, &source_consts, &project.imports, &mut lowerer.consts);
+        lowerer.num_lit_limbs = &cst.num_lit_limbs;
+
+        let file = ast::File::new(cst.file_view()).expect("failed to init file from CST");
+        for def in file.iter_defs() {
+            match def {
+                TopLevelDef::Const(const_def) => {
+                    lowerer.reset(true);
+                    let id = lowerer.consts[&const_def.name];
+                    let hir_def = &mut consts[id];
+                    hir_def.result = lowerer.alloc_local(const_def.name);
+                    hir_def.body = lowerer.create_sub_block(|l| {
+                        if let Some(type_expr) = const_def.r#type {
+                            let type_local = l.lower_expr_to_local(type_expr);
+                            let assign = l.lower_expr(const_def.assign);
+                            l.emit(Instruction::Set { local: hir_def.result, expr: assign });
+                            l.emit(Instruction::AssertType {
+                                value: hir_def.result,
+                                of_type: type_local,
+                            });
+                        } else {
+                            let assign = l.lower_expr(const_def.assign);
+                            l.emit(Instruction::Set { local: hir_def.result, expr: assign });
+                        }
+                    });
+                    let const_id_by_dep = const_deps.push_iter(lowerer.deps.drain(..));
+                    assert_eq!(id, const_id_by_dep, "ID in-syncness invariant violated");
+                }
+                TopLevelDef::Init(init_def) => {
+                    if source_id != project.entry {
+                        panic!("init only allowed in entry file");
                     }
-                });
-                let const_id_by_dep = const_deps.push_iter(lowerer.deps.drain(..));
-                assert_eq!(id, const_id_by_dep, "ID in-syncness invariant violated");
+                    lowerer.reset(false);
+                    init = Some(lowerer.lower_body_to_block(init_def.body()));
+                }
+                TopLevelDef::Run(run_def) => {
+                    if source_id != project.entry {
+                        panic!("run only allowed in entry file");
+                    }
+                    lowerer.reset(false);
+                    run = Some(lowerer.lower_body_to_block(run_def.body()));
+                }
+                TopLevelDef::Import(_) => {}
             }
-            TopLevelDef::Init(init_def) => {
-                lowerer.reset(false);
-                init = Some(lowerer.lower_body_to_block(init_def.body()));
-            }
-            TopLevelDef::Run(run_def) => {
-                lowerer.reset(false);
-                let block = lowerer.lower_body_to_block(run_def.body());
-                run = Some(block);
-            }
-            TopLevelDef::Import(_) => unreachable!(),
         }
     }
 
@@ -614,5 +590,68 @@ pub fn lower(cst: &ConcreteSyntaxTree) -> Hir {
         struct_defs: builder.struct_defs,
         init,
         run,
+    }
+}
+
+fn register_consts(
+    csts: &IndexVec<SourceId, ConcreteSyntaxTree>,
+) -> (IndexVec<ConstId, ConstDef>, ListOfLists<SourceId, (StrId, ConstId)>) {
+    let mut consts: IndexVec<ConstId, ConstDef> = IndexVec::new();
+    let mut source_consts: ListOfLists<SourceId, (StrId, ConstId)> = ListOfLists::new();
+
+    let mut seen = HashMap::new();
+    for cst in csts.iter() {
+        let file = ast::File::new(cst.file_view()).expect("failed to init file from CST");
+        seen.clear();
+        source_consts.push_with(|mut list| {
+            for def in file.iter_defs() {
+                let TopLevelDef::Const(const_def) = def else { continue };
+                let const_id = consts.push(ConstDef {
+                    name: const_def.name,
+                    source: const_def.span(),
+                    body: BlockId::ZERO,
+                    result: LocalId::ZERO,
+                });
+                if seen.insert(const_def.name, const_id).is_some() {
+                    panic!("duplicate const def");
+                }
+                list.push((const_def.name, const_id));
+            }
+        });
+    }
+
+    (consts, source_consts)
+}
+
+fn build_file_scope(
+    source_id: SourceId,
+    source_consts: &ListOfLists<SourceId, (StrId, ConstId)>,
+    imports: &ListOfLists<SourceId, FileImport>,
+    scope: &mut HashMap<StrId, ConstId>,
+) {
+    scope.clear();
+    for &(name, const_id) in &source_consts[source_id] {
+        scope.insert(name, const_id);
+    }
+    for import in &imports[source_id] {
+        match import.target_const {
+            Some(const_name) => {
+                let &(_, const_id) = source_consts[import.target_source]
+                    .iter()
+                    .find(|(name, _)| *name == const_name)
+                    .expect("imported const not found");
+                let local_name = import.local_name.expect("named import has local_name");
+                if scope.insert(local_name, const_id).is_some() {
+                    panic!("name collision on import");
+                }
+            }
+            None => {
+                for &(name, const_id) in &source_consts[import.target_source] {
+                    if scope.insert(name, const_id).is_some() {
+                        panic!("name collision on glob import");
+                    }
+                }
+            }
+        }
     }
 }

@@ -100,15 +100,8 @@ impl<'hir, 'interner> DisplayHir<'hir, 'interner> {
     }
 
     fn fmt_const(&self, f: &mut Formatter<'_>, const_id: ConstId) -> fmt::Result {
-        let const_name = self
-            .hir
-            .consts
-            .const_name_to_id
-            .iter()
-            .find_map(|(&name, &id)| (id == const_id).then(|| &self.interner[name]))
-            .expect("missing name map for const ID");
-
-        let const_def = &self.hir.consts.const_defs[const_id];
+        let const_def = &self.hir.consts[const_id];
+        let const_name = &self.interner[const_def.name];
         writeln!(f, "{const_id:?} ({const_name:?}) result={:?} {{", const_def.result)?;
         self.fmt_block(f, const_def.body, 1)?;
         writeln!(f, "}}")
@@ -169,7 +162,7 @@ impl<'hir, 'interner> DisplayHir<'hir, 'interner> {
 impl Display for DisplayHir<'_, '_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         writeln!(f, "==== Constants ====")?;
-        for (&_, &const_id) in self.hir.consts.const_name_to_id.iter() {
+        for (const_id, _) in self.hir.consts.enumerate_idx() {
             self.fmt_const(f, const_id)?;
         }
 
