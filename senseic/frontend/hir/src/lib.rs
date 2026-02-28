@@ -343,7 +343,14 @@ impl<'a> BlockLowerer<'a> {
             }
             ast::Expr::StructDef(struct_def) => {
                 let source = struct_def.node().idx();
-                let type_index = self.lower_expr_to_local(struct_def.index_expr());
+                let type_index = struct_def
+                    .index_expr()
+                    .map(|expr| self.lower_expr_to_local(expr))
+                    .unwrap_or_else(|| {
+                        let local = self.alloc_temp();
+                        self.emit(Instruction::Set { local, expr: Expr::Void });
+                        local
+                    });
                 let buf_start = self.field_buf.len();
                 for field in struct_def.fields() {
                     let value = self.lower_expr_to_local(field.type_expr());
