@@ -146,20 +146,23 @@ impl<'cst> MemberExpr<'cst> {
     }
 }
 
-/// Struct definition: `struct TypeIndex { field1: Type1, ... }`
+/// Struct definition: `struct { field1: Type1, ... }` or
+/// `struct TypeIndex { field1: Type1, ... }`
 #[derive(Debug, Clone, Copy)]
 pub struct StructDef<'cst> {
     view: NodeView<'cst>,
 }
 
 impl<'cst> StructDef<'cst> {
-    pub fn index_expr(&self) -> Expr<'cst> {
-        let child = self.view.child(0).expect("StructDef must have type_expr child");
-        Expr::new_unwrap(child)
+    pub fn index_expr(&self) -> Option<Expr<'cst>> {
+        self.view.children().find_map(|child| match child.kind() {
+            NodeKind::FieldDef => None,
+            _ => Expr::new(child),
+        })
     }
 
     pub fn fields(&self) -> impl Iterator<Item = FieldDef<'cst>> {
-        self.view.children().skip(1).filter_map(FieldDef::new)
+        self.view.children().filter_map(FieldDef::new)
     }
 
     pub fn node(&self) -> NodeView<'cst> {
