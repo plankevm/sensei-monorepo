@@ -508,10 +508,10 @@ where
 
     fn parse_struct_def(&mut self, start: TokenIdx) -> NodeIdx {
         let mut struct_def = self.alloc_node_from(start, NodeKind::StructDef);
-        if !self.check(Token::LeftCurly) {
-            if let Some(type_index) = self.try_parse_expr(ParseExprMode::NoPostFixCurlyBrace) {
-                self.push_child(&mut struct_def, type_index);
-            }
+        if !self.check(Token::LeftCurly)
+            && let Some(type_index) = self.try_parse_expr(ParseExprMode::NoPostFixCurlyBrace)
+        {
+            self.push_child(&mut struct_def, type_index);
         }
 
         self.expect(Token::LeftCurly);
