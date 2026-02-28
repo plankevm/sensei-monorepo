@@ -1,9 +1,11 @@
 pub mod op_data;
 mod op_fmt;
+pub mod op_visitor;
 
 use crate::{EthIRProgram, builder::EthIRBuilder, index::LocalId};
 pub use op_data::*;
 use op_fmt::OpFormatter;
+pub use op_visitor::*;
 use std::fmt;
 
 macro_rules! define_operations {
@@ -326,7 +328,7 @@ use crate::{
     Function,
     index::{FunctionId, LocalIdx},
 };
-use op_data::{
+use op_visitor::{
     AllocatedSpansGetter, InputsGetter, InputsMutGetter, OutputsGetter, OutputsMutGetter,
 };
 use sensei_core::IndexVec;
