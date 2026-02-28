@@ -1,232 +1,7 @@
 use crate::{EthIRProgram, builder::EthIRBuilder, index::*};
 use alloy_primitives::{U256, ruint::FromUintError};
-use sensei_core::span::Span;
 
-pub(crate) trait VoidOpData {
-    fn get_visited<'d, O, V: OpVisitor<'d, O>>(&'d self, visitor: &mut V) -> O;
-    fn get_visited_mut<'d, O, V: OpVisitorMut<'d, O>>(&'d mut self, visitor: &mut V) -> O;
-}
-
-impl VoidOpData for () {
-    fn get_visited<'d, O, V: OpVisitor<'d, O>>(&'d self, visitor: &mut V) -> O {
-        visitor.visit_void()
-    }
-
-    fn get_visited_mut<'d, O, V: OpVisitorMut<'d, O>>(&'d mut self, visitor: &mut V) -> O {
-        visitor.visit_void_mut()
-    }
-}
-
-impl FromOpData for () {
-    fn try_build_op(
-        ins: &[LocalId],
-        outs: &[LocalId],
-        extra: OpExtraData,
-        _builder: &mut EthIRBuilder,
-    ) -> Result<Self, OpBuildError> {
-        if extra != OpExtraData::Empty {
-            return Err(OpBuildError::UnexpectedExtraData { received: extra, expected: "Empty" });
-        }
-        check_ins_count(ins, 0)?;
-        check_outs_count(outs, 0)?;
-
-        Ok(())
-    }
-}
-
-pub trait OpVisitor<'d, VisitOut> {
-    fn visit_inline_operands<const INS: usize, const OUTS: usize>(
-        &mut self,
-        data: &'d InlineOperands<INS, OUTS>,
-    ) -> VisitOut;
-
-    fn visit_allocated_ins<const INS: usize, const OUTS: usize>(
-        &mut self,
-        data: &'d AllocatedIns<INS, OUTS>,
-    ) -> VisitOut;
-
-    fn visit_static_alloc(&mut self, data: &'d StaticAllocData) -> VisitOut;
-    fn visit_memory_load(&mut self, data: &'d MemoryLoadData) -> VisitOut;
-    fn visit_memory_store(&mut self, data: &'d MemoryStoreData) -> VisitOut;
-    fn visit_set_small_const(&mut self, data: &'d SetSmallConstData) -> VisitOut;
-    fn visit_set_large_const(&mut self, data: &'d SetLargeConstData) -> VisitOut;
-    fn visit_set_data_offset(&mut self, data: &'d SetDataOffsetData) -> VisitOut;
-    fn visit_icall(&mut self, data: &'d InternalCallData) -> VisitOut;
-    fn visit_void(&mut self) -> VisitOut;
-}
-
-pub trait OpVisitorMut<'d, VisitOut> {
-    fn visit_inline_operands_mut<const INS: usize, const OUTS: usize>(
-        &mut self,
-        data: &'d mut InlineOperands<INS, OUTS>,
-    ) -> VisitOut;
-
-    fn visit_allocated_ins_mut<const INS: usize, const OUTS: usize>(
-        &mut self,
-        data: &'d mut AllocatedIns<INS, OUTS>,
-    ) -> VisitOut;
-
-    fn visit_static_alloc_mut(&mut self, data: &'d mut StaticAllocData) -> VisitOut;
-    fn visit_memory_load_mut(&mut self, data: &'d mut MemoryLoadData) -> VisitOut;
-    fn visit_memory_store_mut(&mut self, data: &'d mut MemoryStoreData) -> VisitOut;
-    fn visit_set_small_const_mut(&mut self, data: &'d mut SetSmallConstData) -> VisitOut;
-    fn visit_set_large_const_mut(&mut self, data: &'d mut SetLargeConstData) -> VisitOut;
-    fn visit_set_data_offset_mut(&mut self, data: &'d mut SetDataOffsetData) -> VisitOut;
-    fn visit_icall_mut(&mut self, data: &'d mut InternalCallData) -> VisitOut;
-    fn visit_void_mut(&mut self) -> VisitOut;
-}
-
-pub(crate) struct InputsGetter<'a> {
-    pub(crate) ir: &'a EthIRProgram,
-}
-
-impl<'a> OpVisitor<'a, &'a [LocalId]> for InputsGetter<'a> {
-    fn visit_inline_operands<const INS: usize, const OUTS: usize>(
-        &mut self,
-        data: &'a InlineOperands<INS, OUTS>,
-    ) -> &'a [LocalId] {
-        &data.ins
-    }
-
-    fn visit_allocated_ins<const INS: usize, const OUTS: usize>(
-        &mut self,
-        data: &'a AllocatedIns<INS, OUTS>,
-    ) -> &'a [LocalId] {
-        data.get_inputs(self.ir)
-    }
-
-    fn visit_static_alloc(&mut self, _data: &'a StaticAllocData) -> &'a [LocalId] {
-        &[]
-    }
-    fn visit_memory_load(&mut self, data: &'a MemoryLoadData) -> &'a [LocalId] {
-        std::slice::from_ref(&data.ptr)
-    }
-    fn visit_memory_store(&mut self, data: &'a MemoryStoreData) -> &'a [LocalId] {
-        &data.ins
-    }
-    fn visit_set_small_const(&mut self, _data: &'a SetSmallConstData) -> &'a [LocalId] {
-        &[]
-    }
-    fn visit_set_large_const(&mut self, _data: &'a SetLargeConstData) -> &'a [LocalId] {
-        &[]
-    }
-    fn visit_set_data_offset(&mut self, _data: &'a SetDataOffsetData) -> &'a [LocalId] {
-        &[]
-    }
-    fn visit_icall(&mut self, data: &'a InternalCallData) -> &'a [LocalId] {
-        data.get_inputs(self.ir)
-    }
-    fn visit_void(&mut self) -> &'a [LocalId] {
-        &[]
-    }
-}
-
-pub(crate) struct OutputsGetter<'a> {
-    pub(crate) ir: &'a EthIRProgram,
-}
-
-impl<'a> OpVisitor<'a, &'a [LocalId]> for OutputsGetter<'a> {
-    fn visit_inline_operands<const INS: usize, const OUTS: usize>(
-        &mut self,
-        data: &'a InlineOperands<INS, OUTS>,
-    ) -> &'a [LocalId] {
-        &data.outs
-    }
-
-    fn visit_allocated_ins<const INS: usize, const OUTS: usize>(
-        &mut self,
-        data: &'a AllocatedIns<INS, OUTS>,
-    ) -> &'a [LocalId] {
-        &data.outs
-    }
-
-    fn visit_static_alloc(&mut self, data: &'a StaticAllocData) -> &'a [LocalId] {
-        std::slice::from_ref(&data.ptr_out)
-    }
-    fn visit_memory_load(&mut self, data: &'a MemoryLoadData) -> &'a [LocalId] {
-        std::slice::from_ref(&data.out)
-    }
-    fn visit_memory_store(&mut self, _data: &'a MemoryStoreData) -> &'a [LocalId] {
-        &[]
-    }
-    fn visit_set_small_const(&mut self, data: &'a SetSmallConstData) -> &'a [LocalId] {
-        std::slice::from_ref(&data.sets)
-    }
-    fn visit_set_large_const(&mut self, data: &'a SetLargeConstData) -> &'a [LocalId] {
-        std::slice::from_ref(&data.sets)
-    }
-    fn visit_set_data_offset(&mut self, data: &'a SetDataOffsetData) -> &'a [LocalId] {
-        std::slice::from_ref(&data.sets)
-    }
-    fn visit_icall(&mut self, data: &'a InternalCallData) -> &'a [LocalId] {
-        data.get_outputs(self.ir)
-    }
-    fn visit_void(&mut self) -> &'a [LocalId] {
-        &[]
-    }
-}
-
-#[derive(Debug)]
-pub struct AllocatedSpans {
-    pub input: Option<Span<LocalIdx>>,
-    pub output: Option<Span<LocalIdx>>,
-}
-
-impl AllocatedSpans {
-    pub const NONE: Self = Self { input: None, output: None };
-}
-
-pub(crate) struct AllocatedSpansGetter<'a> {
-    pub(crate) ir: &'a EthIRProgram,
-}
-
-impl<'a> OpVisitor<'a, AllocatedSpans> for AllocatedSpansGetter<'a> {
-    fn visit_inline_operands<const INS: usize, const OUTS: usize>(
-        &mut self,
-        _data: &'a InlineOperands<INS, OUTS>,
-    ) -> AllocatedSpans {
-        AllocatedSpans::NONE
-    }
-
-    fn visit_allocated_ins<const INS: usize, const OUTS: usize>(
-        &mut self,
-        data: &'a AllocatedIns<INS, OUTS>,
-    ) -> AllocatedSpans {
-        AllocatedSpans {
-            input: Some(Span::new(data.ins_start, data.ins_start + INS as u32)),
-            output: None,
-        }
-    }
-
-    fn visit_static_alloc(&mut self, _data: &'a StaticAllocData) -> AllocatedSpans {
-        AllocatedSpans::NONE
-    }
-    fn visit_memory_load(&mut self, _data: &'a MemoryLoadData) -> AllocatedSpans {
-        AllocatedSpans::NONE
-    }
-    fn visit_memory_store(&mut self, _data: &'a MemoryStoreData) -> AllocatedSpans {
-        AllocatedSpans::NONE
-    }
-    fn visit_set_small_const(&mut self, _data: &'a SetSmallConstData) -> AllocatedSpans {
-        AllocatedSpans::NONE
-    }
-    fn visit_set_large_const(&mut self, _data: &'a SetLargeConstData) -> AllocatedSpans {
-        AllocatedSpans::NONE
-    }
-    fn visit_set_data_offset(&mut self, _data: &'a SetDataOffsetData) -> AllocatedSpans {
-        AllocatedSpans::NONE
-    }
-    fn visit_icall(&mut self, data: &'a InternalCallData) -> AllocatedSpans {
-        let fn_outputs = self.ir.functions[data.function].outputs;
-        AllocatedSpans {
-            input: Some(Span::new(data.ins_start, data.outs_start)),
-            output: Some(Span::new(data.outs_start, data.outs_start + fn_outputs)),
-        }
-    }
-    fn visit_void(&mut self) -> AllocatedSpans {
-        AllocatedSpans::NONE
-    }
-}
+use super::op_visitor::{OpVisitor, OpVisitorMut};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OpExtraData {
@@ -247,10 +22,7 @@ impl<const INS: usize, const OUTS: usize> InlineOperands<INS, OUTS> {
         visitor.visit_inline_operands(self)
     }
 
-    pub(crate) fn get_visited_mut<'d, O, V: OpVisitorMut<'d, O>>(
-        &'d mut self,
-        visitor: &mut V,
-    ) -> O {
+    pub(crate) fn get_visited_mut<'d, O, V: OpVisitorMut<'d, O>>(&'d mut self, visitor: V) -> O {
         visitor.visit_inline_operands_mut(self)
     }
 }
@@ -273,10 +45,7 @@ impl<const INS: usize, const OUTS: usize> AllocatedIns<INS, OUTS> {
         visitor.visit_allocated_ins(self)
     }
 
-    pub(crate) fn get_visited_mut<'d, O, V: OpVisitorMut<'d, O>>(
-        &'d mut self,
-        visitor: &mut V,
-    ) -> O {
+    pub(crate) fn get_visited_mut<'d, O, V: OpVisitorMut<'d, O>>(&'d mut self, visitor: V) -> O {
         visitor.visit_allocated_ins_mut(self)
     }
 
@@ -303,10 +72,7 @@ impl StaticAllocData {
         visitor.visit_static_alloc(self)
     }
 
-    pub(crate) fn get_visited_mut<'d, O, V: OpVisitorMut<'d, O>>(
-        &'d mut self,
-        visitor: &mut V,
-    ) -> O {
+    pub(crate) fn get_visited_mut<'d, O, V: OpVisitorMut<'d, O>>(&'d mut self, visitor: V) -> O {
         visitor.visit_static_alloc_mut(self)
     }
 }
@@ -407,10 +173,7 @@ impl MemoryLoadData {
         visitor.visit_memory_load(self)
     }
 
-    pub(crate) fn get_visited_mut<'d, O, V: OpVisitorMut<'d, O>>(
-        &'d mut self,
-        visitor: &mut V,
-    ) -> O {
+    pub(crate) fn get_visited_mut<'d, O, V: OpVisitorMut<'d, O>>(&'d mut self, visitor: V) -> O {
         visitor.visit_memory_load_mut(self)
     }
 }
@@ -434,10 +197,7 @@ impl MemoryStoreData {
         visitor.visit_memory_store(self)
     }
 
-    pub(crate) fn get_visited_mut<'d, O, V: OpVisitorMut<'d, O>>(
-        &'d mut self,
-        visitor: &mut V,
-    ) -> O {
+    pub(crate) fn get_visited_mut<'d, O, V: OpVisitorMut<'d, O>>(&'d mut self, visitor: V) -> O {
         visitor.visit_memory_store_mut(self)
     }
 }
@@ -453,10 +213,7 @@ impl SetSmallConstData {
         visitor.visit_set_small_const(self)
     }
 
-    pub(crate) fn get_visited_mut<'d, O, V: OpVisitorMut<'d, O>>(
-        &'d mut self,
-        visitor: &mut V,
-    ) -> O {
+    pub(crate) fn get_visited_mut<'d, O, V: OpVisitorMut<'d, O>>(&'d mut self, visitor: V) -> O {
         visitor.visit_set_small_const_mut(self)
     }
 }
@@ -472,10 +229,7 @@ impl SetLargeConstData {
         visitor.visit_set_large_const(self)
     }
 
-    pub(crate) fn get_visited_mut<'d, O, V: OpVisitorMut<'d, O>>(
-        &'d mut self,
-        visitor: &mut V,
-    ) -> O {
+    pub(crate) fn get_visited_mut<'d, O, V: OpVisitorMut<'d, O>>(&'d mut self, visitor: V) -> O {
         visitor.visit_set_large_const_mut(self)
     }
 }
@@ -491,10 +245,7 @@ impl SetDataOffsetData {
         visitor.visit_set_data_offset(self)
     }
 
-    pub(crate) fn get_visited_mut<'d, O, V: OpVisitorMut<'d, O>>(
-        &'d mut self,
-        visitor: &mut V,
-    ) -> O {
+    pub(crate) fn get_visited_mut<'d, O, V: OpVisitorMut<'d, O>>(&'d mut self, visitor: V) -> O {
         visitor.visit_set_data_offset_mut(self)
     }
 }
@@ -514,10 +265,7 @@ impl InternalCallData {
         visitor.visit_icall(self)
     }
 
-    pub(crate) fn get_visited_mut<'d, O, V: OpVisitorMut<'d, O>>(
-        &'d mut self,
-        visitor: &mut V,
-    ) -> O {
+    pub(crate) fn get_visited_mut<'d, O, V: OpVisitorMut<'d, O>>(&'d mut self, visitor: V) -> O {
         visitor.visit_icall_mut(self)
     }
 
@@ -568,6 +316,23 @@ fn check_outs_count(outs: &[LocalId], expected: usize) -> Result<(), OpBuildErro
         return Err(OpBuildError::WrongOutputCount { expected, received: outs.len() });
     }
     Ok(())
+}
+
+impl FromOpData for () {
+    fn try_build_op(
+        ins: &[LocalId],
+        outs: &[LocalId],
+        extra: OpExtraData,
+        _builder: &mut EthIRBuilder,
+    ) -> Result<Self, OpBuildError> {
+        if extra != OpExtraData::Empty {
+            return Err(OpBuildError::UnexpectedExtraData { received: extra, expected: "Empty" });
+        }
+        check_ins_count(ins, 0)?;
+        check_outs_count(outs, 0)?;
+
+        Ok(())
+    }
 }
 
 impl<const INS: usize, const OUTS: usize> FromOpData for InlineOperands<INS, OUTS> {

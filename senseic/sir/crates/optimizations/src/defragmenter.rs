@@ -292,9 +292,9 @@ impl<'a> Rewriter<'a> {
     }
 }
 
-impl<'a> OpVisitorMut<'_, ()> for Rewriter<'a> {
+impl<'a> OpVisitorMut<'_, ()> for &mut Rewriter<'a> {
     fn visit_inline_operands_mut<const INS: usize, const OUTS: usize>(
-        &mut self,
+        self,
         data: &mut sir_data::operation::InlineOperands<INS, OUTS>,
     ) {
         for local in data.ins.iter_mut().chain(data.outs.iter_mut()) {
@@ -303,7 +303,7 @@ impl<'a> OpVisitorMut<'_, ()> for Rewriter<'a> {
     }
 
     fn visit_allocated_ins_mut<const INS: usize, const OUTS: usize>(
-        &mut self,
+        self,
         data: &mut sir_data::operation::AllocatedIns<INS, OUTS>,
     ) {
         let new_ins_start = self.dst.locals.next_idx();
@@ -318,37 +318,37 @@ impl<'a> OpVisitorMut<'_, ()> for Rewriter<'a> {
         }
     }
 
-    fn visit_static_alloc_mut(&mut self, data: &mut sir_data::operation::StaticAllocData) {
+    fn visit_static_alloc_mut(self, data: &mut sir_data::operation::StaticAllocData) {
         data.ptr_out = self.emit_local(data.ptr_out);
         data.alloc_id = self.emit_static_alloc(data.alloc_id);
     }
 
-    fn visit_memory_load_mut(&mut self, data: &mut sir_data::operation::MemoryLoadData) {
+    fn visit_memory_load_mut(self, data: &mut sir_data::operation::MemoryLoadData) {
         data.out = self.emit_local(data.out);
         data.ptr = self.emit_local(data.ptr);
     }
 
-    fn visit_memory_store_mut(&mut self, data: &mut sir_data::operation::MemoryStoreData) {
+    fn visit_memory_store_mut(self, data: &mut sir_data::operation::MemoryStoreData) {
         for local in &mut data.ins {
             *local = self.emit_local(*local);
         }
     }
 
-    fn visit_set_small_const_mut(&mut self, data: &mut sir_data::operation::SetSmallConstData) {
+    fn visit_set_small_const_mut(self, data: &mut sir_data::operation::SetSmallConstData) {
         data.sets = self.emit_local(data.sets);
     }
 
-    fn visit_set_large_const_mut(&mut self, data: &mut sir_data::operation::SetLargeConstData) {
+    fn visit_set_large_const_mut(self, data: &mut sir_data::operation::SetLargeConstData) {
         data.sets = self.emit_local(data.sets);
         data.value = self.emit_large_const(data.value);
     }
 
-    fn visit_set_data_offset_mut(&mut self, data: &mut sir_data::operation::SetDataOffsetData) {
+    fn visit_set_data_offset_mut(self, data: &mut sir_data::operation::SetDataOffsetData) {
         data.sets = self.emit_local(data.sets);
         data.segment_id = self.emit_data(data.segment_id);
     }
 
-    fn visit_icall_mut(&mut self, data: &mut sir_data::operation::InternalCallData) {
+    fn visit_icall_mut(self, data: &mut sir_data::operation::InternalCallData) {
         let (new_func_id, is_new) = self.reserve_function_id(data.function);
         if is_new {
             self.state.func_worklist.push(data.function);
@@ -371,7 +371,7 @@ impl<'a> OpVisitorMut<'_, ()> for Rewriter<'a> {
         data.outs_start = new_outs_start;
     }
 
-    fn visit_void_mut(&mut self) {}
+    fn visit_void_mut(self) {}
 }
 
 #[cfg(test)]
