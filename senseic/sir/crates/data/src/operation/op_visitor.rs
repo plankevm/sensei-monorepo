@@ -5,7 +5,7 @@ use super::op_data::*;
 
 pub(crate) trait VoidOpData {
     fn get_visited<'d, O, V: OpVisitor<'d, O>>(&'d self, visitor: &mut V) -> O;
-    fn get_visited_mut<'d, O, V: OpVisitorMut<'d, O>>(&'d mut self, visitor: &mut V) -> O;
+    fn get_visited_mut<'d, O, V: OpVisitorMut<'d, O>>(&'d mut self, visitor: V) -> O;
 }
 
 impl VoidOpData for () {
@@ -13,7 +13,7 @@ impl VoidOpData for () {
         visitor.visit_void()
     }
 
-    fn get_visited_mut<'d, O, V: OpVisitorMut<'d, O>>(&'d mut self, visitor: &mut V) -> O {
+    fn get_visited_mut<'d, O, V: OpVisitorMut<'d, O>>(&'d mut self, visitor: V) -> O {
         visitor.visit_void_mut()
     }
 }
@@ -41,23 +41,23 @@ pub trait OpVisitor<'d, VisitOut> {
 
 pub trait OpVisitorMut<'d, VisitOut> {
     fn visit_inline_operands_mut<const INS: usize, const OUTS: usize>(
-        &mut self,
+        self,
         data: &'d mut InlineOperands<INS, OUTS>,
     ) -> VisitOut;
 
     fn visit_allocated_ins_mut<const INS: usize, const OUTS: usize>(
-        &mut self,
+        self,
         data: &'d mut AllocatedIns<INS, OUTS>,
     ) -> VisitOut;
 
-    fn visit_static_alloc_mut(&mut self, data: &'d mut StaticAllocData) -> VisitOut;
-    fn visit_memory_load_mut(&mut self, data: &'d mut MemoryLoadData) -> VisitOut;
-    fn visit_memory_store_mut(&mut self, data: &'d mut MemoryStoreData) -> VisitOut;
-    fn visit_set_small_const_mut(&mut self, data: &'d mut SetSmallConstData) -> VisitOut;
-    fn visit_set_large_const_mut(&mut self, data: &'d mut SetLargeConstData) -> VisitOut;
-    fn visit_set_data_offset_mut(&mut self, data: &'d mut SetDataOffsetData) -> VisitOut;
-    fn visit_icall_mut(&mut self, data: &'d mut InternalCallData) -> VisitOut;
-    fn visit_void_mut(&mut self) -> VisitOut;
+    fn visit_static_alloc_mut(self, data: &'d mut StaticAllocData) -> VisitOut;
+    fn visit_memory_load_mut(self, data: &'d mut MemoryLoadData) -> VisitOut;
+    fn visit_memory_store_mut(self, data: &'d mut MemoryStoreData) -> VisitOut;
+    fn visit_set_small_const_mut(self, data: &'d mut SetSmallConstData) -> VisitOut;
+    fn visit_set_large_const_mut(self, data: &'d mut SetLargeConstData) -> VisitOut;
+    fn visit_set_data_offset_mut(self, data: &'d mut SetDataOffsetData) -> VisitOut;
+    fn visit_icall_mut(self, data: &'d mut InternalCallData) -> VisitOut;
+    fn visit_void_mut(self) -> VisitOut;
 }
 
 pub(crate) struct InputsGetter<'a> {
@@ -161,114 +161,111 @@ impl AllocatedSpans {
 }
 
 pub(crate) struct InputsMutGetter<'a> {
-    pub(crate) locals: Option<&'a mut IndexVec<LocalIdx, LocalId>>,
+    pub(crate) locals: &'a mut IndexVec<LocalIdx, LocalId>,
 }
 
 impl<'a> OpVisitorMut<'a, &'a mut [LocalId]> for InputsMutGetter<'a> {
     fn visit_inline_operands_mut<const INS: usize, const OUTS: usize>(
-        &mut self,
+        self,
         data: &'a mut InlineOperands<INS, OUTS>,
     ) -> &'a mut [LocalId] {
         &mut data.ins
     }
 
     fn visit_allocated_ins_mut<const INS: usize, const OUTS: usize>(
-        &mut self,
+        self,
         data: &'a mut AllocatedIns<INS, OUTS>,
     ) -> &'a mut [LocalId] {
-        let locals = self.locals.take().unwrap();
         let start = data.ins_start.idx();
-        &mut locals.as_raw_slice_mut()[start..start + INS]
+        &mut self.locals.as_raw_slice_mut()[start..start + INS]
     }
 
-    fn visit_static_alloc_mut(&mut self, _data: &'a mut StaticAllocData) -> &'a mut [LocalId] {
+    fn visit_static_alloc_mut(self, _data: &'a mut StaticAllocData) -> &'a mut [LocalId] {
         &mut []
     }
 
-    fn visit_memory_load_mut(&mut self, data: &'a mut MemoryLoadData) -> &'a mut [LocalId] {
+    fn visit_memory_load_mut(self, data: &'a mut MemoryLoadData) -> &'a mut [LocalId] {
         std::slice::from_mut(&mut data.ptr)
     }
 
-    fn visit_memory_store_mut(&mut self, data: &'a mut MemoryStoreData) -> &'a mut [LocalId] {
+    fn visit_memory_store_mut(self, data: &'a mut MemoryStoreData) -> &'a mut [LocalId] {
         &mut data.ins
     }
 
-    fn visit_set_small_const_mut(&mut self, _data: &'a mut SetSmallConstData) -> &'a mut [LocalId] {
+    fn visit_set_small_const_mut(self, _data: &'a mut SetSmallConstData) -> &'a mut [LocalId] {
         &mut []
     }
 
-    fn visit_set_large_const_mut(&mut self, _data: &'a mut SetLargeConstData) -> &'a mut [LocalId] {
+    fn visit_set_large_const_mut(self, _data: &'a mut SetLargeConstData) -> &'a mut [LocalId] {
         &mut []
     }
 
-    fn visit_set_data_offset_mut(&mut self, _data: &'a mut SetDataOffsetData) -> &'a mut [LocalId] {
+    fn visit_set_data_offset_mut(self, _data: &'a mut SetDataOffsetData) -> &'a mut [LocalId] {
         &mut []
     }
 
-    fn visit_icall_mut(&mut self, data: &'a mut InternalCallData) -> &'a mut [LocalId] {
-        let locals = self.locals.take().unwrap();
+    fn visit_icall_mut(self, data: &'a mut InternalCallData) -> &'a mut [LocalId] {
         let start = data.ins_start.idx();
         let end = data.outs_start.idx();
-        &mut locals.as_raw_slice_mut()[start..end]
+        &mut self.locals.as_raw_slice_mut()[start..end]
     }
 
-    fn visit_void_mut(&mut self) -> &'a mut [LocalId] {
+    fn visit_void_mut(self) -> &'a mut [LocalId] {
         &mut []
     }
 }
 
 pub(crate) struct OutputsMutGetter<'a> {
-    pub(crate) locals: Option<&'a mut IndexVec<LocalIdx, LocalId>>,
+    pub(crate) locals: &'a mut IndexVec<LocalIdx, LocalId>,
     pub(crate) functions: &'a IndexVec<FunctionId, crate::Function>,
 }
 
 impl<'a> OpVisitorMut<'a, &'a mut [LocalId]> for OutputsMutGetter<'a> {
     fn visit_inline_operands_mut<const INS: usize, const OUTS: usize>(
-        &mut self,
+        self,
         data: &'a mut InlineOperands<INS, OUTS>,
     ) -> &'a mut [LocalId] {
         &mut data.outs
     }
 
     fn visit_allocated_ins_mut<const INS: usize, const OUTS: usize>(
-        &mut self,
+        self,
         data: &'a mut AllocatedIns<INS, OUTS>,
     ) -> &'a mut [LocalId] {
         &mut data.outs
     }
 
-    fn visit_static_alloc_mut(&mut self, data: &'a mut StaticAllocData) -> &'a mut [LocalId] {
+    fn visit_static_alloc_mut(self, data: &'a mut StaticAllocData) -> &'a mut [LocalId] {
         std::slice::from_mut(&mut data.ptr_out)
     }
 
-    fn visit_memory_load_mut(&mut self, data: &'a mut MemoryLoadData) -> &'a mut [LocalId] {
+    fn visit_memory_load_mut(self, data: &'a mut MemoryLoadData) -> &'a mut [LocalId] {
         std::slice::from_mut(&mut data.out)
     }
 
-    fn visit_memory_store_mut(&mut self, _data: &'a mut MemoryStoreData) -> &'a mut [LocalId] {
+    fn visit_memory_store_mut(self, _data: &'a mut MemoryStoreData) -> &'a mut [LocalId] {
         &mut []
     }
 
-    fn visit_set_small_const_mut(&mut self, data: &'a mut SetSmallConstData) -> &'a mut [LocalId] {
+    fn visit_set_small_const_mut(self, data: &'a mut SetSmallConstData) -> &'a mut [LocalId] {
         std::slice::from_mut(&mut data.sets)
     }
 
-    fn visit_set_large_const_mut(&mut self, data: &'a mut SetLargeConstData) -> &'a mut [LocalId] {
+    fn visit_set_large_const_mut(self, data: &'a mut SetLargeConstData) -> &'a mut [LocalId] {
         std::slice::from_mut(&mut data.sets)
     }
 
-    fn visit_set_data_offset_mut(&mut self, data: &'a mut SetDataOffsetData) -> &'a mut [LocalId] {
+    fn visit_set_data_offset_mut(self, data: &'a mut SetDataOffsetData) -> &'a mut [LocalId] {
         std::slice::from_mut(&mut data.sets)
     }
 
-    fn visit_icall_mut(&mut self, data: &'a mut InternalCallData) -> &'a mut [LocalId] {
+    fn visit_icall_mut(self, data: &'a mut InternalCallData) -> &'a mut [LocalId] {
         let fn_output_count = self.functions[data.function].outputs as usize;
-        let locals = self.locals.take().unwrap();
         let start = data.outs_start.idx();
-        &mut locals.as_raw_slice_mut()[start..start + fn_output_count]
+        &mut self.locals.as_raw_slice_mut()[start..start + fn_output_count]
     }
 
-    fn visit_void_mut(&mut self) -> &'a mut [LocalId] {
+    fn visit_void_mut(self) -> &'a mut [LocalId] {
         &mut []
     }
 }

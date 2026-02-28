@@ -22,10 +22,7 @@ impl<const INS: usize, const OUTS: usize> InlineOperands<INS, OUTS> {
         visitor.visit_inline_operands(self)
     }
 
-    pub(crate) fn get_visited_mut<'d, O, V: OpVisitorMut<'d, O>>(
-        &'d mut self,
-        visitor: &mut V,
-    ) -> O {
+    pub(crate) fn get_visited_mut<'d, O, V: OpVisitorMut<'d, O>>(&'d mut self, visitor: V) -> O {
         visitor.visit_inline_operands_mut(self)
     }
 }
@@ -48,10 +45,7 @@ impl<const INS: usize, const OUTS: usize> AllocatedIns<INS, OUTS> {
         visitor.visit_allocated_ins(self)
     }
 
-    pub(crate) fn get_visited_mut<'d, O, V: OpVisitorMut<'d, O>>(
-        &'d mut self,
-        visitor: &mut V,
-    ) -> O {
+    pub(crate) fn get_visited_mut<'d, O, V: OpVisitorMut<'d, O>>(&'d mut self, visitor: V) -> O {
         visitor.visit_allocated_ins_mut(self)
     }
 
@@ -78,10 +72,7 @@ impl StaticAllocData {
         visitor.visit_static_alloc(self)
     }
 
-    pub(crate) fn get_visited_mut<'d, O, V: OpVisitorMut<'d, O>>(
-        &'d mut self,
-        visitor: &mut V,
-    ) -> O {
+    pub(crate) fn get_visited_mut<'d, O, V: OpVisitorMut<'d, O>>(&'d mut self, visitor: V) -> O {
         visitor.visit_static_alloc_mut(self)
     }
 }
@@ -182,10 +173,7 @@ impl MemoryLoadData {
         visitor.visit_memory_load(self)
     }
 
-    pub(crate) fn get_visited_mut<'d, O, V: OpVisitorMut<'d, O>>(
-        &'d mut self,
-        visitor: &mut V,
-    ) -> O {
+    pub(crate) fn get_visited_mut<'d, O, V: OpVisitorMut<'d, O>>(&'d mut self, visitor: V) -> O {
         visitor.visit_memory_load_mut(self)
     }
 }
@@ -209,10 +197,7 @@ impl MemoryStoreData {
         visitor.visit_memory_store(self)
     }
 
-    pub(crate) fn get_visited_mut<'d, O, V: OpVisitorMut<'d, O>>(
-        &'d mut self,
-        visitor: &mut V,
-    ) -> O {
+    pub(crate) fn get_visited_mut<'d, O, V: OpVisitorMut<'d, O>>(&'d mut self, visitor: V) -> O {
         visitor.visit_memory_store_mut(self)
     }
 }
@@ -228,10 +213,7 @@ impl SetSmallConstData {
         visitor.visit_set_small_const(self)
     }
 
-    pub(crate) fn get_visited_mut<'d, O, V: OpVisitorMut<'d, O>>(
-        &'d mut self,
-        visitor: &mut V,
-    ) -> O {
+    pub(crate) fn get_visited_mut<'d, O, V: OpVisitorMut<'d, O>>(&'d mut self, visitor: V) -> O {
         visitor.visit_set_small_const_mut(self)
     }
 }
@@ -247,10 +229,7 @@ impl SetLargeConstData {
         visitor.visit_set_large_const(self)
     }
 
-    pub(crate) fn get_visited_mut<'d, O, V: OpVisitorMut<'d, O>>(
-        &'d mut self,
-        visitor: &mut V,
-    ) -> O {
+    pub(crate) fn get_visited_mut<'d, O, V: OpVisitorMut<'d, O>>(&'d mut self, visitor: V) -> O {
         visitor.visit_set_large_const_mut(self)
     }
 }
@@ -266,10 +245,7 @@ impl SetDataOffsetData {
         visitor.visit_set_data_offset(self)
     }
 
-    pub(crate) fn get_visited_mut<'d, O, V: OpVisitorMut<'d, O>>(
-        &'d mut self,
-        visitor: &mut V,
-    ) -> O {
+    pub(crate) fn get_visited_mut<'d, O, V: OpVisitorMut<'d, O>>(&'d mut self, visitor: V) -> O {
         visitor.visit_set_data_offset_mut(self)
     }
 }
@@ -289,10 +265,7 @@ impl InternalCallData {
         visitor.visit_icall(self)
     }
 
-    pub(crate) fn get_visited_mut<'d, O, V: OpVisitorMut<'d, O>>(
-        &'d mut self,
-        visitor: &mut V,
-    ) -> O {
+    pub(crate) fn get_visited_mut<'d, O, V: OpVisitorMut<'d, O>>(&'d mut self, visitor: V) -> O {
         visitor.visit_icall_mut(self)
     }
 

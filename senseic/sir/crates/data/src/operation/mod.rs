@@ -31,7 +31,7 @@ macro_rules! define_operations {
                 }
             }
 
-            pub fn visit_data_mut<'d, O, V: OpVisitorMut<'d, O>>(&'d mut self, visitor: &mut V) -> O {
+            pub fn visit_data_mut<'d, O, V: OpVisitorMut<'d, O>>(&'d mut self, visitor: V) -> O {
                 match self {
                     $(Self::$name(data) => data.get_visited_mut(visitor),)+
                 }
@@ -346,7 +346,7 @@ impl Operation {
         &'a mut self,
         locals: &'a mut IndexVec<LocalIdx, LocalId>,
     ) -> &'a mut [LocalId] {
-        self.visit_data_mut(&mut InputsMutGetter { locals: Some(locals) })
+        self.visit_data_mut(InputsMutGetter { locals })
     }
 
     pub fn outputs_mut<'a>(
@@ -354,7 +354,7 @@ impl Operation {
         locals: &'a mut IndexVec<LocalIdx, LocalId>,
         functions: &'a IndexVec<FunctionId, Function>,
     ) -> &'a mut [LocalId] {
-        self.visit_data_mut(&mut OutputsMutGetter { locals: Some(locals), functions })
+        self.visit_data_mut(OutputsMutGetter { locals, functions })
     }
 
     pub fn allocated_spans(&self, ir: &EthIRProgram) -> AllocatedSpans {
