@@ -10,14 +10,14 @@ use crate::{
     source::{SourceId, SourceManager},
 };
 use hashbrown::HashMap;
-use sensei_core::{Idx, IndexVec, list_of_lists::ListOfLists};
+use sensei_core::{IndexVec, list_of_lists::ListOfLists};
 use std::{
     collections::VecDeque,
     path::{Path, PathBuf},
 };
 
 pub struct FileImport {
-    pub local_name: StrId,
+    pub local_name: Option<StrId>,
     pub target_source: SourceId,
     pub target_const: Option<StrId>,
 }
@@ -78,14 +78,14 @@ pub fn parse_project(
                 match import.kind {
                     Some(ImportKind::As(alias)) => {
                         list.push(FileImport {
-                            local_name: alias,
+                            local_name: Some(alias),
                             target_source,
                             target_const: resolved.const_name,
                         });
                     }
                     Some(ImportKind::All) => {
                         list.push(FileImport {
-                            local_name: StrId::ZERO,
+                            local_name: None,
                             target_source,
                             target_const: None,
                         });
@@ -94,7 +94,7 @@ pub fn parse_project(
                         let const_name =
                             resolved.const_name.expect("non-glob import has const name");
                         list.push(FileImport {
-                            local_name: const_name,
+                            local_name: Some(const_name),
                             target_source,
                             target_const: Some(const_name),
                         });
