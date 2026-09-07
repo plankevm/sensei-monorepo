@@ -681,7 +681,7 @@ fn folds_operands_with_a_common_predecessor() {
 }
 
 #[test]
-fn does_not_fold_partial_operand_trees() {
+fn folds_a_viable_partial_operand_tree() {
     let input = {
         let mut builder = OpGraphBuilder::with_capacity(3, 7);
         let high_left = builder.push_input_value();
@@ -725,10 +725,9 @@ fn does_not_fold_partial_operand_trees() {
 
             tree graph:
             inputs: [v0, v1, v2, v3]
-            v4 = op0(v0, v1) ; tree: [op0]
-            v5 = op1(v2, v3) ; tree: [op1]
-            v6 = op2(v4, v5) ; tree: [op2]
-            outputs: [v6]
+            v4 = op0(v2, v3) ; tree: [op1]
+            v5 = op1(v0, v1, v4) ; tree: [op0, op2]
+            outputs: [v5]
         "#,
     );
 }

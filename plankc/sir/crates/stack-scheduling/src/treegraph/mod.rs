@@ -153,13 +153,7 @@ impl TreeGraphBuilder<'_> {
                 self.original_to_root.get(producer).is_none(),
                 "foldable producer was already built"
             );
-            let tree = self.build_pending(producer);
-            if self.tree_inputs(&tree, false).expect("built an invalid operand tree").is_empty() {
-                Some(tree)
-            } else {
-                self.materialize(tree);
-                None
-            }
+            Some(self.build_pending(producer))
         } else {
             self.ensure_materialized(producer);
             None

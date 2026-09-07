@@ -14,12 +14,26 @@ fn assert_shuffle_exists(
     start_stack: impl AsRef<[u32]>,
     target_stack: impl AsRef<[u32]>,
 ) -> Vec<StackOps> {
+    assert_shuffle_exists_with_exchange_order(
+        config,
+        start_stack.as_ref(),
+        target_stack.as_ref(),
+        false,
+    )
+}
+
+fn assert_shuffle_exists_with_exchange_order(
+    config: ShuffleConfig,
+    start_stack: &[u32],
+    target_stack: &[u32],
+    exchange_top_down: bool,
+) -> Vec<StackOps> {
     let mut evm_stack = EvmStack::new();
-    for &v in start_stack.as_ref().iter().rev() {
+    for &v in start_stack.iter().rev() {
         evm_stack.push(ValueNodeId::new(v));
     }
 
-    let target = target_stack.as_ref().iter().map(|v| ValueNodeId::new(*v)).collect::<Vec<_>>();
+    let target = target_stack.iter().map(|v| ValueNodeId::new(*v)).collect::<Vec<_>>();
 
     let inputs = evm_stack.fifo().iter().copied().collect::<HashSet<_>>();
     let outputs = target.iter().copied().collect::<HashSet<_>>();
@@ -29,7 +43,7 @@ fn assert_shuffle_exists(
 
     let mut stack =
         TrackedStack::new_from_evm(StaticAllocId::ZERO, |op| ops.push(op), evm_stack, 8);
-    GreedyShuffler::run(config, &mut stack, &target);
+    GreedyShuffler::run_with_exchange_order(config, &mut stack, &target, exchange_top_down);
 
     assert_eq!(stack.stack().fifo(), target, "end != target");
 
@@ -322,6 +336,7 @@ fn shuffle_case() -> impl Strategy<Value = (ShuffleConfig, Vec<u32>, Vec<u32>)> 
 proptest! {
     #[test]
     fn successfully_shuffles((config, start, target) in shuffle_case()) {
-        assert_shuffle_exists(config, start, target);
+        assert_shuffle_exists(config, &start, &target);
+        assert_shuffle_exists_with_exchange_order(config, &start, &target, true);
     }
 }

@@ -28,7 +28,7 @@ newtype_index! {
 }
 
 const AVG_OPS_PER_BLOCK: usize = 20;
-const DEFAULT_MAX_SEARCH_CANDIDATES: usize = 1_000;
+const DEFAULT_MAX_SEARCH_CANDIDATES: usize = 4_000;
 const BLOCK_SCHEDULING_THREADS: usize = 6;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -80,6 +80,10 @@ pub fn schedule_graph(
         ShuffleConfig::PRE_AMSTERDAM,
         depth_first_search::SearchConfig {
             max_candidates: NonZero::new(DEFAULT_MAX_SEARCH_CANDIDATES).unwrap(),
+            copy_all_inputs: false,
+            alignment_factor: 5,
+            arity_factor: 5,
+            layout_alignment_factor: 2,
         },
         graph,
     );
@@ -140,6 +144,10 @@ pub fn schedule<'ir>(
                     config,
                     depth_first_search::SearchConfig {
                         max_candidates: NonZero::new(DEFAULT_MAX_SEARCH_CANDIDATES).unwrap(),
+                        copy_all_inputs: false,
+                        alignment_factor: 5,
+                        arity_factor: 5,
+                        layout_alignment_factor: 2,
                     },
                     &graph,
                 );

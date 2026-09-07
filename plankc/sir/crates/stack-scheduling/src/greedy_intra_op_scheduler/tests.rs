@@ -278,11 +278,7 @@ fn pops_instead_of_spilling_an_already_spilled_value() {
 
 #[test]
 fn spills_an_unreachable_swap_top() {
-    opts().max_swap_depth(1).last_uses([1]).assert(
-        [9, 8, 1],
-        [1],
-        [store(0), store(1), store(2), load(2)],
-    );
+    opts().max_swap_depth(1).last_uses([1]).assert([9, 8, 1], [1], [store(0), Swap(1)]);
 }
 
 #[test]
