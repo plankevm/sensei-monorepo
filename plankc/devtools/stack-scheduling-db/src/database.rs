@@ -100,6 +100,7 @@ impl DatabaseWriter {
                 canonical_graph: record.graph,
                 best_schedule: record.best_schedule,
                 best_gas_cost: record.best_gas_cost,
+                manually_optimized: false,
             })
             .collect::<Box<[_]>>();
         seed_canonical_database(&canonical_blocks_path, &rows).unwrap();

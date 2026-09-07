@@ -50,6 +50,7 @@ interface CanonicalRow {
 	canonical_hash: string;
 	canonical_graph: string;
 	best_gas_cost: number;
+	manually_optimized: boolean;
 }
 
 interface Totals {
@@ -259,7 +260,7 @@ export async function runBatch(argv = process.argv.slice(2), injectedFactory?: S
 
 	process.env.PI_OFFLINE = "1";
 	const runs = new Database(options.runsDatabase, { create: true });
-	const canonical = new Database(options.database, { readonly: true });
+	const canonical = new Database(options.database);
 	runs.exec("PRAGMA journal_mode = WAL");
 	runs.exec("PRAGMA busy_timeout = 30000");
 	canonical.exec("PRAGMA busy_timeout = 30000");
@@ -276,16 +277,23 @@ export async function runBatch(argv = process.argv.slice(2), injectedFactory?: S
 	const alreadyRun = new Set(
 		runs.query<{ canonical_hash: string }, []>("SELECT canonical_hash FROM ssch_runs").all().map((row) => row.canonical_hash),
 	);
+	const markManuallyOptimized = canonical.query(
+		"UPDATE canonical_blocks SET manually_optimized = TRUE WHERE canonical_hash = ?",
+	);
+	canonical.transaction((hashes: string[]) => {
+		for (const hash of hashes) markManuallyOptimized.run(hash);
+	})(Array.from(alreadyRun));
 	let rows = canonical
 		.query<CanonicalRow, []>(
-			"SELECT canonical_hash, canonical_graph, best_gas_cost FROM canonical_blocks " +
-				"WHERE best_gas_cost > 0 ORDER BY canonical_hash",
+			"SELECT canonical_hash, canonical_graph, best_gas_cost, manually_optimized FROM canonical_blocks " +
+				"WHERE best_gas_cost > 0 AND NOT manually_optimized ORDER BY canonical_hash",
 		)
-		.all()
-		.filter((row) => !alreadyRun.has(row.canonical_hash));
+		.all();
 	if (options.limit) rows = rows.slice(0, options.limit);
 
-	const previousRuns = alreadyRun.size;
+	const previousRuns = canonical
+		.query<{ value: number }, []>("SELECT COUNT(*) AS value FROM canonical_blocks WHERE manually_optimized")
+		.get()!.value;
 	let finished = previousRuns;
 	const total = previousRuns + rows.length;
 	let currentGas = canonical
@@ -442,6 +450,7 @@ export async function runBatch(argv = process.argv.slice(2), injectedFactory?: S
 		const status = promptError === undefined && stopReason === "stop" ? "completed" : "failed";
 		const cost = finalCost.get(hash)!.best_gas_cost;
 		insertRun.run(hash, status, status === "completed" ? 0 : 1, row.best_gas_cost, cost);
+		markManuallyOptimized.run(hash);
 		finished++;
 		report(`${status}; logs: ${directory}`);
 		if (!refresh() && !inline) draw();

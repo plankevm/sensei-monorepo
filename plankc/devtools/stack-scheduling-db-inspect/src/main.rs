@@ -85,6 +85,7 @@ mod tests {
             canonical_graph: r#"{"finalization":"shuffle_to_outputs","input_count":1,"operations":[],"outputs_fifo":[0]}"#.to_owned(),
             best_schedule: "[]".to_owned(),
             best_gas_cost: 0,
+            manually_optimized: false,
         }]).unwrap();
         let expected = dedent_preserve_indent(
             r#"

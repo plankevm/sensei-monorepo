@@ -32,6 +32,7 @@ fn run() -> Result<String, String> {
     let path = workspace_corpus_path("stack-scheduling-db");
     let mut rows = CanonicalDatabase::open(&path)?.all()?;
     let graph_count = rows.len();
+    let manually_optimized_count = rows.iter().filter(|row| row.manually_optimized).count();
     if graph_count == 0 {
         return Err("database contains no canonical blocks".to_owned());
     }
@@ -42,7 +43,7 @@ fn run() -> Result<String, String> {
         ProgressStyle::with_template("{msg} {pos}/{len}").expect("progress template is valid"),
     );
     progress.set_message("processing");
-    let mut stats = Stats::new(graph_count);
+    let mut stats = Stats::new(graph_count, manually_optimized_count);
 
     for row in &mut rows {
         let previous_cost = row.best_gas_cost;
@@ -57,7 +58,7 @@ fn run() -> Result<String, String> {
         }
         progress.inc(1);
     }
-    progress.finish_with_message("processed");
+    progress.finish_and_clear();
 
     Ok(stats.render(start.elapsed()))
 }
@@ -84,7 +85,7 @@ fn process_graph(row: &mut CanonicalBlockRow, stats: &mut Stats) -> Result<(), S
 
     let local_gas = gas_cost(&result.ops, ShuffleConfig::PRE_AMSTERDAM);
     let best_known_gas = row.best_gas_cost;
-    stats.record(best_known_gas, local_gas, result.candidate_limit_reached);
+    stats.record(best_known_gas, local_gas, result.candidate_limit_reached, row.manually_optimized);
     if local_gas < best_known_gas {
         row.best_schedule = serde_json::to_string(&result.ops).map_err(|error| {
             format!("failed to encode schedule {}: {error}", row.canonical_hash)
@@ -144,8 +145,9 @@ mod tests {
             canonical_graph: serde_json::to_string(&graph).unwrap(),
             best_schedule: serde_json::to_string(&baseline).unwrap(),
             best_gas_cost: gas_cost(&baseline, ShuffleConfig::PRE_AMSTERDAM),
+            manually_optimized: true,
         };
-        let mut stats = Stats::new(1);
+        let mut stats = Stats::new(1, 1);
 
         process_graph(&mut row, &mut stats).unwrap();
 

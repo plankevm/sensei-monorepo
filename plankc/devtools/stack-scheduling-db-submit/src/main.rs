@@ -154,6 +154,7 @@ mod tests {
                 canonical_graph: serde_json::to_string(&graph).unwrap(),
                 best_schedule: serde_json::to_string(&baseline).unwrap(),
                 best_gas_cost: gas_cost(&baseline, ShuffleConfig::PRE_AMSTERDAM),
+                manually_optimized: false,
             }],
         )
         .unwrap();

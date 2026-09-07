@@ -72,9 +72,9 @@ mod tests {
         ) + "\n";
         let expected_canonical_blocks = dedent_preserve_indent(
             r#"
-            canonical_hash,canonical_graph,best_schedule,best_gas_cost
-            ssb1:b456edeffb54263bdc5e7525e9d69c976235fc5c75c11f28ea487539cd7d79d8,"{""finalization"":""last_op_terminates"",""input_count"":0,""operations"":[{""inputs_fifo"":[],""output_count"":0,""effect_predecessors"":[],""flippable"":false},{""inputs_fifo"":[],""output_count"":1,""effect_predecessors"":[],""flippable"":false},{""inputs_fifo"":[],""output_count"":1,""effect_predecessors"":[],""flippable"":false},{""inputs_fifo"":[0,1],""output_count"":1,""effect_predecessors"":[],""flippable"":true}],""outputs_fifo"":[]}","[{""op"":2},{""op"":1},{""op"":3},{""op"":0}]",0
-            ssb1:f0961e2656d671f102b8cd9583392b9ea008a2f43e777631b2731e3ea82b99c9,"{""finalization"":""last_op_terminates"",""input_count"":0,""operations"":[{""inputs_fifo"":[],""output_count"":0,""effect_predecessors"":[],""flippable"":false}],""outputs_fifo"":[]}","[{""op"":0}]",0
+            canonical_hash,canonical_graph,best_schedule,best_gas_cost,manually_optimized
+            ssb1:b456edeffb54263bdc5e7525e9d69c976235fc5c75c11f28ea487539cd7d79d8,"{""finalization"":""last_op_terminates"",""input_count"":0,""operations"":[{""inputs_fifo"":[],""output_count"":0,""effect_predecessors"":[],""flippable"":false},{""inputs_fifo"":[],""output_count"":1,""effect_predecessors"":[],""flippable"":false},{""inputs_fifo"":[],""output_count"":1,""effect_predecessors"":[],""flippable"":false},{""inputs_fifo"":[0,1],""output_count"":1,""effect_predecessors"":[],""flippable"":true}],""outputs_fifo"":[]}","[{""op"":2},{""op"":1},{""op"":3},{""op"":0}]",0,false
+            ssb1:f0961e2656d671f102b8cd9583392b9ea008a2f43e777631b2731e3ea82b99c9,"{""finalization"":""last_op_terminates"",""input_count"":0,""operations"":[{""inputs_fifo"":[],""output_count"":0,""effect_predecessors"":[],""flippable"":false}],""outputs_fifo"":[]}","[{""op"":0}]",0,false
             "#,
         ) + "\n";
         assert_eq!(blocks, expected_blocks);

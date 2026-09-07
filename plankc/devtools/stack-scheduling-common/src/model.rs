@@ -17,4 +17,5 @@ pub struct CanonicalBlockRow {
     pub canonical_graph: String,
     pub best_schedule: String,
     pub best_gas_cost: u64,
+    pub manually_optimized: bool,
 }

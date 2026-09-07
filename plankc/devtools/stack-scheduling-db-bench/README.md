@@ -5,7 +5,9 @@ Runs the current stack scheduler over every canonical graph in
 improvements back to `canonical-blocks.sqlite3`.
 
 Improvements use the submitter's conditional SQLite update, preserving concurrent submissions.
-Statistics compare against the baseline snapshot loaded at startup.
+Statistics compare against the baseline snapshot loaded at startup. The report includes separate
+comparisons for the entire corpus and for the subset whose `manually_optimized` flag records that
+it has already been processed by the LLM runner.
 
 ```bash
 cargo run --release -p sir-stack-scheduling-db-bench
